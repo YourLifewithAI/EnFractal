@@ -141,6 +141,15 @@ counts authored triangles, before the fixed kit bevels; it is not a RAM or time
 guarantee. Coordinates are bounded to +/-1000 m; finite values and float32
 quantization are checked. Checked render binaries must each stay below 2 MB.
 
+**The 10x world.** These limits hold for up to 100 m² of land; a bigger island holds
+more at today's density, so the byte, triangle, instance and expanded-triangle limits
+grow by `land_factor` (max(1, A / 100 m²), A the terrain's x-z extent). A package of a
+room magnified x W says so in `x_generator.world_scale` (0 < W <= 100): its `source`
+pins stay the true-size room's files, and every place is validated against that room
+magnified (`magnify_room`: bounds, shell polygons, openings, light hints, spawns, the
+companion's spawn keeping its offset beside the player's). `read_package` returns the
+magnified room; the generator and the exporter magnify with the same functions.
+
 ## Shared materials and kit
 
 The roles follow the [look bible](../../../docs/look/LOOK-BIBLE.md): warm/cool

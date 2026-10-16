@@ -36,6 +36,7 @@ public partial class LookCaptureHarness
             case "window": result["window"] = await ProbeWindow(outDir); break;
             case "free-viewport": result["steps"] = await ProbeFreeViewport(outDir, resolution); break;
             case "shimmer": result["shimmer"] = await ProbeShimmer(outDir); break;
+            case "island-memory": result["steps"] = await ProbeIslandMemory(); break;
             default: throw new ArgumentException("unknown probe " + name);
         }
         var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
@@ -52,7 +53,7 @@ public partial class LookCaptureHarness
         world.RoomDirectory = roomDirectory;
         if (Arg("style", "").Length > 0) world.StylePresetPath = Arg("style", "");
         AddChild(world);
-        for (var i = 0; i < 600 && !world.WorldReady && world.LoadError.Length == 0; i++) await NextFrame();
+        for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await NextFrame();
         if (!world.WorldReady) throw new InvalidOperationException($"room {roomDirectory} did not load: {world.LoadError}");
         foreach (var layer in world.FindChildren("*", "CanvasLayer", true, false).OfType<CanvasLayer>()) layer.Visible = false;
         foreach (var label in world.FindChildren("*", "Label3D", true, false).OfType<Label3D>()) label.Visible = false;

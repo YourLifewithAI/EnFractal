@@ -1,0 +1,21 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": false,
+  "op": "nature.cast",
+  "action_id": "bloom-0003",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "error": {
+    "code": "budget_exceeded",
+    "message": "The Gubble needs a moment.",
+    "field_path": "$.op",
+    "retryable": false,
+    "balance": 1,
+    "price": 2
+  }
+}

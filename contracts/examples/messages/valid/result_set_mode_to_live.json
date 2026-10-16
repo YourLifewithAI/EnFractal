@@ -1,0 +1,23 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": false,
+  "op": "world.set_mode",
+  "action_id": "mode-0004",
+  "principal": "player:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "error": {
+    "code": "unsupported_capability",
+    "message": "Live is not available yet.",
+    "field_path": "$.args.mode",
+    "retryable": false,
+    "allowed": [
+      "creative",
+      "challenge"
+    ]
+  }
+}

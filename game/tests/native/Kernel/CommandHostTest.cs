@@ -98,9 +98,15 @@ public partial class CommandHostTest : Node3D
             await TestReloadReplay();
             await TestDurableLedger();
             await TestReloadAtTheReceiptBound();
+            await TestGlow();
+            await TestPlayerModes();
+            TestEnergyAndVitals();
+            await TestWishes();
+            await TestEyes();
+            await TestPlaytestTap();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine errors during the suite ({_errors.Count}; first: {_errors.First})");
-            GD.Print($"NATIVE_KERNEL_COMMAND_HOST: {_checks - _failures}/{_checks} checks passed; enfractal.command place, revise, remove, lock, goal, stop, physics and checkpoint commands with receipts, ledgers, replay, conflicts, approvals, rate limits, text rules, line of sight, perception memory and goal jobs{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
+            GD.Print($"NATIVE_KERNEL_COMMAND_HOST: {_checks - _failures}/{_checks} checks passed; enfractal.command place, revise, remove, lock, goal, stop, physics and checkpoint commands with receipts, ledgers, replay, conflicts, approvals, rate limits, text rules, line of sight, perception memory, goal jobs, the island's rules and glows{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveSave();
             // Let the wrappers this long run left to the finalizer go before the engine tears down: in the Linux container's
             // .NET, wrappers still pending at exit can abort Godot's shutdown after every check has passed.
@@ -689,7 +695,7 @@ public partial class CommandHostTest : Node3D
             "transient receipts are for goals, stops, effects, grabs, activations and the world's physics; entity.release is saved state (P8)");
     }
 
-    /// <summary>Kernel-host gaps P4 and P5: observe defaults to everything in line of sight (20 m) and lists no shell parts.</summary>
+    /// <summary>Kernel-host gaps P4 and P5: observe defaults to everything in line of sight (no distance cut-off since the 10x world) and lists no shell parts.</summary>
     private async Task TestObserveDefaults()
     {
         var far = Send(Command("place-0400", "creation.place", new JsonObject { ["source"] = Source("Far totem"), ["placement"] = Placement(1.85, 0, 0.85) }), Player);
@@ -699,7 +705,18 @@ public partial class CommandHostTest : Node3D
         var observed = Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }, Companion)["data"]!;
         var item = observed["visible"]!.AsArray().FirstOrDefault(v => v!["id"]!.GetValue<string>() == id);
         var distance = item == null ? 0 : DistanceTo(item.AsObject(), _companion.EyeCamera.GlobalPosition);
-        Check(item != null && distance > 3.0f, $"observe with no radius sees a creation in clear sight {distance:0.00} m away: the default is 20 m, not 3 (P4)");
+        Check(item != null && distance > 3.0f, $"observe with no radius sees a creation in clear sight {distance:0.00} m away: no distance cut-off, not 3 m (P4)");
+        Check(Ok(Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["radius_m"] = CommandHost.ObserveRadiusMaxM }, Companion)) &&
+            Code(Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["radius_m"] = CommandHost.ObserveRadiusMaxM + 1 }, Companion)) == "request_invalid",
+            "observe takes a radius up to 150 m, the contract's maximum, and refuses one past it");
+        JsonObject Near(int radius) => new() { ["filter"] = new JsonObject { ["near"] = new JsonObject { ["center_m"] = new JsonArray(0, 0, 0), ["radius_m"] = radius } } };
+        var across = Query("entities.list", Near(CommandHost.NearRadiusMaxM), Companion);
+        Check(Ok(across) && across["data"]!["items"]!.AsArray().Any(v => v!["id"]!.GetValue<string>() == id) &&
+              Code(Query("entities.list", Near(CommandHost.NearRadiusMaxM + 1), Companion)) == "request_invalid" && CommandHost.NearRadiusMaxM == CommandHost.ObserveRadiusMaxM,
+            "entities.list's near reaches 150 m, as far as observe (S8: it was 50 m), and refuses past it");
+        Check(Code(Query("entity.inspect", new JsonObject { ["target"] = "plant:broadleaf-0" }, Companion)) == "target_not_found" &&
+            Code(Query("entity.inspect", new JsonObject { ["target"] = "plant:broadleaf-007" }, Companion)) == "request_invalid",
+            "a plant copy's id is well formed (one spelling, no leading zeros) and names nothing this room has");
         Check(observed["visible"]!.AsArray().All(v => v!["kind"]!.GetValue<string>() != "shell"), "observe lists no shell parts, which would use up its 100 places (P5)");
         Send(Command("place-0400-remove", "entity.remove", new JsonObject { ["target"] = id }, expectedEntities: new JsonObject { [id] = 1 }), Player);
         await MoveCompanion(CompanionSpawn, "back to its spawn");
@@ -1471,22 +1488,21 @@ public partial class CommandHostTest : Node3D
     /// <summary>A re-exported room starts a fresh save; the player is told the old manifest's creations were not loaded.</summary>
     /// <summary>
     /// The founder retired the invention workshop (second playtest: Q and E in the isometric view showed "No worn design to
-    /// revise"): the playable room has no INVENTIONS panel, no editor and no key bound by the runtime. The runtime stays,
-    /// because it still renders creations and runs their effects for the host.
+    /// revise"), and its code is gone: the playable room has no INVENTIONS panel, no editor and no key bound by the runtime.
+    /// The runtime stays, because it still renders creations and runs their effects for the host.
     /// </summary>
     private void TestWorkshopRetired()
     {
         var runtime = _host.Runtime;
-        Check(!runtime.Get("workshop_enabled").AsBool(), "the host retires the invention workshop for players");
-        Check(runtime.Get("hud").AsGodotObject() == null && runtime.Get("hud_card").AsGodotObject() == null && runtime.Get("editor").AsGodotObject() == null,
-            "no INVENTIONS panel and no editor are built in the playable room");
-        Check(runtime.FindChildren("*", "CanvasLayer", true, false).Count == 0 && runtime.FindChildren("*", "Label", true, false).Count == 0,
-            "nothing of the workshop's interface is in the scene tree");
-        Check(!runtime.IsProcessingUnhandledKeyInput(), "the runtime listens for no keys, so Q and E reach the camera");
-        // Even a key handed to the handler directly acts on nothing (with the guard gone it would reach the missing editor and raise a script error).
-        foreach (var key in new[] { Key.B, Key.F, Key.E, Key.V, Key.Q, Key.K })
-            runtime.Call("_unhandled_key_input", new InputEventKey { PhysicalKeycode = key, Pressed = true });
-        Check(!runtime.Get("editor_open").AsBool() && !runtime.Get("local_consent").AsBool(), "the retired keys open no editor and change no consent");
+        // The editor was a CanvasLayer and the INVENTIONS panel sat on one.
+        Check(runtime.FindChildren("*", "CanvasLayer", true, false).Count == 0, "no INVENTIONS panel and no editor are built in the playable room");
+        Check(runtime.FindChildren("*", "CanvasItem", true, false).Count == 0, "nothing of the workshop's interface (no panel, no label) is in the scene tree");
+        Check(!runtime.IsProcessingUnhandledKeyInput() && !runtime.IsProcessingUnhandledInput() && !runtime.IsProcessingInput() && !runtime.IsProcessingShortcutInput(),
+            "the runtime listens for no keys, so Q and E reach the camera");
+        // No handler is left to hand a key to: each input callback is gone, so the retired keys B F E V Q K reach nothing here.
+        Check(new[] { "_unhandled_key_input", "_unhandled_input", "_input", "_shortcut_input" }.All(m => !runtime.HasMethod(m)),
+            "the retired keys have no handler to reach");
+        Check(!runtime.Get("local_consent").AsBool(), "and consent is unchanged");
         Check(_host.Revision == 0 && _player.InputEnabled, "and the world and the player's input are as they were");
     }
 

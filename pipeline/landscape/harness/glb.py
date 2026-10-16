@@ -9,6 +9,18 @@ import struct
 from .common import ROLES, canonical, finite, fields, require, vector
 
 
+def _vectors(rows, count, low, high):
+    """common.vector(row, count, low, high) for every row, inlined: the same checks and messages, without two calls
+    per row and per number (S4's 10x land holds 1.3 million vertices; read_package checks them all)."""
+    finite = math.isfinite
+    for row in rows:
+        if not (isinstance(row, list) and len(row) == count):
+            raise ValueError('invalid vector')
+        for v in row:
+            if not (type(v) in (int, float) and finite(v) and low <= v <= high):
+                raise ValueError('invalid number')
+
+
 def check_primitives(primitives):
     require(isinstance(primitives, list) and 0 < len(primitives) <= 128, 'primitive count')
     for p in primitives:
@@ -16,20 +28,26 @@ def check_primitives(primitives):
         require(p['role'] in ROLES, 'unknown role')
         positions = p['positions']
         require(isinstance(positions, list) and 3 <= len(positions) <= 2_000_000, 'vertex count')
-        for v in positions:
-            vector(v, low=-1000, high=1000)
+        _vectors(positions, 3, -1000, 1000)
         require(isinstance(p['triangles'], list) and len(p['triangles']) > 0, 'no triangles')
+        n = len(positions)
         for t in p['triangles']:
-            require(isinstance(t, list) and len(t) == 3 and
-                    all(type(i) is int and 0 <= i < len(positions) for i in t), 'triangle indices')
-            a, b, c = [positions[i] for i in t]
-            u, v = [b[i]-a[i] for i in range(3)], [c[i]-a[i] for i in range(3)]
-            cross = [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]]
-            require(sum(x*x for x in cross) > 1e-18, 'degenerate triangle')
+            if not (isinstance(t, list) and len(t) == 3):
+                raise ValueError('triangle indices')
+            i, j, k = t
+            if not (type(i) is int and type(j) is int and type(k) is int and 0 <= i < n and 0 <= j < n and 0 <= k < n):
+                raise ValueError('triangle indices')
+            a, b, c = positions[i], positions[j], positions[k]
+            ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
+            vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
+            cx, cy, cz = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
+            # sum() of the three squares, as before (its compensated float sum, bit for bit).
+            if not sum((cx*cx, cy*cy, cz*cz)) > 1e-18:
+                raise ValueError('degenerate triangle')
         if 'tints' in p:
             require(len(p['tints']) == len(positions), 'tint count')
             for tint in p['tints']:
-                vector(tint, 4, 0, 1)
+                _vectors((tint,), 4, 0, 1)
                 require(tint[3] == 1, 'tint alpha must be opaque')
         require(('blend_role' in p) == ('blend_weights' in p), 'incomplete role blend')
         if 'blend_role' in p:
@@ -42,6 +60,14 @@ def check_primitives(primitives):
 def encode_mesh(primitives):
     finite(primitives)
     check_primitives(primitives)
+    return _encode(primitives)
+
+
+def _encode(primitives):
+    """encode_mesh after its checks. decode_mesh re-encodes with this: it has just run check_primitives on the same
+    primitives, unchanged since, and every float a decoded mesh holds is a position, tint or blend weight, which
+    check_primitives already requires to be finite, so encode_mesh's checks could not refuse anything there (10x package:
+    read_package 35 s -> 24 s)."""
     binary = bytearray()
     doc = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}],
            'nodes': [{'mesh': 0}], 'meshes': [{'primitives': []}],
@@ -92,7 +118,9 @@ def encode_mesh(primitives):
             struct.pack('<I4s', len(binary), b'BIN\0') + binary)
 
 
-def decode_mesh(data):
+def decode_mesh(data, canonical=True):
+    """`canonical=False`: the caller has just written `data` with encode_mesh (the writer's own check of float32
+    rounding), so re-encoding it to prove the canonical subset is skipped."""
     try:
         magic, version, length = struct.unpack_from('<4sII', data)
         require((magic, version, length) == (b'glTF', 2, len(data)), 'GLB header')
@@ -136,7 +164,7 @@ def decode_mesh(data):
                 primitive['blend_weights'] = get(attrs['_ROLE_BLEND'], 'SCALAR')
             result.append(primitive)
         check_primitives(result)
-        require(encode_mesh(result) == data, 'GLB must use the documented canonical subset/writer')
+        require(not canonical or _encode(result) == data, 'GLB must use the documented canonical subset/writer')
         return result
     except (KeyError, IndexError, TypeError, struct.error, json.JSONDecodeError) as exc:
         raise ValueError('malformed GLB: ' + str(exc)) from exc

@@ -1,0 +1,12 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "mark-0001",
+  "room_id": "garage_example",
+  "op": "receipt.mark",
+  "args": {
+    "action_id": "bloom-0002",
+    "mark": "yes"
+  },
+  "note": "Player-only."
+}

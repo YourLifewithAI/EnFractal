@@ -1,0 +1,21 @@
+{
+  "schema": "enfractal.character.rig",
+  "version": 1,
+  "notes": "Stride: long, loping strides, little squash, swinging arms and paws. Starting values from the round's profile table, to be tuned by playing. K3 (gaits): Godot's spring drag damps a part's world velocity, like air, so a travelling body leaves its springs streaming behind at sin = 2 x damping ratio x speed / (2 pi f x segment), and the controller's 6 m/s2 starts throw soft springs past 90 degrees; the springs here are stiffer and less dragged so parts lag and settle without flipping.",
+  "chains": {
+    "horn_screen_left": {
+      "springiness": 2.0,
+      "damping": 0.5
+    },
+    "horn_screen_right": {
+      "springiness": 2.0,
+      "damping": 0.5
+    }
+  },
+  "profile": {
+    "arm_swing": 1.3,
+    "lean": 1.1,
+    "squash": 0.7,
+    "stride": 1.15
+  }
+}

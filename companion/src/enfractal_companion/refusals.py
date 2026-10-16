@@ -50,6 +50,22 @@ _KEYWORD_MESSAGES = {
 }
 
 
+# A Fractal is the player's to pick up (the mechanics round, M0): a companion's grab, place, push or fetch of one is refused by
+# the id's namespace before anything is looked up, at the adapter and the host, in the kernel's words (CommandHost.FractalRefusal).
+FRACTAL_REFUSAL = "Only the player can pick up a Fractal."
+
+
+def names_a_fractal(message: Any) -> bool:
+    """Whether a command would have its actor carry, place, push or fetch a Fractal (the kernel's NamesAFractal)."""
+    if not isinstance(message, dict):
+        return False
+    op, args = message.get("op"), message.get("args")
+    if not isinstance(args, dict) or not isinstance(args.get("target"), str):
+        return False
+    gathers = op in ("entity.grab", "entity.place", "entity.push") or (op == "goal.set" and args.get("goal") == "fetch")
+    return gathers and args["target"].startswith("fractal:")
+
+
 def map_schema_errors(errors) -> HostError:
     """Turn jsonschema errors into one contract error. Messages are templates: no requester text is echoed."""
 
@@ -95,6 +111,49 @@ def map_schema_errors(errors) -> HostError:
         if missing:
             path = path + [missing[0]]
     return HostError(code, message, field_path=textsafety.field_path(path), allowed=allowed, actual=actual)
+
+
+def effect_args_error(error: HostError) -> HostError:
+    """effect.start's arguments as the kernel host types them (its CheckArgs and CheckEffectArgs): a contract violation
+    in them is request_invalid, and every problem in params is one, at $.args.params (reserved names included)."""
+    path = error.field_path or ""
+    if error.code != "invalid_args" or not path.startswith("$.args."):
+        return error
+    if path.startswith("$.args.params"):
+        return HostError("request_invalid", "Effect parameters are bounded scalars under plain lowercase names; "
+                         "identity and authority names are refused.", field_path="$.args.params")
+    if path.startswith("$.args.area.center_m"):
+        path = "$.args.area.center_m"
+    return HostError("request_invalid", error.message, field_path=path)
+
+
+LEAD_NAMES_A_BUBBLE = "A lead names the bubble it leads (its effect: id)."
+LEAD_NAMES_A_SPOT = "A lead names the spot it leads the bubble to."
+
+
+def lead_args_error(error: HostError, message: Any) -> HostError:
+    """goal.set lead's arguments as the kernel host checks them (CheckArgs): a lead whose target is not a bubble (an effect: id;
+    never an avatar or a thing), or that names no spot, is request_invalid, at the kernel's paths and in its words."""
+    args = message.get("args") if isinstance(message, dict) else None
+    if not (isinstance(message, dict) and message.get("op") == "goal.set" and isinstance(args, dict) and args.get("goal") == "lead"):
+        return error
+    if error.code != "invalid_args" or error.field_path not in ("$.args.target", "$.args.position_m"):
+        return error
+    target = args.get("target")
+    if not isinstance(target, str) or not target.startswith("effect:"):
+        return HostError("request_invalid", LEAD_NAMES_A_BUBBLE, field_path="$.args.target")
+    return HostError("request_invalid", LEAD_NAMES_A_SPOT, field_path="$.args.position_m")
+
+
+def nature_args_error(error: HostError) -> HostError:
+    """The nature commands' arguments as the kernel host checks them (CommandHostNature.CheckNatureArgs): an argument it
+    does not know is field_unknown, anything else wrong with them request_invalid, a position at the whole vector."""
+    path = error.field_path or ""
+    if error.code != "invalid_args" or not path.startswith("$.args."):
+        return error
+    if path.startswith("$.args.center_m"):
+        path = "$.args.center_m"
+    return HostError("request_invalid", error.message, field_path=path)
 
 
 def base_result(*, principal: str, room_id: str, revision: int, at_utc: str, message: Any,

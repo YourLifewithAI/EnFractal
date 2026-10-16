@@ -10,7 +10,6 @@ const MAX_BYTES := 32768
 const MAX_PARTS := 24
 const MAX_NODES := 16
 const MAX_EDGES := 32
-const TEMPLATE_FILES := ["storm_glider", "updraft_totem", "rescue_pad", "sensor_lantern", "spinner"]
 
 
 static func registry() -> Dictionary:
@@ -47,16 +46,6 @@ static func registry() -> Dictionary:
 
 static func _number(minimum: float, maximum: float, initial: float, step: float, unit: String) -> Dictionary:
 	return {"type": "number", "min": minimum, "max": maximum, "default": initial, "step": step, "unit": unit}
-
-
-static func templates() -> Array:
-	var result: Array = []
-	for template_name in TEMPLATE_FILES:
-		var text := FileAccess.get_file_as_string("res://creation_templates/%s.json" % template_name)
-		var source: Variant = JSON.parse_string(text)
-		if source is Dictionary:
-			result.append(source)
-	return result
 
 
 static func compile(manifest: Variant) -> Dictionary:

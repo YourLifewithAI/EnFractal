@@ -26,7 +26,7 @@ import sys
 import time
 import unittest
 
-from support import CONTRACTS, COMPANION, SRC, command, contract_problems, query
+from support import CONTRACTS, COMPANION, SRC, command, contract_problems, contracts, query
 from test_host_alignment import AlignmentScenarios
 from test_journal_boundary import JournalBoundaryCases
 from test_link import closed, raw_connect
@@ -119,6 +119,58 @@ class RealHostCase(unittest.IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------- the link, against the C# listener
+
+class WishRunnerBridge(RealHostCase):
+    """The native runner listener is separately authenticated and never enters the game-command route."""
+
+    def runner_client(self) -> LinkClient:
+        client = LinkClient.from_file(GAME.session_path.with_name("wish-runner.json"))
+        self.clients.append(client)
+        return client
+
+    async def test_native_runner_has_a_distinct_token_and_fixed_role_beside_the_companion(self):
+        info = parse_session(GAME.session_path.with_name("wish-runner.json").read_bytes())
+        self.assertNotEqual(info.token, self.info.token)
+        self.assertNotEqual(info.port, self.info.port)
+        runner = self.runner_client()
+        ready = await runner.connect()
+        self.assertEqual((ready["principal"], ready["avatar"], ready["room_id"]), ("runner:local", "", "test_room"))
+        ordinary = self.client()
+        ordinary_ready = await ordinary.connect()
+        self.assertEqual(ordinary_ready["principal"], COMPANION)
+        self.assertTrue((await self.ask(ordinary, query("room.describe", {})))["ok"])
+        self.assertEqual(await runner.request({"op": "wish.wait"}), {"ok": True, "wish": None})
+
+    async def test_native_runner_refuses_world_queries_commands_and_manufactured_player_intent(self):
+        runner = self.runner_client()
+        await runner.connect()
+        for message in (
+            companion_goal("stay", fresh_id("runner-forbidden")),
+            query("observe", {"actor": "avatar:companion"}),
+            {"op": "wish.submit", "args": {"text": "An AI cannot create this player wish"}},
+            {"op": "wish.stop"},
+            {"op": "wish.wait", "principal": COMPANION},
+        ):
+            with self.subTest(op=message["op"]):
+                self.assertEqual(await runner.request(message), {"ok": False, "error": {"code": "permission_denied"}})
+        self.assertEqual(await runner.request({"op": "wish.wait"}), {"ok": True, "wish": None})
+        missing = await runner.request({"op": "wish.update", "args": {
+            "wish_id": "wish:" + "a" * 26, "status": "completed", "result_code": "completed"}})
+        self.assertEqual(missing, {"ok": False, "error": {"code": "target_not_found"}})
+
+    async def test_companion_token_and_messages_do_not_gain_runner_authority(self):
+        info = parse_session(GAME.session_path.with_name("wish-runner.json").read_bytes())
+        wrong = LinkClient(lambda: link.SessionInfo(info.host, info.port, self.info.token, info.room_id))
+        self.clients.append(wrong)
+        with self.assertRaises(LinkError):
+            await wrong.connect()
+        ordinary = self.client()
+        answer = await ordinary.request({"op": "wish.wait"})
+        self.assertFalse(answer["ok"])
+        self.assertEqual(answer["principal"], COMPANION)
+        runner = self.runner_client()
+        self.assertEqual(await runner.request({"op": "wish.wait"}), {"ok": True, "wish": None})
+
 
 class LinkHandshake(RealHostCase):
     async def test_an_authenticated_client_gets_the_companion_principal_from_the_game(self):
@@ -251,8 +303,19 @@ class LinkSessionFile(RealHostCase):
         self.assertEqual((document["schema"], document["version"], document["host"], document["room_id"]),
                          ("enfractal.companion_session", 1, "127.0.0.1", "test_room"))
         self.assertEqual(parse_session(raw).port, self.info.port)
-        # No temporary file left; the ownership lock lives beside the session file.
-        self.assertEqual(sorted(p.name for p in GAME.session_path.parent.iterdir()), ["session.json", "session.lock"])
+        runner_raw = GAME.session_path.with_name("wish-runner.json").read_bytes()
+        self.assertNotIn(b"\r", runner_raw)
+        self.assertFalse(runner_raw.startswith(b"\xef\xbb\xbf"))
+        runner_document = json.loads(runner_raw)
+        runner_info = parse_session(runner_raw)
+        self.assertEqual(set(runner_document), set(document))
+        for field in ("schema", "version", "host", "room_id", "pid"):
+            self.assertEqual(runner_document[field], document[field])
+        self.assertNotEqual(runner_info.token, self.info.token)
+        self.assertNotEqual(runner_info.port, self.info.port)
+        # Only the two role-specific session files and their shared ownership lock remain; no temp files.
+        self.assertEqual(sorted(p.name for p in GAME.session_path.parent.iterdir()),
+                         ["session.json", "session.lock", "wish-runner.json"])
 
     def test_the_game_never_prints_its_token(self):
         self.assertFalse(any(self.info.token in line for line in GAME.lines))
@@ -597,6 +660,11 @@ class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
     """test_host_alignment.py's scenarios against the kernel host: the same steps and the same expected outcomes as on
     the mock. The companion walks with go_to and is brought back to the player afterwards."""
 
+    # The suite's game runs headless: no renderer, so the Gubble's eyes answer unavailable (a real picture is the windowed check).
+    renders = False
+    # The kernel host runs the island's nature (RoomWorld.ConfigureNature); the mock does not yet.
+    simulates_nature = True
+
     async def asyncSetUp(self):
         await super().asyncSetUp()
         await self.settle_rate()
@@ -610,9 +678,23 @@ class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
 
     async def ask(self, client_or_message, message: dict | None = None) -> dict:
         client, message = (self.link, client_or_message) if message is None else (client_or_message, message)
+        # The glow scenarios send many messages: keep under the host's 30 a second.
+        pause = getattr(self, "_last_ask", 0.0) + 0.04 - time.monotonic()
+        if pause > 0:
+            await asyncio.sleep(pause)
+        self._last_ask = time.monotonic()
         result = await client.request(message)
         self.results.append(result)
         return result
+
+    async def companion_home(self) -> None:
+        """Beside the player (a come), where support.py's glow spots are in reach, in sight or hidden as named."""
+        back = await self.ask(companion_goal("come", fresh_id("come"), target="avatar:player"))
+        self.assertTrue(back["ok"], back)
+        self.assertEqual((await self.job_state(self.link, back["job_id"], 30))["state"], "succeeded")
+
+    async def wait(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
 
     async def companion_to(self, position: list[float]) -> None:
         """go_to a place has no job to poll: wait until the body has stopped near the place."""
@@ -668,9 +750,14 @@ class McpClientOnTheRealHost(RealHostCase):
         await self.settle_rate()
         async with Client(server_parameters("--session-file", str(GAME.session_path)), mode="auto") as client:
             tools = {tool.name for tool in (await client.list_tools()).tools}
-            self.assertEqual(len(tools), 29)
-            self.assertNotIn("protect_unlock", tools)
-            self.assertNotIn("world_set_physics", tools)
+            current = contracts()
+            player_only = {"protect.unlock", "world.set_physics", "world.set_mode", "glow.configure",
+                           "wish.submit", "wish.stop", "wishes.read", "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset"}
+            self.assertEqual(current.player_only_ops, player_only)
+            expected = {op.replace(".", "_") for op in current.command_ops + current.query_ops if op not in player_only}
+            self.assertEqual(tools, expected)
+            for op in player_only:
+                self.assertNotIn(op.replace(".", "_"), tools)
 
             async def call(name, arguments):
                 result = (await client.call_tool(name, arguments)).structured_content
@@ -698,6 +785,80 @@ class McpClientOnTheRealHost(RealHostCase):
             self.assertTrue(stop["ok"], stop)
             unlock = await client.call_tool("goal_set", {"action_id": fresh_id("x"), "goal": "stay", "principal": "player:local"})
             self.assertEqual(unlock.structured_content["error"]["code"], "field_unknown")
+
+    async def test_an_mcp_client_glows_through_the_real_host(self):
+        """Glow, Bubbles and Fireworks through the MCP server and the kernel host: the island's rules listed, the
+        companion's own light and a light at a spot it can see, the Bubble at a spot (a bubble to walk into; never on the
+        companion itself) and fireworks at a spot, the player and other things refused as targets, reserved names refused
+        before anything is sent, and each stopped by id."""
+        from mcp import Client
+        await self.settle_rate()
+        async with Client(server_parameters("--session-file", str(GAME.session_path)), mode="auto") as client:
+            async def call(name, arguments):
+                result = (await client.call_tool(name, arguments)).structured_content
+                self.results.append(result)
+                await asyncio.sleep(0.05)
+                return result
+
+            def code(result):
+                return "ok" if result["ok"] else (result["error"]["code"], result["error"].get("field_path"))
+
+            come = await call("goal_set", {"action_id": fresh_id("come"), "goal": "come", "target": "avatar:player"})
+            for _ in range(120):
+                if (await call("jobs_status", {"job_id": come["job_id"]}))["data"]["state"] != "running":
+                    break
+                await asyncio.sleep(0.25)
+            await call("effect_stop", {"effect": "all"})
+            light = {"capability": "glow", "params": {}, "area": {"center_m": [0, 0, 0], "radius_m": 0.5}, "duration_s": 30}
+            listed = await call("capabilities_list", {})
+            own = await call("effect_start", {"action_id": fresh_id("glow"), **light, "targets": ["avatar:companion"]})
+            spot = await call("effect_start", {"action_id": fresh_id("glow"), **light,
+                                               "area": {"center_m": [0.6, 0, 1.0], "radius_m": 0.5}})
+            on_itself = await call("effect_start", {"action_id": fresh_id("bubbles"), **light, "capability": "bubbles",
+                                                    "targets": ["avatar:companion"], "duration_s": 20})
+            stream = await call("effect_start", {"action_id": fresh_id("bubbles"), **light, "capability": "bubbles",
+                                                 "area": {"center_m": [0.45, 0, 1.0], "radius_m": 0.5}, "duration_s": 20})
+            rocket = await call("effect_start", {"action_id": fresh_id("fireworks"), **light, "capability": "fireworks",
+                                                 "area": {"center_m": [0.6, 0, 1.0], "radius_m": 1.0}, "duration_s": 6})
+            outcome = {
+                "listed": [item["capability"] for item in listed["data"]["items"]],
+                "self": (code(own), own.get("data", {}).get("target"), own.get("data", {}).get("params")),
+                "point": (code(spot), spot.get("data", {}).get("target")),
+                "bubbles on itself": code(on_itself),
+                "the Bubble at a spot": (code(stream), stream.get("data", {}).get("category"), stream.get("data", {}).get("target"),
+                                         stream.get("data", {}).get("kind")),
+                "fireworks at a spot": (code(rocket), rocket.get("data", {}).get("category"), rocket.get("data", {}).get("target")),
+                # Stopped at once: a firework lasts at most 6 s.
+                "stops": [(await call("effect_stop", {"effect": r["created"][0]}))["data"]["effects_stopped"]
+                          for r in (own, spot, stream, rocket) if r["ok"]],
+            }
+            await asyncio.sleep(3.5)  # the adapter allows 10 commands at once, then 2 a second
+            outcome |= {
+                "the player": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "targets": ["avatar:player"]})),
+                "bubbles on the player": code(await call("effect_start", {"action_id": fresh_id("no"), **light,
+                                                                           "capability": "bubbles", "targets": ["avatar:player"]})),
+                "a thing": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "targets": ["obj:rug"]})),
+                "fireworks too long": code(await call("effect_start", {"action_id": fresh_id("no"), **light,
+                                                                        "capability": "fireworks", "duration_s": 8})),
+                "principal in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light,
+                                                                         "params": {"principal": "player:local"}})),
+                "actor in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "params": {"actor": 1}})),
+            }
+            self.assertEqual(outcome, {
+                "listed": ["bloom", "bubbles", "fire", "fireworks", "glow"],
+                "self": ("ok", "self", {"intensity": 0.6}),
+                "point": ("ok", "point"),
+                "bubbles on itself": ("invalid_args", "$.args.targets"),
+                "the Bubble at a spot": ("ok", "float", "point", "walk_in"),
+                "fireworks at a spot": ("ok", "burst", "point"),
+                "the player": ("permission_denied", "$.args.targets"),
+                "bubbles on the player": ("permission_denied", "$.args.targets"),
+                "a thing": ("permission_denied", "$.args.targets"),
+                "fireworks too long": ("invalid_args", "$.args.duration_s"),
+                "principal in params": ("field_unknown", "$.params.principal"),
+                "actor in params": ("request_invalid", "$.args.params"),
+                "stops": [1, 1, 1, 1],
+            })
 
 
 if __name__ == "__main__":

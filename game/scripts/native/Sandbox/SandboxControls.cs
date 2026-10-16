@@ -51,6 +51,25 @@ public static class SandboxControls
         return new Vector3(x, support.End.Y, z);
     }
 
+    /// <summary>
+    /// The focus tag's words and place (RUN-2-OPEN-SEA.md, "Things to touch"), kept together for the founder to tune by eye.
+    /// The keys they name are the input map's now (PlayerControls.Label), so a remapped hand key shows in the tag at once.
+    /// </summary>
+    public static class FocusWords
+    {
+        public static string PickUpOrPush => $"{PlayerControls.Label(Act.Hands)} pick up · {PlayerControls.Label(Act.Push)} push";
+        public static string PushOnly => $"{PlayerControls.Label(Act.Push)} push · too heavy to lift";
+        public const string TooHeavy = "too heavy to move";
+        /// <summary>A format: {0} is the carried thing's name and {1} the thing it would be set on (a key's name is escaped for the format).</summary>
+        public static string SetOn => PlayerControls.Label(Act.Hands).Replace("{", "{{").Replace("}", "}}") + " set {0} on {1}";
+        /// <summary>The tag sits this far right of and above the thing's top, in pixels.</summary>
+        public const float TagRightPx = 14f;
+        public const float TagUpPx = 6f;
+        /// <summary>The top-right corner kept free for the minimap, in pixels; a tag that would fall there moves below it.</summary>
+        public const float MinimapWidthPx = 300f;
+        public const float MinimapHeightPx = 240f;
+    }
+
     /// <summary>The body's facing on the floor plane.</summary>
     public static Vector3 Facing(SmallPlayerController body)
     {

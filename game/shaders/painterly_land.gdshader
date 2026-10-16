@@ -14,6 +14,8 @@ shader_type spatial;
 // paint block; what remains here is the algorithm.
 render_mode blend_mix, depth_draw_opaque, cull_back;
 
+#include "res://shaders/shore_wash.gdshaderinc"
+
 const int K_NONE = 0;
 const int K_MEADOW = 1;
 const int K_SOIL = 2;
@@ -78,13 +80,151 @@ uniform float cavity_darkening = 0.35;
 uniform float stroke_normal_gain = 0.2;
 uniform float mark_fade_start = 0.15;
 uniform float mark_fade_end = 0.45;
+// Close up, the brush's finer marks (a stroke 7% of the role's mark, a grain 2.2% of it) come in: 0 leaves them out.
+uniform float close_detail : hint_range(0.0, 4.0) = 1.0;
+
+group_uniforms haze;
+// Aerial perspective for what stands out at sea (the distant islands, OpenSea): with distance the land gives way, up to
+// haze_max, to the sky's own horizon colour, so it sits under the haze yet keeps its silhouette. 0 leaves it off.
+uniform vec3 haze_color : source_color = vec3(0.75, 0.85, 0.93);
+uniform float haze_energy = 1.0;
+uniform float haze_start_m = 0.0;
+uniform float haze_end_m = 1.0;
+uniform float haze_max : hint_range(0.0, 1.0) = 0.0;
+// The camera's far plane: toward it the land turns wholly into the horizon, so an island the far plane cuts leaves no sliver.
+uniform float haze_far_m = 0.0;
+
+group_uniforms shore;
+// The living shore (ShoreWash; painterly_water paints the sea's half): where the sea meets the land the wash climbs the ground and
+// draws back, every shore_period_s, and the ground it has reached stays damp. Only within shore_reach_m of the island's coast (the
+// field texture holds each place's distance to it) and only on ground that slopes (a beach, not a flat), between the sea's level
+// less shore_draw_back_m and its crest (up to shore_run_up_m over it) plus the damp band. Off for every room without a sea.
+uniform bool shore_on = false;
+// The shore's clock is the engine's TIME, as the water's (see painterly_water): shore_hold_s holds it at a second for a capture.
+uniform float shore_hold_s = -1.0;
+uniform float shore_sea_level = 0.0;
+uniform float shore_period_s : hint_range(1.0, 30.0) = 8.0;
+uniform float shore_run_up_m : hint_range(0.0, 0.2) = 0.045;
+uniform float shore_draw_back_m : hint_range(0.0, 0.2) = 0.04;
+uniform float shore_lane_m : hint_range(0.1, 10.0) = 1.3;
+uniform float shore_rise_share : hint_range(0.1, 0.9) = 0.4;
+uniform float shore_foam_m : hint_range(0.0, 0.05) = 0.008;
+// The foam on the wash's leading edge is this wide along the ground (metres), never deeper than shore_foam_m: the same lace on a beach and on a flat.
+uniform float shore_foam_w_m : hint_range(0.0, 0.2) = 0.04;
+uniform float shore_brush_m : hint_range(0.01, 1.0) = 0.09;
+uniform float shore_brush_amp_m : hint_range(0.0, 0.02) = 0.004;
+// How far above the wash's reach the damp band goes, and how softly it fades out (metres of height).
+uniform float shore_wet_above_m : hint_range(0.0, 0.05) = 0.012;
+uniform float shore_wet_fade_m : hint_range(0.001, 0.05) = 0.012;
+// How far from the coast the shore reaches (metres) and the slope (rise over run) below which the ground is a flat, not a beach.
+uniform float shore_reach_m : hint_range(0.05, 5.0) = 0.8;
+uniform float shore_flat_slope : hint_range(0.0, 0.5) = 0.03;
+// The damp ground: how much darker it is (a multiplier) and how much shinier; the wash over it, as the water paints its own
+// shallows (the least and the most it hides, the metres that hide two thirds), in the sea's shallow colour, with the foam's colour.
+uniform vec3 shore_wet_tint = vec3(0.7, 0.7, 0.73);
+uniform float shore_wet_gloss : hint_range(0.0, 1.0) = 0.35;
+uniform float shore_film_alpha_min : hint_range(0.0, 1.0) = 0.1;
+uniform float shore_film_alpha_max : hint_range(0.0, 1.0) = 0.93;
+uniform float shore_film_clarity_m : hint_range(0.005, 2.0) = 0.1;
+uniform vec3 shore_film_color : source_color = vec3(0.62, 0.82, 0.82);
+uniform vec3 shore_foam_color : source_color = vec3(0.95, 0.97, 0.95);
+// Water reflects the sky most at grazing angles, the wash over the sand as the sea does (painterly_water's sky_color and sky_rim).
+uniform vec3 shore_sky_color : source_color = vec3(0.78, 0.88, 0.96);
+uniform float shore_sky_rim : hint_range(0.0, 1.0) = 0.75;
+// Each place's distance to the coast, metres divided by shore_field_range_m (R8), over the square (x0, z0, 1 / width, 1 / depth).
+uniform sampler2D shore_field : filter_linear, repeat_disable, hint_default_white;
+uniform vec4 shore_field_area = vec4(0.0, 0.0, 1.0, 1.0);
+uniform float shore_field_range_m : hint_range(0.1, 10.0) = 1.6;
 
 // A prop's own seed (a cottage); the land's parts leave it at zero so marks continue across them.
 instance uniform float paint_seed = 0.0;
 
+// The room-to-island intro (Look/Intro/RoomIntro.cs; docs/ROOM-TO-LANDSCAPE.md): Godot's global shader parameters, declared in
+// game/project.godot ([shader_globals]). At rest intro_rise.w is 0 and none of the intro's code runs, so the land draws exactly
+// as without it. While the intro plays (w 1): x is the land's progress from the room to the island, y the coast's.
+global uniform vec4 intro_rise;
+// The start field's square on the ground: x0, z0, 1 / its width, 1 / its depth (metres).
+global uniform vec4 intro_area;
+// The growing wave: x, z its centre, y the width of its edge (m), w its radius (m).
+global uniform vec4 intro_grow;
+// The start field: r the room's height there (the floor, or the top of a box), g when it starts to rise (0 to 1 of the land's
+// phase), b how much of it is coast (rises with the walls' slump). Half floats, one texel a cell.
+global uniform sampler2D intro_start;
+// The room's own colour there (linear): the floor's, or a box's.
+global uniform sampler2D intro_colour;
+// What the intro does to this instance while it plays: 0 (the default) it grows in from nothing as the wave passes it (a copy, a
+// cottage, a stone: so copies built while the intro plays grow too), 1 the land (drawn from the room's heights rising to its own),
+// 3 nothing (the sea floor, the open sea's bed). The intro marks the land and the still parts, and resets every mark it made when
+// it ends; at rest none of this runs.
+instance uniform float intro_part = 0.0;
+
+// The seasons on the land (L10, Look/LandSeason.cs, docs/look/SEASONS.md): Godot global shader parameters the look registers at run
+// time and sets once per moment from the season's cross-fade. All zero (summer, or before the look's first moment) the land draws
+// exactly as it was drawn. Every change is albedo along a season ramp; the light never reads them.
+// Leaves: x toward the spring colour, y the autumn turn (each tree at its own pace), z toward the winter pale, w how far into
+// blossom the broadleaves are.
+global uniform vec4 season_leaf;
+// Ground: x the meadow's tips and the grass toward straw, y frost (on what faces the sky, most in the hollows; it carries the hour:
+// all of it at dawn), z how much darker and wetter soil and paths are, w the share of upward faces under a dusting of snow.
+global uniform vec4 season_ground;
+// x the meadow fresher (spring), y a conifer toward its winter colour, z how far apart the trees of a wood start to turn, w how
+// long one tree takes.
+global uniform vec4 season_tone;
+// Blossom: x the share of broadleaves in flower (each tree by its own number), y the share of a flowering tree's dabs that blossom.
+global uniform vec4 season_bloom;
+// The season's colours, each over the summer colour it replaces, channel by channel: leaves and grass over the foliage role's own
+// colour, the meadow's over the meadow's.
+global uniform vec3 season_fresh;
+global uniform vec3 season_gold;
+global uniform vec3 season_rust;
+global uniform vec3 season_pale;
+global uniform vec3 season_evergreen;
+global uniform vec3 season_straw;
+global uniform vec3 season_meadow_straw;
+global uniform vec3 season_meadow_fresh;
+// Colours laid over the land as they are (linear): blossom, snow (the snow role's own) and frost.
+global uniform vec3 season_blossom;
+global uniform vec3 season_snow;
+global uniform vec3 season_frost;
+// Which way this plant's leaves go through the year (LandSeason.Habit): 0 a broadleaf's (the default, and any foliage not known
+// otherwise), 1 a conifer's, 2 grass's (and a herb's). The plant copies' view sets it on each set's tiles from the set's fuel class.
+instance uniform float season_habit = 0.0;
+
+// The grass's canopy (prototype, Look/GrassLook.cs): the map the procedural grass grows from (r tall, g standing, b dry, each its rank
+// across the island, over the area x0, z0, 1 / width, 1 / depth), which the meadow floor draws too, so the floor between the blades
+// and the meadow far away read as the grass's own top. Canopy: x the share that is bare, y the share that is dry, z how soft their
+// edges are, w on (0 leaves the meadow as it was). Shape: z how dry the driest patches are (x, y are the blades'). Floor: x how far the
+// floor goes toward the grass's layers where grass stands, y how far the low herbs' leaves blend into the canopy, z and w the grass's
+// distance (m: the blades shrink away between them; the floor goes from the thatch under the blades to the canopy's top). Top, dry and
+// bare are the canopy's colours; under and thatch the thatch's deep green and straw (linear).
+global uniform vec4 grass_canopy;
+global uniform vec4 grass_shape;
+global uniform vec4 grass_floor;
+global uniform vec4 grass_canopy_area;
+global uniform sampler2D grass_canopy_map;
+global uniform vec3 grass_under;
+global uniform vec3 grass_thatch;
+global uniform vec3 grass_top;
+global uniform vec3 grass_dry;
+global uniform vec3 grass_bare;
+
 varying vec3 obj_pos;
 varying vec3 obj_normal;
 varying vec3 baked_color;
+// The room's colour at this point (rgb) and how much of it shows (a: 1 the room, 0 the island; always 0 at rest).
+varying vec4 intro_room;
+// How far this pixel has gone into the haze (0 to 1): light() fades the highlight by the same amount.
+varying float haze_v;
+// A number of the copy's own (0 to 1, from its origin), so each tree of a wood turns in its own time and to its own colour.
+varying float season_tree;
+// Broad noise over a grove (1.4 m), so the land's merged meshes, which share one origin, still turn and flower grove by grove. It
+// varies slowly, so the vertices carry it and no leaf pixel pays for it; 0.5 where no leaf turns or flowers.
+varying float season_grove;
+// The living shore: the ground's place in the world (as the intro leaves it) and how level it is (its normal's height).
+varying vec3 shore_world;
+varying float shore_ny;
+// How much of light()'s highlight the damp ground and the wash on it add (set in fragment()).
+varying float shore_gloss_v;
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -199,10 +339,125 @@ vec2 plane_of(vec3 p, vec3 axis_n) {
 	return axis_n.y > 0.5 ? p.xz : (axis_n.x > 0.5 ? p.zy : p.xy);
 }
 
+// ---------- the season on the land (L10) ----------
+
+// How much of a surface a season's cover takes where the noise (0 to 1) is highest: amount 0 none, 1 nearly all, a soft edge.
+float season_cover(float noise, float amount) {
+	return amount <= 0.0 ? 0.0 : smoothstep(1.0 - amount - 0.12, 1.0 - amount + 0.12, noise);
+}
+
+// A dusting of snow on the faces that see the sky (the tops of rock and cliffs), where the noise says, as much as the season's share.
+vec3 season_snow_on(vec3 color, float up, float noise) {
+	if (season_ground.w <= 0.0) return color;
+	return mix(color, season_snow, smoothstep(0.55, 0.85, up) * season_cover(noise, season_ground.w));
+}
+
+// Soil and paths in the wet seasons: darker, and so a little richer.
+vec3 season_wet(vec3 color) {
+	float grey = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	return mix(vec3(grey), color, 1.0 + season_ground.z) * (1.0 - season_ground.z);
+}
+
+// A leaf's colour through the year, by its plant's habit. A broadleaf's is fresh in spring, some trees in blossom, gold to rust in
+// autumn tree by tree, pale in winter under a dusting of snow; a conifer's turns a touch darker in winter and takes the snow too;
+// grass and herbs go fresh, then to straw, and frost. habit is the instance's (season_habit), tree its copy's own number
+// (season_tree), broad its grove's (season_grove: the land's merged meshes share one origin); cell and dab are the leaf dab's (its
+// cell, how much of it is paint), clump the canopy's clumps, up how much it faces the sky, d how much of a dab the pixel resolves:
+// far away a dab's random choices give way to their average, so nothing sparkles.
+vec3 season_foliage(vec3 color, float habit_id, float tree, float broad, vec3 cell, float dab, float clump, float up, float d) {
+	int habit = int(habit_id + 0.5);
+	vec3 ratio = vec3(1.0);
+	if (habit == 1) {
+		ratio += season_tone.y * (season_evergreen - 1.0);
+	} else if (habit == 2) {
+		ratio += season_leaf.x * (season_fresh - 1.0) + season_ground.x * (season_straw - 1.0);
+	} else {
+		ratio += season_leaf.x * (season_fresh - 1.0) + season_leaf.z * (season_pale - 1.0);
+		if (season_leaf.y > 0.0) {
+			// Autumn, tree by tree: each tree starts to turn at its own moment and settles on its own colour between gold and rust; the
+			// clumps move it a little within the tree.
+			float start = fract(tree * 7.13 + broad * 0.6) * season_tone.z;
+			float turned = smoothstep(start, start + max(season_tone.w, 1e-3), season_leaf.y);
+			float phase = clamp(tree * tree * 0.8 + (broad - 0.5) * 0.6 + (clump - 0.5) * 0.35 * d + 0.1, 0.0, 1.0);
+			ratio += turned * (mix(season_gold, season_rust, phase) - 1.0);
+		}
+	}
+	color *= max(ratio, vec3(0.0));
+	if (habit == 0 && season_leaf.w > 0.0) {
+		// Blossom: a share of the broadleaves in flower, a share of their dabs that face up or out pale with it.
+		float in_flower = step(fract(tree * 3.91 + broad * 0.8 + 0.27), season_bloom.x);
+		float share = season_bloom.y * season_leaf.w * in_flower;
+		float covered = mix(share * 0.7, step(hash13(cell + 4.4), share) * (0.4 + 0.6 * dab), d);
+		color = mix(color, season_blossom, covered * smoothstep(-0.2, 0.3, up));
+	}
+	if (habit != 2 && season_ground.w > 0.0) {
+		// Snow on the dabs that face the sky.
+		float lies = mix(season_ground.w, step(hash13(cell + 5.5), season_ground.w), d);
+		color = mix(color, season_snow, lies * smoothstep(0.35, 0.8, up) * mix(0.6, 0.35 + 0.65 * dab, d));
+	}
+	if (habit == 2 && grass_canopy.w > 0.5) {
+		// With the procedural grass (prototype, GrassLook), the low herbs' leaves blend into the meadow's canopy rather than dot it.
+		color = mix(color, grass_top * mix(0.9, 1.1, dab), grass_floor.y);
+	}
+	if (habit == 2 && season_ground.y > 0.0) {
+		// Frost on the blades that face the sky.
+		color = mix(color, season_frost, season_ground.y * smoothstep(0.1, 0.8, up));
+	}
+	return color;
+}
+
+// The land while the intro plays: each vertex drawn between the room's height at its place (the floor, or a box's top) and its
+// own, its normal between the room's slope and its own, by its own moment (the field's g: boxes first, the plains after, the coast
+// with the walls). Positions are moved in world space (MODEL_NORMAL_MATRIX's transpose takes a world direction back to the
+// instance's own space for a rotation and a uniform scale).
+void intro_land(inout vec3 vertex, inout vec3 normal, mat4 model, mat3 model_normal, out vec4 room) {
+	vec3 world = (model * vec4(vertex, 1.0)).xyz;
+	vec2 texel = 1.0 / vec2(textureSize(intro_start, 0));
+	vec2 uv = clamp((world.xz - intro_area.xy) * intro_area.zw, 0.5 * texel, 1.0 - 0.5 * texel);
+	vec4 field = textureLod(intro_start, uv, 0.0);
+	float land = clamp((intro_rise.x - field.g * 0.45) / 0.55, 0.0, 1.0);
+	float coast = clamp((intro_rise.y - field.g * 0.25) / 0.75, 0.0, 1.0);
+	float t = mix(land, coast, field.b);
+	t = t * t * (3.0 - 2.0 * t);
+	float height = mix(field.r, world.y, t);
+	mat3 back = transpose(model_normal);
+	vertex += back * vec3(0.0, height - world.y, 0.0);
+	// The room's slope from the field (forward differences: one texel along x and along z).
+	vec2 cell = texel / max(intro_area.zw, vec2(1e-6));
+	float hx = textureLod(intro_start, uv + vec2(texel.x, 0.0), 0.0).r - field.r;
+	float hz = textureLod(intro_start, uv + vec2(0.0, texel.y), 0.0).r - field.r;
+	vec3 room_normal = normalize(vec3(-hx / cell.x, 1.0, -hz / cell.y));
+	vec3 own = normalize(model_normal * normal);
+	normal = normalize(back * normalize(mix(room_normal, own, t)));
+	room = vec4(textureLod(intro_colour, uv, 0.0).rgb, 1.0 - smoothstep(0.2, 0.85, t));
+}
+
+// A copy or a cottage while the intro plays: it grows from its own foot (its origin) as the wave passes it, with a small
+// overshoot as it arrives; nothing of it is drawn before the wave reaches it.
+void intro_grow_in(inout vec3 vertex, vec3 origin) {
+	float jitter = hash12(origin.xz * 7.31);
+	float g = clamp((intro_grow.w - distance(origin.xz, intro_grow.xz)) / max(intro_grow.y, 1e-3) - jitter * 0.6, 0.0, 1.0);
+	float u = g - 1.0;
+	vertex *= g >= 1.0 ? 1.0 : max(0.0, 1.0 + 2.70158 * u * u * u + 1.70158 * u * u);
+}
+
 void vertex() {
+	intro_room = vec4(0.0);
+	if (intro_rise.w > 0.5) {
+		if (intro_part > 0.5 && intro_part < 1.5) {
+			vec4 room;
+			intro_land(VERTEX, NORMAL, MODEL_MATRIX, MODEL_NORMAL_MATRIX, room);
+			intro_room = room;
+		} else if (intro_part < 0.5) intro_grow_in(VERTEX, MODEL_MATRIX[3].xyz);
+	}
 	obj_pos = VERTEX;
 	obj_normal = NORMAL;
 	baked_color = COLOR.rgb;
+	season_tree = hash12(MODEL_MATRIX[3].xz * 0.37 + vec2(0.71, 0.13));
+	season_grove = kind == K_FOLIAGE && (season_leaf.y > 0.0 || season_leaf.w > 0.0)
+		? noise_r((VERTEX + fract(vec3(paint_seed) * vec3(0.1731, 0.0577, 0.1113)) * 37.0) / 1.4 + vec3(7.1, 3.3, 5.9)).x : 0.5;
+	shore_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	shore_ny = normalize(mat3(MODEL_MATRIX) * NORMAL).y;
 }
 
 void fragment() {
@@ -210,7 +465,9 @@ void fragment() {
 	vec3 n = normalize(obj_normal);
 	vec3 axis_n = face_axis(n);
 	vec2 pl = plane_of(p, axis_n);
-	float footprint = max(length(fwidth(p)), 1e-5);
+	// A pixel's footprint on the surface: the geometric mean of its two screen axes. The longer axis alone (as the room's
+	// materials take it) faded every mark on ground seen at a grazing angle, so the ground under a low camera read as a smear.
+	float footprint = max(sqrt(length(dFdx(p)) * length(dFdy(p))), 1e-5);
 	vec3 seed = fract(vec3(paint_seed) * vec3(0.1731, 0.0577, 0.1113)) * 37.0;
 	vec3 pw = p + seed;
 	vec2 plw = pl + seed.xy;
@@ -241,6 +498,18 @@ void fragment() {
 		+ (strokes.x - 0.5) * tone_strokes * d_strokes + (bristle.x - 0.5) * tone_bristle * d_bristle;
 	vec3 bump = strokes.yzw * 0.6 * d_strokes + bristle.yzw * 0.3 * d_bristle;
 	float warm_bias = 0.0;
+	// Close up (the 10 cm eye, the shoulder camera a hand's width over the ground, the cliff beside the diorama camera) the
+	// role's marks are many pixels wide and read as a smooth, blurred-looking wash: the brush's finer strokes and grain come in,
+	// so near ground reads as brushwork. Like every mark they fade with distance, and they cost nothing where they would be
+	// finer than a pixel.
+	float d_fine = detail(s * 0.07, footprint) * close_detail;
+	if (d_fine > 0.0) {
+		vec4 fine = stroke_noise(pb + seed * 2.3, grain, stroke_stretch * 1.6, s * 0.07);
+		float d_finest = detail(s * 0.022, footprint);
+		vec4 finest = d_finest > 0.0 ? noise_r(pb / (s * 0.022) + vec3(4.1, 2.7, 8.3)) : vec4(0.5, 0.0, 0.0, 0.0);
+		tone += ((fine.x - 0.5) * 1.0 + (finest.x - 0.5) * 0.5 * d_finest) * tone_bristle * d_fine;
+		bump += (fine.yzw * 0.3 + finest.yzw * 0.12 * d_finest) * d_fine;
+	}
 
 	if (kind == K_MEADOW) {
 		// Grass: blades combed one way, soft tufts of lighter grass, patches that turn toward yellow or toward blue-green.
@@ -249,11 +518,44 @@ void fragment() {
 		float dab = (1.0 - smoothstep(0.15, 0.62, tuft.x)) * (tuft.z - 0.35);
 		tone += dab * 0.55 * detail(s * 1.6, footprint);
 		warm_bias = (blotch.x - 0.5) * 1.2 * d_patch + (wash.x - 0.5) * 0.8 * d_wash;
-		// A few small bright flecks: seed heads and tiny flowers, only on gentle ground.
+		if (grass_canopy.w > 0.5) {
+			// The grass's layers on the floor where the grass stands. Near, the thatch under the blades: a deep green in its hollows,
+			// lighter strokes of fallen blades combed by the wind, straw where the grass is dry or short, lighter and darker in broad
+			// washes, so the gaps between the blades read as deeper grass. Far, past the grass's distance where no blade is drawn, the
+			// canopy's top as the grass is seen from above: warmer where it is dry, a touch lighter where it stands taller. Where the grass
+			// is gone, the worn path's warm earth. Only the grass changes, never the soil it blends to.
+			float g = smoothstep(0.1, 0.4, (color.g - color.r) / max(max(color.r, max(color.g, color.b)), 1e-3));
+			vec3 canopy = textureLod(grass_canopy_map, clamp((p.xz - grass_canopy_area.xy) * grass_canopy_area.zw, 0.0, 1.0), 0.0).rgb;
+			float stands = smoothstep(grass_canopy.x - grass_canopy.z, grass_canopy.x + grass_canopy.z, canopy.g);
+			float dry = grass_shape.z * smoothstep(1.0 - grass_canopy.y - grass_canopy.z, 1.0 - grass_canopy.y + 2.0 * grass_canopy.z, canopy.b);
+			float tall = canopy.r;
+			vec3 top = mix(grass_top, grass_dry, dry) * mix(0.94, 1.05, tall) * mix(0.92, 1.08, blotch.x);
+			float d_clump = detail(s * 1.6, footprint);
+			float clump = (1.0 - smoothstep(0.12, 0.55, tuft.x)) * (0.6 + 0.4 * tuft.z);
+			vec3 under = mix(grass_under, grass_top * 0.8, clamp(clump * 0.75 * d_clump + 0.22 * (1.0 - d_clump) + (blotch.x - 0.5) * 0.3, 0.0, 1.0));
+			float thatch = smoothstep(0.55, 0.85, bristle.x) * mix(0.35, 1.0, clamp(dry + 0.4 * (1.0 - tall), 0.0, 1.0));
+			under = mix(under, grass_thatch, mix(0.3 * thatch, thatch, d_bristle));
+			under *= mix(0.85, 1.12, wash.x);
+			float far = smoothstep(grass_floor.z, grass_floor.w, length(VERTEX));
+			color = mix(color, mix(under, top, far), g * stands * grass_floor.x);
+			color = mix(color, grass_bare * (0.88 + 0.24 * blotch.x), g * (1.0 - stands));
+		}
+		if (season_ground.x > 0.0 || season_ground.y > 0.0 || season_tone.x > 0.0) {
+			// The season (L10): the tufts' tips toward straw (autumn, some in winter) in broad patches, the greens fresher in spring, and
+			// frost on what faces the sky, most in the hollows between the tufts. Only the grass changes colour, never the soil it blends to.
+			float d_tuft = detail(s * 1.6, footprint);
+			float tip = (1.0 - smoothstep(0.15, 0.62, tuft.x)) * d_tuft;
+			float green = smoothstep(0.1, 0.4, (color.g - color.r) / max(max(color.r, max(color.g, color.b)), 1e-3));
+			float straw_patch = clamp(0.75 + (blotch.x - 0.5) * 1.2, 0.0, 1.0);
+			color *= vec3(1.0) + season_ground.x * green * mix(0.55, 1.0, tip) * straw_patch * (season_meadow_straw - 1.0)
+				+ season_tone.x * green * (season_meadow_fresh - 1.0);
+			color = mix(color, season_frost, season_ground.y * smoothstep(0.45, 0.95, up) * mix(0.8, 1.0 - 0.4 * tip, d_tuft));
+		}
+		// A few small bright flecks: seed heads and tiny flowers, only on gentle ground (and none under frost).
 		vec2 fcell = floor(plw / (s * 2.2));
 		vec2 fo = hash22(fcell + 3.7) * 0.5 + 0.25;
 		float fleck = (1.0 - smoothstep(0.05, 0.12, length(fract(plw / (s * 2.2)) - fo))) * step(0.972, hash12(fcell)) * smoothstep(0.7, 0.9, up);
-		color = mix(color, vec3(0.95, 0.88, 0.55) * (0.6 + 0.4 * hash12(fcell + 1.3)), fleck * 0.8 * detail(s * 0.4, footprint));
+		color = mix(color, vec3(0.95, 0.88, 0.55) * (0.6 + 0.4 * hash12(fcell + 1.3)), fleck * 0.8 * detail(s * 0.4, footprint) * (1.0 - season_ground.y));
 	} else if (kind == K_SOIL) {
 		// Turned earth: clods and pits.
 		vec3 clod = voronoi(plw / (s * 1.4));
@@ -262,6 +564,7 @@ void fragment() {
 		tone -= pit * 0.8;
 		cavity = max(cavity, pit * 0.5);
 		warm_bias = (blotch.x - 0.5) * 0.6 * d_patch;
+		color = season_wet(color);
 	} else if (kind == K_PATH) {
 		// A trodden path: packed, finely cross-hatched earth with the odd small stone.
 		vec4 cross_a = stroke_noise(pb + seed * 0.4, vec3(0.7071, 0.0, 0.7071), 3.0, s * 0.7);
@@ -273,6 +576,7 @@ void fragment() {
 		float pebble = (1.0 - smoothstep(0.1, 0.28, stone.x)) * step(0.8, stone.z) * detail(s * 2.2, footprint);
 		color = mix(color, color * 1.18 + vec3(0.03), pebble * 0.6);
 		cavity = max(cavity, pebble * 0.3);
+		color = season_wet(color);
 	} else if (kind == K_GRAVEL) {
 		// Pebbles, each its own tone, with dark gaps between them.
 		vec3 pebble = voronoi(plw / s2);
@@ -303,6 +607,7 @@ void fragment() {
 		float steep = clamp((0.7 - abs(up)) * 2.0, 0.0, 1.0);
 		float layer = (p.y + seed.y) / (s2 * 0.35) + (blotch.x - 0.5) * 3.0;
 		tone += sin(layer * 6.2831853) * 0.07 * steep * detail(s2 * 0.35, footprint);
+		color = season_snow_on(color, up, blotch.x * 0.6 + wash.x * 0.4);
 	} else if (kind == K_CLIFF) {
 		// Cut faces: wavy strata of alternating tone with dark seams, weathering streaks running down; none on the tops.
 		float steep = clamp((0.7 - abs(up)) * 2.0, 0.0, 1.0);
@@ -317,6 +622,7 @@ void fragment() {
 		vec4 streak = stroke_noise(pw, vec3(0.0, 1.0, 0.0), 10.0, s * 0.7);
 		tone += (streak.x - 0.5) * 0.45 * steep * detail(s * 0.7, footprint);
 		bump += streak.yzw * 0.5 * steep * detail(s * 0.7, footprint);
+		color = season_snow_on(color, up, blotch.x * 0.6 + wash.x * 0.4);
 	} else if (kind == K_MOSS) {
 		// Soft cushions with bright tips.
 		float mound = smoothstep(0.30, 0.72, blotch.x);
@@ -363,6 +669,7 @@ void fragment() {
 		warm_bias = (clump.x - 0.5) * 1.0 * d_leaf + up * 0.35;
 		cavity = max(cavity, (1.0 - dab) * 0.2 * d_leaf);
 		bump += (vec3(hash13(cell + 2.2), hash13(cell + 6.6), hash13(cell + 9.9)) - 0.5) * 0.8 * d_leaf;
+		color = season_foliage(color, season_habit, season_tree, season_grove, cell, dab, clump.x, up, d_leaf);
 	} else if (kind == K_BARK) {
 		// Bark: grain and furrows running up the trunk.
 		vec4 furrow = stroke_noise(pw, vec3(0.0, 1.0, 0.0), 9.0, s);
@@ -428,6 +735,9 @@ void fragment() {
 		tone += (streak.x - 0.5) * 0.5 * detail(s, footprint);
 	}
 
+	// The intro: the room's own colour, its marks quietened, until the island's colour comes through (0 at rest: unchanged).
+	color = mix(color, intro_room.rgb, intro_room.a);
+	tone *= 1.0 - 0.6 * intro_room.a;
 	// The harness's ramp: dark and cool, the colour, light and warm. The tone moves the colour along it.
 	float t = clamp(0.5 + tone * tone_gain * variation / 0.42, 0.0, 1.0);
 	vec3 low = color * 0.82 + vec3(0.0, 0.005, 0.015) * ramp_gain;
@@ -444,6 +754,54 @@ void fragment() {
 	color += vec3(0.5, 0.48, 0.42) * glint * 0.35;
 	color = mix(color, vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), role_calm);
 
+	// The living shore: within reach of the coast, on ground that slopes, between a little under the sea's level and the top of the
+	// damp band, the ground is darker and shinier (it is wet), and where the wash stands higher than the ground there is water over
+	// it, in the sea's own shallow colour and as much as the water shader would hide, with a lace of foam on its leading edge. The
+	// same shore_level as painterly_water's, so the wash on the sand and the sea's edge are one line. (While the intro plays the land
+	// is not yet where it will be and the sea is still rising: the shore, on both sides, waits until it ends.)
+	shore_gloss_v = 0.0;
+	if (shore_on && intro_rise.w < 0.5) {
+		float rel = shore_world.y - shore_sea_level;
+		if (rel > -shore_draw_back_m - 0.04 && rel < shore_run_up_m + shore_wet_above_m + 0.01) {
+			float ny = max(shore_ny, 0.05);
+			float slope = sqrt(max(1.0 - ny * ny, 0.0)) / ny;
+			float coast_m = textureLod(shore_field, (shore_world.xz - shore_field_area.xy) * shore_field_area.zw, 0.0).r * shore_field_range_m;
+			float gate = (1.0 - smoothstep(0.7 * shore_reach_m, shore_reach_m, coast_m)) * smoothstep(shore_flat_slope, 2.0 * shore_flat_slope, slope);
+			if (gate > 0.0) {
+				float shore_now = shore_hold_s >= 0.0 ? shore_hold_s : TIME;
+				vec2 level = shore_level(shore_world.xz, shore_now, shore_period_s, shore_run_up_m, shore_draw_back_m, shore_lane_m, shore_rise_share);
+				float brush = (shore_noise(shore_world.xz / shore_brush_m) - 0.5) * shore_brush_amp_m;
+				// Damp from a little under the least the wash draws back to up to the top of the band, fading out above it.
+				float damp_top = level.y + shore_wet_above_m;
+				float wet = (1.0 - smoothstep(damp_top - shore_wet_fade_m, damp_top, rel + brush)) * smoothstep(-shore_draw_back_m - 0.035, -shore_draw_back_m + 0.015, rel) * gate;
+				color = mix(color, color * shore_wet_tint, wet);
+				rough = mix(rough, 0.3, wet * 0.7);
+				// The wash over the ground above the sea's level: its depth here (the water shader's own, for the ground just under the
+				// sea's level, is the same number, so the wash runs on across the old waterline without a seam).
+				float depth = level.x + brush - rel;
+				float film = step(0.0, rel) * smoothstep(0.0, 0.0015, depth) * gate;
+				if (film > 0.0) {
+					vec3 view_up = (INV_VIEW_MATRIX * vec4(normalize(VIEW), 0.0)).xyz;
+					float path = depth / max(abs(view_up.y), 0.5);
+					float film_alpha = mix(shore_film_alpha_min, shore_film_alpha_max, 1.0 - exp(-path / shore_film_clarity_m));
+					// As the water shader paints the sea at this angle, so the wash over the sand meets it without a seam.
+					float film_fresnel = pow(1.0 - clamp(abs(view_up.y), 0.0, 1.0), 4.0) * shore_sky_rim;
+					vec3 film_colour = mix(shore_film_color, shore_sky_color * mix(vec3(1.0), shore_film_color * 1.6, 0.25), film_fresnel * 0.6);
+					film_alpha = mix(film_alpha, 1.0, film_fresnel * 0.7) * film;
+					float lace_mask = smoothstep(0.1, 0.4, shore_noise(shore_world.xz / 0.035 + vec2(shore_now * 0.15, 0.0)) * 0.55 + shore_noise(shore_world.xz / 0.09) * 0.45 + 0.1);
+					float foam_h = clamp(shore_foam_w_m * slope, 0.0015, shore_foam_m);
+					float lace = smoothstep(0.0, 0.0012, depth) * (1.0 - smoothstep(0.3 * foam_h, foam_h, depth)) * lace_mask * film;
+					color = mix(color, film_colour, film_alpha);
+					color = mix(color, shore_foam_color, lace * 0.9);
+					rough = mix(rough, 0.18, film_alpha);
+					bump *= 1.0 - 0.7 * film_alpha;
+					wet = max(wet, film_alpha);
+				}
+				shore_gloss_v = wet * shore_wet_gloss;
+			}
+		}
+	}
+
 	// Stroke normals: tilt the normal by the marks' gradient.
 	vec3 tangential = bump - n * dot(bump, n);
 	n = normalize(n - tangential * stroke_normal_strength * stroke_normal_gain);
@@ -458,6 +816,14 @@ void fragment() {
 	// The sky seen at a grazing angle in still water: a soft cool rim, no reflection probes needed.
 	float ndv0 = clamp(dot(NORMAL, normalize(VIEW)), 0.0, 1.0);
 	EMISSION = vec3(0.55, 0.74, 0.92) * pow(1.0 - ndv0, 4.0) * sky_rim * 0.35;
+	haze_v = 0.0;
+	if (haze_max > 0.0) {
+		float haze = haze_max * smoothstep(haze_start_m, haze_end_m, length(VERTEX));
+		if (haze_far_m > 0.0) haze = max(haze, smoothstep(0.7 * haze_far_m, 0.95 * haze_far_m, length(VERTEX)));
+		haze_v = haze;
+		ALBEDO *= 1.0 - haze;
+		EMISSION = mix(EMISSION, haze_color * haze_energy, haze);
+	}
 }
 
 void light() {
@@ -485,5 +851,5 @@ void light() {
 	float visibility = 0.25 / max((ndl_c * (1.0 - k) + k) * (ndv * (1.0 - k) + k), 1e-4);
 	vec3 f0 = mix(vec3(0.04), ALBEDO, METALLIC);
 	vec3 fresnel = f0 + (1.0 - f0) * pow(1.0 - clamp(dot(VIEW, halfway), 0.0, 1.0), 5.0);
-	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * specular_strength;
+	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * (specular_strength + shore_gloss_v) * (1.0 - haze_v);
 }

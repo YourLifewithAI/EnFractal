@@ -24,19 +24,64 @@ public static class RoomBuilder
     public const uint HiddenLayer = 16;
     /// <summary>What a body stands on, climbs and bumps into: the world and the hidden parts.</summary>
     public const uint BodyMask = WorldLayer | HiddenLayer;
+    /// <summary>
+    /// Physics layer 6, "far ground" (bit value 32, S12b): the land's coarse level where its walkable ground is not built
+    /// (TerrainCollision keeps that near the bodies). Only sight and aim ask for it (SightMask), so far hills hide what is behind
+    /// them and stop an aim; no body has it in its mask, and nothing that settles, supports or measures ground asks for it.
+    /// </summary>
+    public const uint FarGroundLayer = 32;
+    /// <summary>What sight and aim rays test: the world, and the far ground where the walkable ground is not built.</summary>
+    public const uint SightMask = WorldLayer | FarGroundLayer;
 
     public static Node3D Build(RoomData room)
     {
         var root = new Node3D { Name = "Room" };
+        try
+        {
+            BuildInto(room, root);
+            return root;
+        }
+        catch
+        {
+            // Nothing half built is left behind (a mesh that fails its check after the load, say).
+            root.Free();
+            throw;
+        }
+    }
+
+    private static void BuildInto(RoomData room, Node3D root)
+    {
         root.SetMeta("room_id", room.RoomId);
         root.SetMeta("room_manifest_sha256", room.ManifestSha256);
         var shell = new Node3D { Name = "Shell" };
         var objects = new Node3D { Name = "Objects" };
         root.AddChild(shell);
         root.AddChild(objects);
-        foreach (var part in room.Shell) shell.AddChild(BuildShellPart(room, part));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var grounds = new Dictionary<string, (Node3D Node, uint Layer)>(StringComparer.Ordinal);
+        foreach (var part in room.Shell)
+        {
+            var node = BuildShellPart(room, part);
+            shell.AddChild(node);
+            if (part.Collides && room.Terrain?.Part(part.Id) != null) grounds[part.Id] = (node, part.Drawn ? WorldLayer : HiddenLayer);
+        }
+        // The tiled land collides through its tiles' level 0, built where the bodies are (TerrainCollision, S12b).
+        if (TerrainCollision.Create(room, grounds) is { } ground) root.AddChild(ground);
+        if (room.Terrain is { } terrain)
+            GD.Print(System.FormattableString.Invariant(
+                $"ROOM_TERRAIN {terrain.Parts.Count} tiled parts, {terrain.Parts.Sum(p => p.Tiles.Count)} tiles at {terrain.LevelCount} levels; the shell built in {clock.Elapsed.TotalMilliseconds:0} ms"));
         foreach (var instance in room.Objects) objects.AddChild(BuildObject(room, instance));
-        return root;
+        // The 10x world's plants, trees and stones: drawn and collided per 8 m tile, built a few tiles a frame (PlantCopiesView).
+        if (room.Copies != null) root.AddChild(PlantCopiesView.Create(room));
+
+        // An island's loading leaves C#'s heap at about twice what it keeps: compacted once the room has arrived (LoadSettle).
+        if (room.Copies != null || room.Terrain != null) root.AddChild(new LoadSettle { Name = LoadSettle.NodeName });
+        // Everything that draws a file is built: the files' bytes go (a 10x island's are about 40 MB). A second build reads and
+        // checks them again; the land's ground stays in the room's data for collision and navigation.
+        room.ReleaseMeshBytes();
+        // An island's reading leaves most of C#'s heap as garbage (the files, the manifest, the checks): compacted now, before
+        // the navigation bake and the copies add theirs, the loading's peak is that much lower (S12b).
+        if (room.Copies != null || room.Terrain != null) LoadSettle.Compact("the room's reading");
     }
 
     public static string NodeName(string entityId) =>
@@ -44,15 +89,17 @@ public static class RoomBuilder
 
     private static Node3D BuildShellPart(RoomData room, ShellPart part)
     {
+        if (room.Terrain?.Part(part.Id) is { } tiled) return BuildTiledPart(room, part, tiled);
+        // The file is read (and checked again, after a build let its bytes go) before any body exists: a failure leaves nothing.
+        var loaded = part.MeshPath != null ? LoadGlb(room, room.Directory + "/" + part.MeshPath, part.Id) : null;
         Node3D node = part.Collides ? new StaticBody3D { CollisionLayer = part.Drawn ? WorldLayer : HiddenLayer, CollisionMask = 0 } : new Node3D();
         node.Name = NodeName(part.Id);
         node.SetMeta("entity_id", part.Id);
         node.SetMeta("surface_role", part.Role);
         node.SetMeta("material_role", part.MaterialRole);
         node.SetMeta("drawn", part.Drawn);
-        if (part.MeshPath != null)
+        if (loaded is { } scene)
         {
-            var scene = LoadGlb(room, room.Directory + "/" + part.MeshPath, part.Id);
             // A collision-only part ("drawn": false: a climbing pole in a tree's leaves, a cap to stand on) keeps its shapes
             // and never enters the scene as a visual, so no look or capture can show it.
             if (part.Drawn) node.AddChild(scene);
@@ -74,9 +121,58 @@ public static class RoomBuilder
         return node;
     }
 
+    /// <summary>Meta on a tiled terrain part's node: its tile count. Its collision is the island's walkable ground (IslandNavigation.GroundFaces gives the same triangles).</summary>
+    public const string TerrainTilesMeta = "terrain_tiles";
+    /// <summary>Meta on each of a tiled part's drawn meshes: the level of detail it is.</summary>
+    public const string TerrainLevelMeta = "terrain_level";
+
+    /// <summary>
+    /// A tiled shell part (terrain_tiles, the 10x world): every tile's levels drawn, each only within its distance band
+    /// (DrawDistances.TerrainBand), so one level per tile shows. Its collision is level 0 alone, one one-sided shape per tile, read
+    /// from the pinned GLB's floats (TiledPart.GroundFaces) and built where the bodies are by TerrainCollision, whose hits name
+    /// this node; a part that is never drawn is never imported at all. The part keeps its id, roles and metadata: supports,
+    /// nature and the HUD see the shell part they always did.
+    /// </summary>
+    private static Node3D BuildTiledPart(RoomData room, ShellPart part, TiledPart tiled)
+    {
+        var drawn = part.Drawn ? LoadGlb(room, tiled.MeshPath, part.Id) : null;
+        Node3D node = part.Collides ? new StaticBody3D { CollisionLayer = part.Drawn ? WorldLayer : HiddenLayer, CollisionMask = 0 } : new Node3D();
+        node.Name = NodeName(part.Id);
+        node.SetMeta("entity_id", part.Id);
+        node.SetMeta("surface_role", part.Role);
+        node.SetMeta("material_role", part.MaterialRole);
+        node.SetMeta("drawn", part.Drawn);
+        node.SetMeta(TerrainTilesMeta, tiled.Tiles.Count);
+        var levels = room.Terrain!.LevelCount;
+        if (drawn is { } scene)
+        {
+            foreach (var mesh in Meshes(scene))
+            {
+                // Every node of a tiled GLB is a tile (RoomData checked); one the importer renamed is drawn at every distance.
+                var level = TiledPart.ParseNodeName(mesh.Name) is { } tile ? tile.Level : -1;
+                if (level < 0) continue;
+                var (begin, end) = DrawDistances.TerrainBand(level, levels);
+                mesh.VisibilityRangeBegin = begin;
+                mesh.VisibilityRangeBeginMargin = begin > 0 ? DrawDistances.TerrainMarginM : 0f;
+                mesh.VisibilityRangeEnd = end;
+                mesh.VisibilityRangeEndMargin = end > 0 ? DrawDistances.TerrainMarginM : 0f;
+                mesh.SetMeta(TerrainLevelMeta, level);
+            }
+            node.AddChild(scene);
+        }
+        if (RoomWater.IsWater(part))
+        {
+            var ground = new Vector3[tiled.Tiles.Count][];
+            System.Threading.Tasks.Parallel.For(0, ground.Length, i => ground[i] = tiled.GroundFaces(i));
+            node.AddChild(RoomWater.CreateCollider(ground.Select(faces => ((Shape3D)new ConcavePolygonShape3D { Data = faces }, Transform3D.Identity)).ToList()));
+        }
+        return node;
+    }
+
     private static Node3D BuildObject(RoomData room, ObjectInstance instance)
     {
         var asset = instance.Asset;
+        var loaded = asset.GeometryKind == "primitive" ? null : LoadGlb(room, asset.Directory + "/" + asset.MeshPath, instance.Id);
         Node3D body = asset.CollisionKind == "none" ? new Node3D() : new StaticBody3D { CollisionLayer = WorldLayer, CollisionMask = 0 };
         body.Name = NodeName(instance.Id);
         body.Transform = new Transform3D(new Basis(instance.Rotation).Scaled(Vector3.One * instance.Scale), instance.PositionM);
@@ -106,7 +202,7 @@ public static class RoomBuilder
             if (asset.CollisionKind == "primitive") body.AddChild(new CollisionShape3D { Name = "Collision", Shape = shape, Position = centre });
             return body;
         }
-        var visual = LoadGlb(room, asset.Directory + "/" + asset.MeshPath, instance.Id);
+        var visual = loaded!;
         visual.Name = "Visual";
         body.AddChild(visual);
         switch (asset.CollisionKind)
@@ -351,12 +447,17 @@ public static class RoomBuilder
         return true;
     }
 
-    /// <summary>Builds from the bytes RoomData already verified, with no base path, so nothing outside the pinned file can load.</summary>
-    private static Node3D LoadGlb(RoomData room, string path, string label)
+    /// <summary>
+    /// Builds from bytes RoomData verified against the manifest (kept from the load, or read and checked again after a build let
+    /// them go), with no base path, so nothing outside the pinned file can load.
+    /// </summary>
+    internal static Node3D LoadGlb(RoomData room, string path, string label)
     {
-        if (!room.VerifiedMeshes.TryGetValue(path, out var bytes)) throw new RoomLoadException($"{label}: mesh {path} was not verified at load");
-        var document = new GltfDocument();
-        var state = new GltfState();
+        var bytes = room.MeshBytes(path) ?? throw new RoomLoadException($"{label}: mesh {path} was not verified at load");
+        // Released as soon as the scene exists: the importer's state holds every array it read (a 10x island's terrain is
+        // hundreds of megabytes), which would otherwise wait for the garbage collector to finalize the wrappers.
+        using var document = new GltfDocument();
+        using var state = new GltfState();
         var error = document.AppendFromBuffer(bytes, "", state);
         if (error != Error.Ok) throw new RoomLoadException($"{label}: mesh {path} could not be read ({error})");
         return document.GenerateScene(state) as Node3D ?? throw new RoomLoadException($"{label}: mesh {path} has no 3D scene");

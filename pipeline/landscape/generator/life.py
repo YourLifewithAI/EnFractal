@@ -6,6 +6,7 @@ from pipeline.landscape.harness.kit import SIZES
 from .field import clamp, lerp, slope_field, smooth
 from .land import SOFT, dijkstra, geology_tint, inside_distance, local, room_shape
 from .water import chaikin, resample
+from . import scale as world
 
 SNOWLINE = 1.5
 WALK_LIMIT_DEG = 20.   # low-incline planning limit (the body manages 45 degrees)
@@ -142,6 +143,8 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
     out_t = []
     nx = grid.nx
     wall_tint = (.98, .93, .86)
+    W = world.W   # heights above the plain and the snowline are the room's; wetness the body's
+    rock_tints = {}
     for q in range(grid.n):
         x, z = grid.xs[q % nx], grid.zs[q//nx]
         s = slope[q]
@@ -179,30 +182,36 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
             for k in weights:
                 weights[k] *= 1-p
             weights['worn_path'] = p
-        if h[q] > SNOWLINE:
-            sn = smooth((h[q]-SNOWLINE)/.22+.3*n1)*(1-smooth((s-58)/10))
+        if h[q] > SNOWLINE*W:
+            sn = smooth((h[q]-SNOWLINE*W)/(.22*W)+.3*n1)*(1-smooth((s-58)/10))
             for k in weights:
                 weights[k] *= 1-sn
             weights['snow'] = sn
         # Tints: dry high grass goes gold, lush low meadow deep green;
         # rock and soil carry the source object's colour.
-        lush = clamp(moist*.7+smooth((.25-rel)/.25)*.3+.15*n1)
+        lush = clamp(moist*.7+smooth((.25*W-rel)/(.25*W))*.3+.15*n1)
         if outside[q]:
             lush = lush*.6
-        tints = {'meadow': (lerp(.97, .86, lush), lerp(.86, 1., lush), lerp(.55, .78, lush)),
-                 'moss': (.9, 1., .9), 'soil': tuple(lerp(1, c, .35) for c in rock_tint),
-                 'gravel': (1., .97, .92), 'scree': tuple(lerp(1, c, .6) for c in rock_tint),
-                 'cliff': rock_tint, 'rock': rock_tint, 'worn_path': (1., .96, .9),
-                 'snow': (1., 1., 1.)}
-        total = sum(weights.values()) or 1.
         top = sorted(((v, k) for k, v in weights.items() if v > 1e-4), reverse=True)[:2]
         if not top:
             top = [(1., 'meadow')]
         tsum = sum(v for v, _ in top)
         tint = [0., 0., 0.]
         for v, k in top:
+            # The tint of each of the two roles kept (only those are worked out).
+            if k == 'meadow':
+                tk = (lerp(.97, .86, lush), lerp(.86, 1., lush), lerp(.55, .78, lush))
+            elif k in ('soil', 'scree'):
+                key = (k, rock_tint)
+                tk = rock_tints.get(key)
+                if tk is None:
+                    tk = rock_tints[key] = tuple(lerp(1, c, .35 if k == 'soil' else .6) for c in rock_tint)
+            elif k in ('cliff', 'rock'):
+                tk = rock_tint
+            else:
+                tk = FIXED_TINTS[k]
             for i in range(3):
-                tint[i] += tints[k][i]*v/tsum
+                tint[i] += tk[i]*v/tsum
         weights = {k: v/tsum for v, k in top}
         sk = skirt[q] if skirt else 0.
         if sk > 0:
@@ -216,8 +225,10 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
             tint = [lerp(c, 1., sk) for c in tint]
         out_w.append(weights)
         out_t.append(tuple(round(clamp(c), 4) for c in tint))
-        del total
     return out_w, out_t
+
+
+FIXED_TINTS = {'moss': (.9, 1., .9), 'gravel': (1., .97, .92), 'worn_path': (1., .96, .9), 'snow': (1., 1., 1.)}
 
 
 def build_mesh(grid, h, weights, tints, tris):
@@ -258,18 +269,25 @@ def build_mesh(grid, h, weights, tints, tris):
 
 
 # ---------------------------------------------------------------- people
-def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=None):
+SITE_GAP_M = 1.5   # a site given up (no road reached it) rules out its neighbourhood: the cottages spread a metre round it
+
+
+def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=None, skip=()):
     """The best site where water, flat ground and shelter meet; when a room
     offers none, the demands relax a step at a time (steeper ground, farther
-    from water) before giving up."""
+    from water) before giving up. `skip`: sites already given up (the exact
+    walk found no road to them); the best site farther than SITE_GAP_M from
+    each is found instead."""
     for flat_max, far_water, near in ((14, 1.2, .9), (17, 1.8, .9), (20, 3., .9), (24, 9., .6)):
-        site = _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near)
+        site = _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near,
+                            skip)
         if site is not None:
             return site
     return None
 
 
-def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near_spawn=.9):
+def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near_spawn=.9,
+                 skip=()):
     nx = grid.nx
     best = None
     for j in range(0, grid.nz, 2):
@@ -278,6 +296,8 @@ def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, 
             if not inside[q]:
                 continue
             x, z = grid.xs[i], grid.zs[j]
+            if skip and any(math.hypot(x-a, z-b) < SITE_GAP_M for a, b in skip):
+                continue
             if indist(x, z) < (.6 if near_spawn > .8 else .45):
                 continue
             w = wet[q]
@@ -310,11 +330,23 @@ def inside_distance_q(grid, inside, i, j):
     return min(i, j, grid.nx-1-i, grid.nz-1-j)*grid.cell if inside[j*grid.nx+i] else 0.
 
 
-def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12, level=None):
-    """Level a house pad to its mean height (or a given level) and feather it into the land."""
+def touches(dx, dz, r, hx, hz, c, s):
+    """Whether the square of half-side `r` round a point (dx, dz) from a footprint's centre meets the footprint
+    (half sizes hx, hz; c, s the cosine and sine of its yaw, as `flatten` turns the plan): a separating-axis test."""
+    ax, az = abs(c), abs(s)
+    return (abs(dx) <= r+hx*ax+hz*az and abs(dz) <= r+hx*az+hz*ax and
+            abs(c*dx-s*dz) <= hx+r*(ax+az) and abs(s*dx+c*dz) <= hz+r*(ax+az))
+
+
+def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12, level=None, reach=0.):
+    """Level a house pad to its mean height (or a given level) and feather it into the land. `reach`: every vertex
+    of a grid cell that meets the footprint within `reach` is levelled too (a coarse grid's cell at the footprint's
+    edge would otherwise read the bank beyond the margin: the footing stood in the slope)."""
     a = math.radians(yaw)
     c, s = math.cos(a), math.sin(a)
     R = max(hx, hz)+margin+blend
+    if reach:
+        R = max(R, math.hypot(hx, hz)+reach*1.5)
     rx, rz = grid.span(x-R, x+R, z-R, z+R)
     inner = []
     for j in rz:
@@ -331,9 +363,31 @@ def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12, level=None):
             lx, lz = c*dx-s*dz, s*dx+c*dz
             d = max(abs(lx)-hx-margin, abs(lz)-hz-margin, 0.)
             q = j*grid.nx+i
-            t = smooth(d/blend)
+            t = 0. if reach and touches(dx, dz, reach, hx, hz, c, s) else smooth(d/blend)
             h[q] = lerp(level, h[q], t)
     return level
+
+
+def pad_hold(grid, houses, margin, reach=0.):
+    """The cells within `margin` of a cottage's footprint (the rim of the pad `flatten` levels) and, with `reach`,
+    the vertices of every cell meeting the footprint. A way graded later (`build_road`, `grade_line`) cut and filled
+    the cells of that rim that lie outside `pads` > .3 (that protects 4 cm from the footprint, the pad levels 7), so on
+    a coarse grid a way beside a cottage left its footing standing in the slope. Held as a keep-out, they stay as
+    the pad made them."""
+    nx = grid.nx
+    out = [False]*grid.n
+    for hh in houses:
+        R = math.hypot(hh['hx'], hh['hz'])+max(margin, reach*1.5)+grid.cell
+        rx, rz = grid.span(hh['x']-R, hh['x']+R, hh['z']-R, hh['z']+R)
+        a = math.radians(hh['yaw'])
+        c, s = math.cos(a), math.sin(a)
+        for j in rz:
+            for i in rx:
+                dx, dz = grid.xs[i]-hh['x'], grid.zs[j]-hh['z']
+                if max(abs(c*dx-s*dz)-hh['hx'], abs(s*dx+c*dz)-hh['hz'], 0.) <= margin or (
+                        reach and touches(dx, dz, reach, hh['hx'], hh['hz'], c, s)):
+                    out[j*nx+i] = True
+    return out
 
 
 def walk_graph(grid, h, face_slope, wet, inside, blocked_mask, limit=WALK_LIMIT_DEG):
@@ -358,6 +412,7 @@ def walk(grid, h, face_slope, wet, inside, blocked_mask, a, b, limit=WALK_LIMIT_
 
 def paint_path(grid, path, mask, width=.035):
     nx = grid.nx
+    width = max(width, .6*grid.cell)   # a resolution floor: only bites on a grid coarser than 3 cm
     pts = [(grid.xs[q % nx], grid.zs[q//nx]) for q in path]
     for x, z in pts[::2]:
         rx, rz = grid.span(x-width*2, x+width*2, z-width*2, z+width*2)
@@ -371,16 +426,31 @@ def paint_path(grid, path, mask, width=.035):
 
 
 ROAD_GRADE_DEG = 12.
+BENCH_W = .105   # a path's graded half-width on a magnified room, at least (`bench`)
+
+
+def bench(width):
+    """A path's graded half-width (its cut and fill): the body's. On a
+    magnified room it is never narrower than the walk's 11 cm disc plus one
+    step of the walk's 5 cm lattice (5.5 + 5 cm), so the walk resolves the
+    lane the path is graded for wherever it runs (at 2.5 cm a 17 cm bench
+    leaves the disc's centre a 6 cm band, one lattice node on a diagonal)."""
+    return width if world.W == 1 else max(width, BENCH_W)
 
 
 BRIDGE = [.16, .03, .3]   # footbridge prototype: width, deck depth, length (m)
 
 
-def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=None, bridges=None):
+def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=None, bridges=None, record=None,
+               pins=None):
     """A worn path is built, not found: route the easiest way, then grade it
     (cut and fill) so it climbs no steeper than ROAD_GRADE_DEG. Where it must
     cross a stream (never a lake), it crosses once, square to the water, on a
-    level timber footbridge; the banks are filled up to the deck at each end."""
+    level timber footbridge; the banks are filled up to the deck at each end.
+    `record(pts, levels, width, reach)` is told the graded line (the 10x
+    world's detail replays its cut and fill). `pins(x, z)` gives a level the
+    line must keep where it has one (a cottage's forecourt), as a deck's."""
+    width = bench(width)
     nx = grid.nx
     s = slope_field(grid, h)
     cost = [1+8*(s[q]/25)**2+(60 if s[q] > 38 else 0) for q in range(grid.n)]
@@ -389,14 +459,20 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
             if wet[q] < .24 and crossable(q):
                 cost[q] += 40
 
+    ia, ja = grid.nearest(*a)
+    ib, jb = grid.nearest(*b)
+    goal = jb*nx+ib
+
     def blocked_fn(q, p):
         if (not inside[p]) or blocked[p]:
             return True
+        if p == goal and wet[p] > 0.:
+            # The road reaches its own goal on dry land, even inside the band it keeps off the water: a cottage's
+            # forecourt by the shore (on the 10x world the hamlet's water is often the sea, and its road was never built).
+            return False
         return wet[p] < .24 and not (crossable is not None and crossable(p))
 
-    ia, ja = grid.nearest(*a)
-    ib, jb = grid.nearest(*b)
-    path = dijkstra(grid, cost, ja*nx+ia, [jb*nx+ib], 1, blocked_fn)
+    path = dijkstra(grid, cost, ja*nx+ia, [goal], 1, blocked_fn)
     if path is None:
         return None
     pts = resample(chaikin([(grid.xs[q % nx], grid.zs[q//nx]) for q in path], 2), .03)
@@ -425,6 +501,11 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
     for a_, b_, top in decks:
         for kk in range(a_, b_+1):
             g[kk] = top-.006
+    if pins is not None:
+        for k, (x, z) in enumerate(pts):
+            v = pins(x, z)
+            if v is not None:
+                g[k] = v
     for _ in range(2):
         for k in range(1, len(g)):
             g[k] = min(max(g[k], g[k-1]-m), g[k-1]+m)
@@ -438,6 +519,8 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
                                 length=length, top=top))
     best = {}
     reach = width+.1
+    if record is not None:
+        record(pts, list(g), width, reach)
     for k, (x, z) in enumerate(pts):
         rx, rz = grid.span(x-reach, x+reach, z-reach, z+reach)
         for j in rz:
@@ -460,11 +543,12 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
     return pts
 
 
-def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
+def grade_line(grid, h, wet, pads, pts, width=.085, bridges=(), record=None, pins=None):
     """Cut and fill along a line of points so a body's lane follows it at no
     more than ROAD_GRADE_DEG and level across (used where a walk proved the
     land too steep for the way a path must go). Where the line crosses a
     footbridge it follows the deck, so the landings are graded up to it."""
+    width = bench(width)
     nx = grid.nx
 
     def deck(x, z):
@@ -475,6 +559,9 @@ def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
                 return b['top']-.006
         return None
     on_deck = [deck(x, z) for x, z in pts]
+    if pins is not None:
+        # A level the line must keep (a cottage's forecourt) is held like a deck's.
+        on_deck = [pins(x, z) if d is None else d for (x, z), d in zip(pts, on_deck)]
     g = [grid.sample(h, x, z) if d is None else d for (x, z), d in zip(pts, on_deck)]
     for _ in range(4):
         g = [sum(g[max(0, k-6):k+7])/len(g[max(0, k-6):k+7]) for k in range(len(g))]
@@ -486,6 +573,8 @@ def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
         g[k] = min(max(g[k], g[k+1]-m), g[k+1]+m)
     best = {}
     reach = width+.1
+    if record is not None:
+        record(pts, list(g), width, reach)
     for k, (x, z) in enumerate(pts):
         rx, rz = grid.span(x-reach, x+reach, z-reach, z+reach)
         for j in rz:
@@ -505,6 +594,7 @@ def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
 
 def paint_line(grid, pts, mask, width=.035):
     nx = grid.nx
+    width = max(width, .6*grid.cell)   # a resolution floor: only bites on a grid coarser than 3 cm
     for x, z in pts[::2]:
         rx, rz = grid.span(x-width*2, x+width*2, z-width*2, z+width*2)
         for j in rz:

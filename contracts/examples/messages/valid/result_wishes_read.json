@@ -1,0 +1,28 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "wishes.read",
+  "query_id": "q-0023",
+  "principal": "player:local",
+  "room_id": "garage_example",
+  "revision": 6,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "items": [
+      {
+        "wish_id": "wish:iyap66v55e3ougdueyajmztlpq",
+        "text": "A path of flowers to the shelves",
+        "status": "partial",
+        "action_count": 3,
+        "refusal_codes": [
+          "out_of_bounds"
+        ],
+        "aim_id": "obj:shelving_right",
+        "result_code": "completed"
+      }
+    ]
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}

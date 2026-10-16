@@ -17,8 +17,9 @@ namespace EnFractal.Native.Kernel;
 ///   discovered space of each level (a walkable surface: the floor, an object's top) as 5 cm cells. It is saved with
 ///   the room and survives link sessions.
 /// - The journal writer records goals as tasks (one entry per task, updated in place), finished fetches, and creations
-///   built, changed and removed, with who acted and at whose direction as far as the host can verify it. Not every step,
-///   sight or routine move. Lines come from templates and sanitised names, so a name can never write an entry.
+///   built, changed and removed, with who acted and at whose direction as far as the host can verify it, and the
+///   consequences of the Gubble's actions for the player (kind "consequence": the AI's lessons, read back by kind). Not
+///   every step, sight or routine move. Lines come from templates and sanitised names, so a name can never write an entry.
 /// - journal.note is the sender's own words, marked as such (untrusted), never a fact; journal.read and map.find answer
 ///   only from the journal and the team's map, so nothing undiscovered can leak through them.
 /// Both are kept in the authority's save as the host-owned team block, checked when a save loads.
@@ -54,7 +55,8 @@ public partial class CommandHost
     private static readonly Regex UtcPattern = new(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z\z", RegexOptions.Compiled);
     private static readonly Regex KnownIdPattern = new(@"\A(obj|creation):[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex SupportPattern = new(@"\A(shell|obj|creation):[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
-    private static readonly HashSet<string> JournalKinds = new() { "task", "built", "changed", "removed", "found", "gathered", "note" };
+    /// <summary>The kinds of entry. "consequence" is the host's fact of what the Gubble's actions did to the player (CommandHostConsequences): its lessons.</summary>
+    private static readonly HashSet<string> JournalKinds = new() { "task", "built", "changed", "removed", "found", "gathered", "consequence", "note" };
     private static readonly HashSet<string> Principals = new() { PlayerPrincipal, CompanionPrincipal };
     /// <summary>Goals whose task stays in the history when it ends: a completed action. Following, coming and going somewhere leave none.</summary>
     private static readonly HashSet<string> RecordedGoals = new() { "fetch" };
@@ -135,11 +137,11 @@ public partial class CommandHost
     private static void AddTo(List<JsonObject> history, JsonObject entry)
     {
         history.Add(entry);
-        // The oldest found and gathered entries go first, then other routine ones; built and changed are kept.
+        // The oldest found and gathered entries go first, then other routine ones; built, changed and the lessons (consequence) are kept.
         while (history.Count > MaxHistory)
         {
             var drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is "found" or "gathered");
-            if (drop < 0) drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is not ("built" or "changed"));
+            if (drop < 0) drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is not ("built" or "changed" or "consequence"));
             history.RemoveAt(drop < 0 ? 0 : drop);
         }
     }
@@ -371,47 +373,6 @@ public partial class CommandHost
     /// <summary>The team's map (one team in single player): the store the companion's perception memory became.</summary>
     private PerceptionMemory TeamMemory() => MemoryOf(CompanionPrincipal);
 
-    /// <summary>
-    /// The host's sight sweep: what each avatar's eyes see goes into the team's map, entities and space. Each sweep is
-    /// bounded: at most SweepEntitiesPerAvatar things are looked at per avatar, in turn, and at most DiscoverRaysPerSweep
-    /// cells, nearest first among those not tried lately.
-    /// </summary>
-    private void SightSweep(double delta)
-    {
-        if (TeamSightIntervalS <= 0 || Authority == null || !Authority.Call("is_ready").AsBool()) return;
-        _sightClock += delta;
-        _saveClock += delta;
-        if (_sightClock >= TeamSightIntervalS)
-        {
-            _sightClock = 0;
-            _sweepCount++;
-            var entities = Entities();
-            RefreshLevels(entities);
-            var things = entities.Where(e => e["kind"]!.GetValue<string>() is "object" or "creation").ToList();
-            var turn = things.Count <= SweepEntitiesPerAvatar ? things
-                : Enumerable.Range(0, SweepEntitiesPerAvatar).Select(i => things[(_sweepEntityCursor + i) % things.Count]).ToList();
-            _sweepEntityCursor = things.Count == 0 ? 0 : (_sweepEntityCursor + SweepEntitiesPerAvatar) % things.Count;
-            var looked = entities.Where(e => e["kind"]!.GetValue<string>() is "avatar" or "shell").Concat(turn).ToList();
-            var considered = new HashSet<string>(looked.Select(e => e["id"]!.GetValue<string>()), StringComparer.Ordinal);
-            // What the map remembers that is no longer in the room is looked for too (its place, seen empty, drops it), in turn.
-            var live = new HashSet<string>(entities.Select(e => e["id"]!.GetValue<string>()), StringComparer.Ordinal);
-            var gone = TeamMemory().Order.Where(id => !live.Contains(id)).ToList();
-            if (gone.Count > 0)
-            {
-                foreach (var id in Enumerable.Range(0, Math.Min(SweepEntitiesPerAvatar, gone.Count)).Select(i => gone[(_sweepGoneCursor + i) % gone.Count])) considered.Add(id);
-                _sweepGoneCursor = (_sweepGoneCursor + SweepEntitiesPerAvatar) % gone.Count;
-            }
-            foreach (var (body, avatar) in new (SmallPlayerController?, string)[] { (Player, PlayerAvatar), (Companion, CompanionAvatarId) })
-            {
-                if (body == null || !IsInstanceValid(body) || !body.IsInsideTree()) continue;
-                Remember(body, avatar, entities, Perceive(body, avatar, looked), considered);
-                Discover(body);
-            }
-            _teamDirty = true;
-        }
-        if (_teamDirty && _saveClock >= TeamSaveIntervalS) SaveTeam();
-    }
-
     private int LevelBytes() => _levels.Values.Sum(l => l.Cells.Length);
 
     /// <summary>
@@ -457,11 +418,12 @@ public partial class CommandHost
     /// tried lately; a cell a ray did not reach waits DiscoverRetrySweeps sweeps, so cells never in sight (under a tabletop)
     /// do not starve the rest (review major 4). At most DiscoverCandidatesPerSweep cells are looked at, the levels in turn.
     /// </summary>
-    private void Discover(SmallPlayerController body)
+    private void SelectDiscoverCandidates(Vector3 eye, List<DiscoverCandidate> candidates)
     {
-        var eye = body.EyeCamera.GlobalPosition;
-        var candidates = new List<(int Tried, int Last, float Distance, Level Level, int C, int R, Vector3 Point)>();
-        var levels = _levels.Values.ToList();
+        candidates.Clear();
+        var levels = _discoverLevels;
+        levels.Clear();
+        levels.AddRange(_levels.Values);
         var examined = 0;
         for (var n = 0; n < levels.Count && examined < DiscoverCandidatesPerSweep; n++)
         {
@@ -478,24 +440,37 @@ public partial class CommandHost
                 if (level.Get(c, r) || (tried && _sweepCount - last < DiscoverRetrySweeps)) continue;
                 var point = new Vector3((float)(level.MinX + (c + 0.5) * DiscoverCellM), (float)level.Height + 0.005f, (float)(level.MinZ + (r + 0.5) * DiscoverCellM));
                 var distance = new Vector2(point.X - eye.X, point.Z - eye.Z).Length();
-                if (distance <= DiscoverRadiusM) candidates.Add((tried ? 1 : 0, tried ? last : 0, distance, level, c, r, point));
+                if (distance <= DiscoverRadiusM) candidates.Add(new DiscoverCandidate(tried ? 1 : 0, tried ? last : 0, distance, candidates.Count, level, c, r, point));
             }
         }
-        var space = body.GetWorld3D().DirectSpaceState;
-        var exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
+        levels.Clear();
         // Never-tried cells first, nearest first; then retries, the longest-waiting first. Cells that are never in sight can
-        // never take every ray from cells not yet looked at (review major 7, second review).
-        foreach (var (_, _, _, level, c, r, point) in candidates.OrderBy(x => x.Tried).ThenBy(x => x.Last).ThenBy(x => x.Distance).Take(DiscoverRaysPerSweep))
-        {
-            var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer, exclude));
-            if (hit.Count == 0 || hit["position"].AsVector3().DistanceTo(point) <= 0.015f)
-            {
-                level.Set(c, r);
-                _cellCooldown.Remove((level.Support, r * level.Columns + c));
-            }
-            else _cellCooldown[(level.Support, r * level.Columns + c)] = _sweepCount;
-        }
+        // never take every ray from cells not yet looked at (review major 7, second review). (Ties keep the order the cells were
+        // examined in, as a stable sort would.) The sweep casts at most DiscoverRaysPerSweep of them (DiscoverCell), in this order.
+        candidates.Sort(DiscoverCandidate.Order);
     }
+
+    /// <summary>One candidate cell looked at from the eye: discovered when a ray reaches it, else it waits DiscoverRetrySweeps sweeps.</summary>
+    private void DiscoverCell(SmallPlayerController body, Vector3 eye, Rid exclude, DiscoverCandidate cell)
+    {
+        var (level, c, r, point) = (cell.Level, cell.C, cell.R, cell.Point);
+        if (!CastSight(body, eye, point, exclude, out var hit) || hit.DistanceTo(point) <= 0.015f)
+        {
+            level.Set(c, r);
+            _cellCooldown.Remove((level.Support, r * level.Columns + c));
+        }
+        else _cellCooldown[(level.Support, r * level.Columns + c)] = _sweepCount;
+    }
+
+    /// <summary>A cell Discover may look at, and the order it is looked at in (tried, last tried, distance, then as examined).</summary>
+    private readonly record struct DiscoverCandidate(int Tried, int Last, float Distance, int Examined, Level Level, int C, int R, Vector3 Point)
+    {
+        public static readonly Comparison<DiscoverCandidate> Order = (a, b) =>
+            a.Tried != b.Tried ? a.Tried.CompareTo(b.Tried) : a.Last != b.Last ? a.Last.CompareTo(b.Last)
+            : a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Examined.CompareTo(b.Examined);
+    }
+
+    private readonly List<Level> _discoverLevels = new();
 
     /// <summary>Test seam: forget all discovered space (the levels stay, blank) and every cell's tries.</summary>
     internal void ForgetDiscoveredSpace()
@@ -518,11 +493,28 @@ public partial class CommandHost
 
     // ---- saving the team block (journal + discovered + the open tasks' goals) ----
 
+    /// <summary>
+    /// The sweep's throttled save: the team block, with nature in the same write when nature has changed and waits for its own
+    /// throttle (S12: each write is the whole save, about 8 ms of the main thread on the 10x island; two a few seconds apart were two
+    /// hitches). Nature is only ever saved sooner this way, never later.
+    /// </summary>
+    private void SaveTeamOrBoth()
+    {
+        if (!NatureConfigured || _natureUnavailable || !_natureDirty)
+        {
+            SaveTeam();
+            return;
+        }
+        // The team's throttle starts again whatever happens, as SaveTeam's does (a save offer pending writes nothing).
+        _saveClock = 0;
+        SaveNature();
+    }
+
     /// <summary>Save the journal and the map now (a fact, a task or the sweep's throttle). Never while the save is unavailable.</summary>
     private void SaveTeam()
     {
         _saveClock = 0;
-        if (Authority == null || !Authority.Call("is_ready").AsBool()) return;
+        if (Authority == null || !Authority.Call(KernelNames.IsReady).AsBool()) return;
         // While an earlier save is offered and the player has not answered, sightings and tasks wait in memory: writing them
         // would make a save of this room and withdraw the offer (review major 6, second review).
         if (_migrationOffer != null && !Godot.FileAccess.FileExists(SavePath))
@@ -530,27 +522,44 @@ public partial class CommandHost
             _teamDirty = true;
             return;
         }
-        var saved = Authority.Call("set_team", KernelJson.ToVariant(ExportTeam(_notes))).AsGodotDictionary();
-        _teamDirty = !saved["ok"].AsBool();
+        using var team = KernelJson.ToVariant(ExportTeam(_notes));
+        _teamDirty = !SavedOk(Authority.Call(KernelNames.SetTeam, team));
+        // One write of the whole save at a time (S12, each is about 8 ms of the main thread on the 10x island): nature, if it
+        // changes meanwhile, waits a whole throttle from this write and then goes with whatever else waits then.
+        if (!_teamDirty) _natureSaveClock = 0;
     }
 
-    /// <summary>The team block as the save keeps it: room state's journal and discovered, plus the open tasks' goals.</summary>
-    private JsonObject ExportTeam(List<JsonObject> notes, List<JsonObject>? history = null) => new()
+    /// <summary>Whether a save call answered ok; its answer is freed here.</summary>
+    private static bool SavedOk(Variant answer)
+    {
+        using (answer)
+        using (var outcome = answer.AsGodotDictionary())
+        using (var ok = outcome.TryGetValue(SavedKeys.Ok, out var value) ? value : default)
+            return ok.VariantType == Variant.Type.Bool && ok.AsBool();
+    }
+
+    private static class SavedKeys
+    {
+        public static readonly Variant Ok = "ok";
+    }
+
+    /// <summary>The team block as the save keeps it: room state's journal and discovered, plus the open tasks' goals, and whose save it is (M3).</summary>
+    private JsonObject ExportTeam(List<JsonObject> notes, List<JsonObject>? history = null) => WithSaveTeam(new()
     {
         ["journal"] = ExportJournal(notes, history),
         ["discovered"] = ExportDiscovered(),
         ["task_goals"] = new JsonObject(_taskGoals.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))),
         ["avatars"] = AvatarIdentities(),
-    };
+    });
 
     /// <summary>The avatars' identities as the save keeps them: the player's colour, the companion's name and colour.</summary>
     private JsonObject AvatarIdentities()
     {
         var avatars = new JsonObject();
         if (Player != null && IsInstanceValid(Player))
-            avatars[PlayerAvatar] = new JsonObject { ["display_name"] = "Player", ["color"] = "#" + Player.AppearanceColor.ToHtml(false) };
+            avatars[PlayerAvatar] = WithBody(new JsonObject { ["display_name"] = "Player", ["color"] = "#" + Player.AppearanceColor.ToHtml(false) }, Player);
         if (Companion != null && IsInstanceValid(Companion))
-            avatars[CompanionAvatarId] = new JsonObject { ["display_name"] = KernelJson.DisplayText(Companion.CompanionName, 40), ["color"] = "#" + Companion.AppearanceColor.ToHtml(false) };
+            avatars[CompanionAvatarId] = WithBody(new JsonObject { ["display_name"] = KernelJson.DisplayText(Companion.CompanionName, 40), ["color"] = "#" + Companion.AppearanceColor.ToHtml(false) }, Companion);
         return avatars;
     }
 
@@ -663,9 +672,10 @@ public partial class CommandHost
     private string? TeamProblemUnchecked(JsonObject? team, int revision)
     {
         if (team == null) return "not an object";
-        if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals" or "avatars"))) return "an unknown block";
+        if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals" or "avatars") && !IsSaveTeamKey(p.Key))) return "an unknown block";
+        if (SaveTeamProblem(team) is { } whose) return whose;
         if (team["avatars"] is { } avatars && (avatars is not JsonObject identities || identities.Any(p => p.Key is not (PlayerAvatar or CompanionAvatarId) ||
-            p.Value is not JsonObject identity || identity.Count != 2 || !Text(identity["display_name"], 40) ||
+            p.Value is not JsonObject identity || identity.Count != (identity.ContainsKey("body") ? 3 : 2) || !BodyIsValid(identity) || !Text(identity["display_name"], 40) ||
             identity["color"]?.GetValueKind() != JsonValueKind.String || !System.Text.RegularExpressions.Regex.IsMatch(identity["color"]!.GetValue<string>(), @"\A#[0-9a-fA-F]{6}\z") ||
             (p.Key == PlayerAvatar && identity["display_name"]!.GetValue<string>() != "Player")))) return "an avatar's identity";
         if (team["journal"] is JsonObject journal && JournalProblem(journal, revision) is { } j) return j;
@@ -780,13 +790,18 @@ public partial class CommandHost
 
     private void LoadTeamUnchecked(JsonObject? team, bool closeOpenTasks)
     {
+        // A sweep under way read the map and the levels as they were: the next one starts from what is loaded.
+        _sweep = null;
         _openTasks = new(); _history = new(); _notes = new(); _taskGoals = new(StringComparer.Ordinal);
         _taskTargets.Clear();
         _cellCooldown.Clear();
         _levels.Clear();
         var memory = TeamMemory();
         memory.Clear();
+        _savedTeam = null;
         if (team == null || team.Count == 0 || TeamProblem(team, Revision) != null) return;
+        // Whose save it is and how it plays (M3): the boot's choice of difficulty defers to it.
+        _savedTeam = ReadSaveTeam(team);
         if (team["journal"] is JsonObject journal)
         {
             _openTasks = journal["open_tasks"]!.AsArray().Select(n => (JsonObject)n!.DeepClone()).ToList();
@@ -827,7 +842,11 @@ public partial class CommandHost
                 Companion.SetAppearance(new Color(companion["color"]!.GetValue<string>()));
             }
             if (identities[PlayerAvatar] is JsonObject player && Player != null && IsInstanceValid(Player))
+            {
                 Player.SetAppearance(new Color(player["color"]!.GetValue<string>()));
+                // The drawn character the player wore in this room (the characters round), when the save names one.
+                if (StrOf(player["body"]) is { } body) Player.SetCharacterId(body);
+            }
         }
         EvictPastTheBound(TeamMemory(), new HashSet<string>(StringComparer.Ordinal));
         if (!closeOpenTasks || _openTasks.Count == 0) return;

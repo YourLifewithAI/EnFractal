@@ -35,11 +35,40 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
   `approved_by`; approvals expire, and lapse as soon as the entities they touch change (at most 8
   wait per principal). Every safety property also holds with an empty held set;
 - protection is the player's: `protect.unlock` (every op in `$defs/player_only_ops`) is refused
-  from companion principals, and no companion command (including `room.undo`) changes a protected
-  entity or any protection state except adding a lock;
-- a companion's `room.undo` steps back only over revisions its own commands made: undoing the
-  player's changes is the player's alone;
+  from companion principals, and no companion command changes a protected entity or any protection
+  state except adding a lock;
+- nature (Bloom, the flower trail, Fire, repair; contracts/README.md "Nature") is not simulated here yet:
+  `nature.cast`, `nature.trail` and `nature.repair` are checked as the kernel checks them before its
+  nature runs (the contract's args, refused request_invalid as CheckNatureArgs does; the revisions; a
+  companion's repair target in sight), then answered `unavailable`, and so is `nature.describe`. With no
+  nature change to take back, `room.undo` answers as the kernel's does for any other change: an earlier
+  revision is unsupported_capability, a revision that is not earlier is invalid_args; outside Creative it is
+  refused before anything else (there is no undo in Challenge or Live);
+- the Bubble as the founder redesigned it (decisions 55 to 60; the kernel's Kernel/Bubble) is hosted abstractly, with the
+  kernel's refusals in its order and its receipts: effect.start of Bubbles casts one player-sized bubble at a spot and the
+  place decides (on the player a carry, the companion's previewed first, its ghost shown and the same cast committed a moment
+  later; elsewhere a bubble to walk into, `player_steps_into`, judged where it forms, resting on what is under its spot, so one
+  that would form round the player is on them; the box world has no water, so never a boat); nature.cast still
+  names bubble_carry (on the player naming its preview_id, or at a point) and bubble_boat (refused: no water), and refuses
+  bubble_lift (Lift is a lead); one bubble at a time, a recast popping it, no pause after a pop; bubbles count toward the
+  room's effect cap at any effect's start; a committed bubble is transient with an effect: id, popped by goal.stop of the
+  Gubble, effect.stop, the dive key (`player_pops_bubble`) or its timer, and its receipt says carried and ended;
+- goal.set lead (the smart ask's steering): the Gubble leads a bubble (target: its effect: id, never an avatar) to a spot
+  (position_m inside the island: the kernel's InsideIsland, the room's bounds without a sea, the top and the bottom round an
+  island), set by the player or the companion; the job ends on `goal_arrived` (the bubble at the spot), `goal_blocked`
+  (target_unreachable), or the bubble popping first (target_not_found); the Gubble's own stop or a new goal pops the bubble it
+  leads; the goal.set receipt says how the lead ended. A spot higher than the bubble's is a lift (data.lift, lift_price); the
+  mock keeps no pool, so a lift is never refused for pips here. The mock has no physics: a bubble neither drifts nor deflates;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
+- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v4.json:
+  Glow, Bubbles, Fireworks, Bloom and Fire; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
+  kernel's rules, order of refusals, codes and result data (CommandHostEffects.cs), the same for every primitive
+  (light.emit, particles.float, particles.burst). Bloom and Fire are cast with nature.cast, never effect.start, and
+  what needs the game itself (terrain-aware Glow, nature, the wish queue) is answered `unavailable`. The Gubble
+  carries every ability out: a companion may target only its own avatar (self) or name no targets (a point within
+  reach and in the team's sight); effect ids are
+  opaque; effects end at their duration, on `effect.stop` (the player any, a companion its own) and on a `goal.stop`
+  that covers the Gubble. Effects are not entities: no query lists them, as on the kernel host;
 - world text is emitted only in contract fields and sanitised (textsafety.py);
 - every result is validated before it leaves; one that would not validate becomes `internal_error`.
 
@@ -62,8 +91,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import perception, textsafety
+from . import eyes, perception, textsafety
 from .mock_journal import JournalMixin
+from .mock_trust import TrustMixin
+from .glow_progress import GlowProgress
 from .canonical import CanonicalJsonError
 from .contract import (
     COMMAND_SCHEMA,
@@ -75,7 +106,8 @@ from .contract import (
     is_authority_key,
     value_problems,
 )
-from .refusals import HostError, base_result, failure, forbidden_key_error, map_schema_errors, value_error
+from .refusals import (FRACTAL_REFUSAL, HostError, base_result, effect_args_error, failure, forbidden_key_error,  # noqa: F401
+                       lead_args_error, map_schema_errors, names_a_fractal, nature_args_error, value_error)
 
 log = logging.getLogger("enfractal.mock_host")
 
@@ -83,8 +115,49 @@ PLAYER = "player:local"
 COMPANION = "companion:local"
 OWN_AVATAR = {PLAYER: "avatar:player", COMPANION: "avatar:companion"}
 STOP_OPS = frozenset({"goal.stop", "effect.stop"})
+# The nature commands (contracts/README.md "Nature"): the mock checks them as the kernel does before its nature runs, then
+# answers unavailable. A follow-up models nature here (test_host_alignment.py NATURE_NOT_IN_THE_MOCK).
+NATURE_OPS = frozenset({"nature.cast", "nature.trail", "nature.repair"})
+# What room.undo answers when the latest change is not a nature change (CommandHostNature.NatureUndo, word for word).
+UNDO_NOT_EARLIER = "Undo names an earlier room revision."
+UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only nature changes (Bloom, Fire, the trail, repairs) "
+                    "can be undone.")
+# Outside Creative there is no undo at all (the founder, 13 October): the kernel's Unsupported, before any revision check.
+UNDO_NOT_IN_THIS_MODE = "There is no undo in Challenge or Live: what happens there stays."
+# The mechanics round (M0, and M1's gather): its player-only ops, and the kernel's words for what is not built yet
+# (CommandHost.Unsupported: MechanicsNotYet, DifficultyNotYet) and for a Fractal the companion may not gather (FractalRefusal). The kernel hosts the player's item.pickup and item.gather since M1; the mock, which places no Fractals and
+# keeps no wallet, answers the player's not available yet.
+MECHANICS_PLAYER_OPS = frozenset({"item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset"})
+BUBBLES_EXPERTISE = frozenset({"bubble_carry", "bubble_boat", "bubble_lift"})
+MECHANICS_NOT_YET = "This operation is not available yet."
+DIFFICULTY_NOT_YET = "Difficulties are chosen at the opening menu, which is not built yet."
+# The Bubble (M9): the kernel's provisional numbers (Kernel/Bubble/BubbleLaws.cs, held equal by test_kernel_alignment.py) and
+# its words for the refusals a companion meets most.
+BUBBLE_CARRY_RADIUS_M = (0.07, 0.2)
+BUBBLE_BOAT_RADIUS_M = (0.08, 0.3)
+BUBBLE_CARRY_RADIUS_DEFAULT_M = 0.08  # the Bubble's one size, round the 10 cm body (BubbleLaws.CarryRadiusDefaultM)
+BUBBLE_GHOST_LEAD_S = 1.0
+BUBBLE_GHOST_LIFETIME_S = 15.0
+BUBBLE_ENVELOP_REACH_M = 0.05
+BUBBLE_STEP_IN_CLEARANCE_M = 0.02
+BUBBLE_MAX = 1  # one bubble at a time (decision 59): a recast pops the one there
+BUBBLE_MAX_GHOSTS = 8
+BUBBLE_LIFT_ABOVE_DRIFT_M = 0.1  # a lead's spot this much higher than the bubble is a lift (BubbleLaws.LiftAboveDriftM)
+ISLAND_SLACK_M = 0.02  # a spot this far past the room's bounds still counts as inside them (the kernel's CommandHost.IslandSlackM)
+BUBBLE_GHOST_LEAD = "The player is still seeing the bubble's ghost; cast it again in a moment."
+BUBBLE_PREVIEW_AGAIN = "Preview this bubble again before casting: the place, the player or the time has changed."
+BUBBLE_GHOST_FIRST = "A bubble on the player is previewed first: preview this cast so the player sees its ghost, then cast it again."
+BUBBLE_AT_A_SPOT = "The Bubble is cast at a spot: on the player, on water or on the ground beside them. Name no targets."
+BUBBLE_LIFT_IS_A_LEAD = "Lift is leading a bubble to a higher spot: cast the Bubble, then lead it there (goal.set lead)."
+BUBBLE_ON_THE_PLAYER = ("The player stands there: cast the carry on the player (it is previewed first), or beside them so they can step "
+                        "in.")
+BUBBLE_NO_WATER = "A Bubble boat is cast on water."
+LEAD_POPPED = "The bubble popped before it got there."
+LEAD_BLOCKED = "The bubble cannot get there from here."
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
-                           "world.set_physics"})
+                           "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust", "receipt.mark", "trust.reset"})
+# The mechanics round's player-only ops the mock hosts (M8's Trust, mock_trust.py); the rest answer as not available yet.
+MECHANICS_HOSTED = frozenset({"receipt.mark", "trust.reset"})
 # Durable, but they change no world state, so they do not move the room revision.
 NO_REVISION_OPS = frozenset({"room.checkpoint", "journal.note"})
 # The game's world physics presets (game/scripts/world_physics_profile.gd PRESET_IDS). Player-only, not saved.
@@ -105,17 +178,36 @@ WALKING_GOALS = frozenset({"come", "go_to", "fetch"})
 
 # A come (and a fetch's walk back) ends this far from the player, centre to centre (CompanionAvatar.ComeArrivalM).
 COME_ARRIVAL_M = 0.14
+# The Gubble's mean height over its support (SmallPlayerController.HoverHeightM).
+# This box model has no physics tick and does not simulate the real body's 4 mm bob.
+HOVER_M = 0.02
 # Both avatars have the 10 cm body (perception.py): radius 0.02 m, height 0.10 m, as Entity half_extents.
 _BODY = [perception.BODY_RADIUS_M, perception.BODY_HEIGHT_M, perception.BODY_RADIUS_M]
 
 DEFAULT_ROOM_DIR = DEFAULT_REPO_ROOT / "game" / "rooms" / "test_room"
 DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
 
-# Effect capabilities the mock supports: name -> (category, {param: (min, max)}).
-CAPABILITIES: dict[str, tuple[str, dict[str, tuple[float, float]]]] = {
-    "wind_field": ("air", {"speed_mps": (0.0, 5.0), "direction_deg": (0.0, 360.0)}),
-    "glow": ("light", {"intensity": (0.0, 1.0)}),
-}
+# The island's rules (contracts/island-rules.schema.json): the abilities effect.start casts and capabilities.list lists,
+# read from the same pack the kernel host loads (RoomWorld.DefaultRulesId and DefaultRulesVersion, res://rules/<id>/v<N>.json).
+# v4 retains Glow's earned five-light ceiling and advertises native nature abilities through their own command route.
+DEFAULT_RULES_ID = "storybook_wild"
+DEFAULT_RULES_VERSION = 5
+DEFAULT_RULES_DIR = DEFAULT_REPO_ROOT / "game" / "rules"
+# A pack is small (at most 32 abilities); anything larger is refused before it is parsed (IslandRules.MaxPackBytes).
+MAX_RULES_PACK_BYTES = 65536
+# capabilities.list pages this many when no limit is given (CommandHost.CapabilitiesDefaultLimit).
+CAPABILITIES_DEFAULT_LIMIT = 50
+# A point effect's place must be in the team's sight: a column twice EFFECT_SIGHT_HALF_WIDTH_M wide over the centre
+# (CommandHost.EffectSightHalfWidthM), as tall as the wisp floats above it (GlowLook.WispLiftM).
+EFFECT_SIGHT_HALF_WIDTH_M = 0.02
+WISP_LIFT_M = 0.06
+# Effect ids: 'effect:' and 26 lowercase base32 characters (130 random bits), opaque like job ids, never a counter.
+EFFECT_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
+EFFECT_ID_LENGTH = 26
+# A room with the landscape sea has no walls to keep a point effect inside (RoomSea.ExtensionName).
+SEA_EXTENSION = "x_landscape_sea"
+# The avatar that carries out every ability the player casts (the Gubble).
+GUBBLE = "avatar:companion"
 
 RECOMMENDED_HELD_OPS = frozenset({"entity.remove", "entity.transform", "creation.revise", "room.undo", "style.set"})
 
@@ -138,8 +230,10 @@ class HostPolicy:
     # counted before parsing, so invalid messages count too. Stops are exempt; the player is never limited.
     # The MCP adapter keeps its own, tighter per-kind buckets in front of this (server.py).
     companion_messages_per_s: int = 30
-    # Perception (founder decision 1: line of sight). See docs/companion/PERCEPTION.md.
-    observe_max_radius_m: float = 20.0
+    # Perception (founder decision 1: line of sight). See docs/companion/PERCEPTION.md. observe answers everything in
+    # line of sight with no distance cut-off (the kernel's, since the 10x world); the contract bounds a given radius_m
+    # to 150 m. A finite value here caps whatever radius observe asks for (tests).
+    observe_max_radius_m: float = math.inf
     companion_targets_need_perception: bool = True  # commands may only name entities in sight now
     follow_player_out_of_sight: bool = True  # follow/come keep working when the player is not in sight
     # Perception memory (founder decision, 6 October 2026: the companion remembers what it saw).
@@ -158,9 +252,9 @@ class HostPolicy:
     # A remembered entity is flagged may_be_stale after this long, or as soon as it changes.
     perception_memory_stale_after_s: float = 60.0
     max_jobs_per_principal: int = 256  # goal jobs kept for jobs.status, oldest finished dropped first
-    # Effects (open founder question: may companion effects touch the player's avatar?).
-    companion_effects_may_target_player: bool = True
-    max_effects_per_principal: int = 4
+    # Effects: the island's rules (the pack) bound each ability and its max_active; the engine also caps the active
+    # effects in a room, whatever the ability and whoever cast them (kernel: MaxActiveEffects). Tests lower it.
+    max_active_effects: int = 8
     max_creations: int = 32
     carry_limit_kg: dict[str, float] = field(default_factory=lambda: {"avatar:player": 0.5, "avatar:companion": 2.0})
     history_depth: int = 64
@@ -174,6 +268,11 @@ class HostPolicy:
     # Compacted receipts keep their revision and a 64-bit fingerprint prefix; the oldest are forgotten
     # first. kernel: MAX_COMPACTED
     max_compacted_receipts: int = 4096
+    # The Gubble's eyes (view.look; kernel: CommandHostEyes.cs). The mock draws a placeholder picture; False models a
+    # headless kernel run, which answers unavailable. Looks a companion may take at once, and how fast they come back.
+    look_renderer: bool = True
+    look_burst: int = eyes.LOOK_BURST
+    look_refill_s: float = eyes.LOOK_REFILL_S
 
 
 NO_HOLDS = HostPolicy(companion_approval_ops=frozenset())
@@ -228,7 +327,6 @@ class Entity:
     texts: list[str] = field(default_factory=list)
     explicit_bounds: dict | None = None
     created_by: str | None = None
-    expires_at: float | None = None  # effects only
 
     def bounds(self) -> dict:
         if self.explicit_bounds is not None:
@@ -326,6 +424,155 @@ class PerceptionMemory:
     entries: OrderedDict = field(default_factory=OrderedDict)  # entity id -> Remembered
 
 
+@dataclass(frozen=True)
+class Ability:
+    """One ability of an island (contracts/island-rules.schema.json $defs/ability), as the kernel's IslandAbility."""
+
+    capability: str
+    category: str
+    primitive: str
+    cast_by: frozenset[str]  # "player" and or "companion"
+    tier: str  # auto, auto_undo, preview_commit or keyed_yes
+    targets: frozenset[str]  # "self" (the effect follows the Gubble) and or "point" (the effect at area.center_m)
+    reach_m: float
+    params: dict[str, tuple[float, float, float]]  # name -> (min, max, default), in ordinal order
+    area_radius_default_m: float
+    area_radius_max_m: float
+    duration_default_s: float
+    duration_max_s: float
+    max_active: int
+
+
+@dataclass(frozen=True)
+class IslandRules:
+    """An island's own laws as data: the abilities it grants (the kernel's IslandRules)."""
+
+    rules_id: str
+    rules_version: int
+    abilities: tuple[Ability, ...]
+    sha256: str
+    # The pack's cost block (the mechanics round): each ability's ordered price and own-idea factor, in whole pips, read
+    # from the same pack JSON the kernel loads. Empty when the pack has none: nothing is charged, today's behaviour.
+    prices: tuple[tuple[str, int, float], ...] = ()
+    # The pack's traits (the mechanics round), as the kernel's VitalsRules reads them for a new body and player.status:
+    # hearts (health per quarter, start hearts), the bar's first band in metres, and the pool (start, expertise per pip,
+    # ceiling). None when the pack leaves them out: today's 100 health, 0.45 m and no pool.
+    hearts: tuple[float, int] | None = None
+    stamina_start_m: float | None = None
+    pips: tuple[int, int, int] | None = None
+
+    def ability(self, capability: str | None) -> Ability | None:
+        return next((a for a in self.abilities if a.capability == capability), None)
+
+    def price(self, capability: str, principal: str) -> int:
+        """What casting `capability` costs `principal` outside Creative, in whole pips. The price follows the principal
+        alone: the player's order pays the ordered price, every command on the Gubble's connection the own-idea price.
+        An ability the pack does not price costs nothing. The mock reads prices; it charges nothing yet (M1, M8)."""
+        for name, ordered, factor in self.prices:
+            if name == capability:
+                return ordered if principal.startswith("player:") else round(ordered * factor)
+        return 0
+
+
+class RulesError(ValueError):
+    """A rules pack that does not pass the checks. The message names the problem, never the pack's text."""
+
+
+def rules_path(rules_id: str = DEFAULT_RULES_ID, rules_version: int = DEFAULT_RULES_VERSION,
+               rules_dir: Path = DEFAULT_RULES_DIR) -> Path:
+    return Path(rules_dir) / rules_id / f"v{rules_version}.json"
+
+
+def parse_rules(contracts: Contracts, pack: Any, raw: bytes | None = None, path: Path | None = None) -> IslandRules:
+    """Check a pack fail-closed, as the kernel's loader does: the island-rules schema (with each primitive's outer
+    limits) and contracts/validate.py's extra checks (unique capabilities and categories, defaults inside their
+    ranges, the pack at its own path). Any problem refuses the whole pack."""
+    validate = contracts.validate
+    if not hasattr(validate, "check_rules"):
+        raise RulesError("these contracts have no island rules")
+    try:
+        problems = validate.schema_errors(pack, "enfractal.island_rules")
+        if not problems:
+            problems = validate.check_rules(pack, "rules", path)
+    except Exception as error:  # a validator that cannot read it refuses it
+        raise RulesError(f"the pack could not be checked ({type(error).__name__})") from None
+    if problems:
+        raise RulesError(f"the pack does not pass its checks ({len(problems)} problems)")
+    abilities = tuple(Ability(
+        capability=a["capability"], category=a["category"], primitive=a["primitive"], cast_by=frozenset(a["cast_by"]),
+        tier=a["tier"], targets=frozenset(a["targets"]), reach_m=float(a["reach_m"]),
+        params={name: (float(b["min"]), float(b["max"]), float(b["default"])) for name, b in sorted(a["params"].items())},
+        area_radius_default_m=float(a["area_radius_default_m"]), area_radius_max_m=float(a["area_radius_max_m"]),
+        duration_default_s=float(a["duration_default_s"]), duration_max_s=float(a["duration_max_s"]),
+        max_active=int(a["max_active"])) for a in pack["abilities"])
+    body = raw if raw is not None else contracts.canonical_bytes(pack)
+    prices = tuple((name, int(price["ordered"]), float(price["own_idea_factor"]))
+                   for name, price in sorted(pack.get("cost", {}).get("prices", {}).items()))
+    traits = pack.get("traits", {})
+    hearts = (float(traits["hearts"]["health_per_quarter"]), int(traits["hearts"]["start_hearts"])) if "hearts" in traits else None
+    stamina = float(traits["stamina"]["start_m"]) if "stamina" in traits else None
+    pips = (int(traits["pips"]["start"]), int(traits["pips"]["expertise_per_pip"]), int(traits["pips"]["ceiling"])) if "pips" in traits else None
+    return IslandRules(pack["rules_id"], int(pack["rules_version"]), abilities, hashlib.sha256(body).hexdigest(), prices, hearts, stamina, pips)
+
+
+def load_rules(contracts: Contracts, path: Path) -> IslandRules:
+    """Load and check the pack at `path` (game/rules/<rules_id>/v<N>.json). Raises RulesError for any problem."""
+    path = Path(path)
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        raise RulesError("there is no rules pack there") from None
+    if not raw or len(raw) > MAX_RULES_PACK_BYTES:
+        raise RulesError(f"a rules pack is 1 to {MAX_RULES_PACK_BYTES} bytes")
+    try:
+        pack = contracts.validate.load_strict(path)
+    except Exception:
+        raise RulesError("the rules pack is not strict JSON") from None
+    return parse_rules(contracts, pack, raw, path)
+
+
+@dataclass
+class ActiveEffect:
+    """One running effect. In memory only, like the kernel's: never an entity, a snapshot, a receipt's store or a save."""
+
+    id: str
+    capability: str
+    principal: str  # who cast it: the player may stop any effect, a companion only its own
+    carrier: str  # the avatar that carries it out (the Gubble)
+    follows: bool  # self: the light follows its carrier; otherwise it stays at centre
+    centre: list[float]
+    radius_m: float
+    params: dict[str, float]
+    expires_at: float
+    variant: str = "plain"
+    touch: str = "plain"
+    bubble_source: str | None = None
+    connections: set[str] = field(default_factory=set)
+
+
+@dataclass
+class MockBubble:
+    """One bubble, abstractly (the kernel's Kernel/Bubble/Bubble.cs, with no physics): it neither drifts nor deflates here."""
+
+    id: str
+    capability: str
+    principal: str  # who cast it: the player may pop any bubble, a companion only its own
+    action_id: str
+    target: str | None  # the avatar a carry was cast on, or None (a bubble at a point: the walk-in)
+    centre: list[float]
+    radius_m: float
+    expires_at: float
+    holding: bool  # it holds the player now
+    carried: bool  # it has held the player
+    lead: dict | None = None  # the Gubble's lead taking it to a spot (goal.set lead): job_id, principal, action_id, spot, lift
+
+
+def _is_bubble(message: Any) -> bool:
+    """A nature.cast of a Bubbles expertise: transient, as an effect (the kernel's IsBubbleCapability)."""
+    return (isinstance(message, dict) and message.get("op") == "nature.cast" and isinstance(message.get("args"), dict)
+            and message["args"].get("capability") in BUBBLES_EXPERTISE)
+
+
 def _is_stop(message: Any) -> bool:
     return isinstance(message, dict) and message.get("schema") == COMMAND_SCHEMA and message.get("op") in STOP_OPS
 
@@ -336,11 +583,12 @@ def _might_be_stop(raw: bytes) -> bool:
     return b"goal.stop" in raw or b"effect.stop" in raw or b"\\u" in raw
 
 
-class MockHost(JournalMixin):
+class MockHost(JournalMixin, TrustMixin):
     """The game side of the companion boundary, minus physics."""
 
     def __init__(self, contracts: Contracts, room_dir: Path | None = None, styles_dir: Path | None = None,
-                 policy: HostPolicy | None = None, clock=None, extra_companions: dict[str, str] | None = None):
+                 policy: HostPolicy | None = None, clock=None, extra_companions: dict[str, str] | None = None,
+                 rules_file: Path | None = None):
         self.contracts = contracts
         self.policy = policy or HostPolicy()
         self.clock = clock or SystemClock()
@@ -356,7 +604,33 @@ class MockHost(JournalMixin):
         self._view: set[str] | None = None  # what the current requester may name; None means everything
         self.listeners: list[Callable[[str, dict], None]] = []
         self._known_ops = frozenset(contracts.command_ops) | frozenset(contracts.query_ops)
+        # The island's rules (the kernel's CommandHost.Rules): None when the pack did not load, and then no abilities.
+        self.rules: IslandRules | None = None
+        self.rules_notice = ""
+        # Team profile, separate from room state and command receipts. Room/rules reloads never erase learning.
+        self.mode = "creative"
+        self._glow_profiles = {mode: GlowProgress() for mode in ("creative", "challenge", "live")}
+        # The box mock has no body tick: these profiles report state, never fabricate physical challenge completion. A new
+        # body is the rules pack's (the kernel's VitalsRules.Fresh), set again when the rules load while it is untouched.
+        self._vitals_profiles = {mode: self._fresh_vitals() for mode in ("creative", "challenge", "live")}
+        # The player's own setting "Let my AI see through the Gubble's eyes" (the profile's ai_eyes, never room state):
+        # only the player's control (set_gubble_eyes) changes it, never a request. Looks spent, per companion principal.
+        self.gubble_eyes = eyes.DEFAULT_GUBBLE_EYES
+        self._look_buckets: dict[str, eyes.LookBucket] = {}
+        # Trust (M8, mock_trust.py): the team's, so a room reload keeps it; only the host's own observation and the player's
+        # marks and reset move it, never a request field.
+        self.trust_count = 0
         self._reset_room()
+        # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
+        self.load_rules(rules_file or rules_path())
+
+    @property
+    def glow_progress(self) -> GlowProgress:
+        return self._glow_profiles[self.mode]
+
+    @glow_progress.setter
+    def glow_progress(self, progress: GlowProgress) -> None:
+        self._glow_profiles[self.mode] = progress
 
     def _reset_room(self) -> None:
         """Everything that belongs to one loaded room, perception memory included."""
@@ -379,8 +653,14 @@ class MockHost(JournalMixin):
         self.memory: dict[str, PerceptionMemory] = {}
         self._last_sweep = self.clock.now()
         self._reset_journal()
+        self._reset_trust_session()
         self._creation_counter = 0
-        self._effect_counter = 0
+        # The running effects, oldest first. Effects are not entities: no query lists them (as on the kernel host).
+        self.effects: OrderedDict[str, ActiveEffect] = OrderedDict()
+        # The bubble (at most one), and the ghost previews of carries on the player. In memory only, like effects.
+        self.bubbles: OrderedDict[str, MockBubble] = OrderedDict()
+        self.bubble_ghosts: OrderedDict[str, tuple] = OrderedDict()
+        self._approving = False
         self._checkpoint_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
@@ -450,7 +730,8 @@ class MockHost(JournalMixin):
         for offset, (principal, avatar) in enumerate(sorted((p, a) for p, a in self.avatars.items() if p != PLAYER)):
             position = list(companion_spawn["position_m"])
             position[0] += 0.15 * offset
-            name = "Wisp" if avatar == "avatar:companion" else avatar.split(":", 1)[1].capitalize()
+            position[1] = _r(position[1] + HOVER_M)
+            name = "the Gubble" if avatar == "avatar:companion" else avatar.split(":", 1)[1].capitalize()
             self.entities[avatar] = Entity(
                 id=avatar, kind="avatar", display_name=name, position=position,
                 half_extents=list(_BODY), affordances=[], movable=False, provenance_kind="hand_authored")
@@ -471,6 +752,10 @@ class MockHost(JournalMixin):
     def rename_entity(self, entity_id: str, name: str) -> None:
         """A player-chosen or captured name. Untrusted: it may say anything."""
         with self._lock:
+            # Match CompanionAvatar.SavedName for a former default supplied by a game-side fixture.
+            # The mock has no saved companion profile reader; other names remain the player's choice.
+            if entity_id == "avatar:companion" and name == "Wisp":
+                name = "the Gubble"
             self.entities[entity_id].display_name = name
 
     def move_avatar(self, avatar_id: str, position: list[float]) -> None:
@@ -491,6 +776,62 @@ class MockHost(JournalMixin):
         with self._lock:
             self.room_dir = Path(room_dir)
             self._reset_room()
+
+    def load_rules(self, path: Path) -> None:
+        """Load the island's rules from a pack file (the kernel's LoadRules). A pack that fails leaves no abilities,
+        never a crash, and says why in rules_notice."""
+        try:
+            rules, notice = load_rules(self.contracts, path), ""
+        except RulesError as error:
+            rules, notice = None, f"The island's rules did not load, so the Gubble has no abilities: {error}."
+        self.use_rules(rules, notice)
+
+    def use_rules(self, rules: IslandRules | dict | None, notice: str = "") -> None:
+        """Use these rules (a checked IslandRules, or a pack to check; None for none). Effects started under the old
+        rules end (the kernel's UseRules)."""
+        with self._lock:
+            if isinstance(rules, dict):
+                rules = parse_rules(self.contracts, rules)
+            self._end_effects(list(self.effects.values()))
+            for bubble in list(self.bubbles.values()):
+                self._end_bubble(bubble, "popped")
+            fresh = self._fresh_vitals()
+            self.rules = rules
+            self.rules_notice = "" if rules is not None else (notice or "This island has no rules, so the Gubble has no abilities.")
+            for mode, profile in self._vitals_profiles.items():
+                if profile == fresh:
+                    self._vitals_profiles[mode] = self._fresh_vitals()
+
+    def _fresh_vitals(self) -> dict:
+        """A new body under the island's rules (the kernel's VitalsRules.Fresh): every heart, the first band full."""
+        rules = getattr(self, "rules", None)
+        hearts = rules.hearts if rules else None
+        health = float(hearts[1] * 4 * hearts[0]) if hearts else 100.0
+        bar = rules.stamina_start_m if rules and rules.stamina_start_m is not None else 0.45
+        return {"health": health, "max_health": health, "stamina": bar, "max_stamina": bar, "completed_climbs": 0, "recoveries": 0}
+
+    def _player_status(self) -> dict:
+        """player.status as the kernel answers it: the body and, with the pack's traits, the pool (the shadow pool in
+        Creative), the hearts in quarters and the bar's bands. The mock has no body tick and charges nothing yet: the pool
+        reads full."""
+        data = dict(self._vitals_profiles[self.mode], mode=self.mode, consequences=self.mode != "creative")
+        rules = self.rules
+        if rules and rules.pips:
+            start, per_pip, ceiling = rules.pips
+            most = min(ceiling, start + len(self.glow_progress.discoveries) // per_pip)
+            data["energy"] = {"pips": most, "max_pips": most, "shadow": self.mode == "creative"}
+        if rules and rules.hearts:
+            quarter = rules.hearts[0]
+            data["hearts"] = {"quarters": round(data["health"] / quarter), "max_quarters": round(data["max_health"] / quarter)}
+        if rules and rules.stamina_start_m is not None:
+            data["bar"] = {"bands": 1, "slowed": False}
+        return data
+
+    def active_effect_ids(self) -> list[str]:
+        """The running effects' ids, oldest first (the kernel's ActiveEffectIds)."""
+        with self._lock:
+            self._expire_effects()
+            return list(self.effects)
 
     def session_event(self, principal: str, event: str) -> None:
         """The link reports a companion session starting or ending ("start", "end"). Since Run 2 the team's map
@@ -669,6 +1010,46 @@ class MockHost(JournalMixin):
     def _remembered_summary(self, entry: Remembered) -> dict:
         return {**copy.deepcopy(entry.view["summary"]), **self._memory_fields(entry)}
 
+    # ------------------------------------------------------------------ the Gubble's eyes
+
+    def set_gubble_eyes(self, allowed: bool) -> None:
+        """The player's control for "Let my AI see through the Gubble's eyes" (the HUD's switch). No request reaches it."""
+        with self._lock:
+            self.gubble_eyes = bool(allowed)
+
+    def _view_look(self, principal: str, args: dict) -> dict:
+        """view.look in the kernel's order: the actor (only a Gubble's own eyes), the player's setting, the rate, the renderer.
+        A look is a companion request like any other: its sight filled the team's map before this ran, and the picture adds
+        nothing to it. The mock's picture is a placeholder (eyes.placeholder_png) with the kernel's facts."""
+        companion = not principal.startswith("player:")
+        gubbles = {self.avatars[principal]} if companion else {a for p, a in self.avatars.items() if not p.startswith("player:")}
+        actor = args.get("actor")
+        if actor not in gubbles:
+            raise HostError("actor_denied", eyes.LOOK_ACTOR_MESSAGE, field_path="$.args.actor")
+        if companion and not self.gubble_eyes:
+            raise HostError("permission_denied", eyes.EYES_OFF_MESSAGE)
+        if companion:
+            bucket = self._look_buckets.setdefault(principal, eyes.LookBucket(self.policy.look_burst, self.policy.look_refill_s))
+            if not bucket.take(self.clock.now()):
+                raise HostError("rate_limited", eyes.LOOK_RATE_MESSAGE, retryable=True)
+        if not self.policy.look_renderer:
+            raise HostError("unavailable", eyes.NO_RENDERER_MESSAGE)
+        yaw, pitch = float(args.get("yaw_deg", 0)), float(args.get("pitch_deg", 0))
+        body = self.entities[actor]
+        facing_x, facing_z = self.facing.get(actor, (0.0, -1.0))
+        heading = eyes.heading(facing_x, facing_z)
+        picture = eyes.placeholder_png(yaw, pitch)
+        return {
+            "actor": actor,
+            "image": eyes.image_block(picture, "image/png", eyes.PLACEHOLDER_WIDTH_PX, eyes.PLACEHOLDER_HEIGHT_PX),
+            "position_m": [_r(v) for v in body.position],
+            "eye_m": [_r(v) for v in perception.eye_point(body.position, "companion")],
+            "heading_deg": heading,
+            "view_heading_deg": eyes.round1(eyes.positive_degrees(heading + yaw)) % 360.0,
+            "view_pitch_deg": eyes.round1(pitch),
+            "fov_deg": eyes.horizontal_fov_deg(),
+        }
+
     # ------------------------------------------------------------------ the wire
 
     def handle(self, principal: str, message: Any) -> dict:
@@ -680,6 +1061,8 @@ class MockHost(JournalMixin):
             if not _is_stop(message) and not self._take_token(principal):
                 return self._rate_limited(principal)
             self._expire()
+            # Trust's clock (the kernel's SettleTrust, which the companion bridge runs each frame): windows closed by now settle.
+            self._settle_trust()
             # The sweep on the host's clock; a player's own request is the player looking, so it always sweeps.
             self._maybe_sweep(now=principal.startswith("player:"))
             try:
@@ -759,6 +1142,10 @@ class MockHost(JournalMixin):
             raise forbidden_key_error(hit, "authority" if is_authority_key(str(hit[-1])) else "key_format")
         if op in self.contracts.player_only_ops and not principal.startswith("player:"):
             raise HostError("permission_denied", "Only the player can do that, directly in the game.", field_path="$.op")
+        if is_command and not principal.startswith("player:") and names_a_fractal(message):
+            # The Gubble may find a Fractal and go to it, never gather it: refused by the id's namespace before anything is
+            # looked up, so the answer is the same whether or not it exists (the kernel's NamesAFractal).
+            raise HostError("permission_denied", FRACTAL_REFUSAL, field_path="$.args.target")
         if is_command:
             self._view = self._view_for(principal, for_command=True)
             return self._command(principal, message)
@@ -783,7 +1170,14 @@ class MockHost(JournalMixin):
                             field_path="$", allowed=limit, actual=canonical_size)
         errors = list(self.contracts.iter_errors(message))
         if errors:
-            raise map_schema_errors(errors)
+            error = map_schema_errors(errors)
+            if message.get("schema") == COMMAND_SCHEMA and message.get("op") == "effect.start":
+                error = effect_args_error(error)
+            if message.get("schema") == COMMAND_SCHEMA and message.get("op") in NATURE_OPS:
+                error = nature_args_error(error)
+            if message.get("schema") == COMMAND_SCHEMA:
+                error = lead_args_error(error, message)
+            raise error
         for path, source in creation_sources(message):
             size = len(self.contracts.canonical_bytes(source))
             if size > self.contracts.creation_source_limit:
@@ -832,6 +1226,7 @@ class MockHost(JournalMixin):
             earlier = self._earlier(key, fingerprint, message)
             if earlier is not None:
                 return earlier
+            self._check_unsupported(message)
             self._check_revisions(principal, message)
         prediction = handler(principal, message, False, None)
         if preview:
@@ -840,9 +1235,9 @@ class MockHost(JournalMixin):
             result.update(prediction)
             result.pop("transient", None)
             return result
-        if principal != PLAYER and op in self.policy.companion_approval_ops:
+        if principal != PLAYER and (op in self.policy.companion_approval_ops or self._keyed_yes(message)):
             return self._hold(principal, message, fingerprint, prediction)
-        if op not in TRANSIENT_OPS and op != "room.checkpoint":
+        if op not in TRANSIENT_OPS and op != "room.checkpoint" and not _is_bubble(message):
             self._check_receipt_room(principal)
         result = self._commit(principal, message, handler)
         self._store_receipt(key, fingerprint, result)
@@ -879,9 +1274,22 @@ class MockHost(JournalMixin):
             return replay
         return None
 
+    def _keyed_yes(self, message: dict) -> bool:
+        """An ability of tier keyed_yes (T3) waits for the player's yes when a companion asks, whatever the policy's
+        held set: the island's rules say so (the kernel's NeedsApproval)."""
+        if self.rules is None:
+            return False
+        if _is_bubble(message):
+            ability = self._bubbles_ability()
+            return ability is not None and ability.tier == "keyed_yes"
+        if message["op"] != "effect.start":
+            return False
+        ability = self.rules.ability(message["args"].get("capability"))
+        return ability is not None and ability.tier == "keyed_yes"
+
     def _commit(self, principal: str, message: dict, handler, approved_by: str | None = None) -> dict:
         op = message["op"]
-        durable = op not in TRANSIENT_OPS
+        durable = op not in TRANSIENT_OPS and not _is_bubble(message)
         moves_revision = durable and op not in NO_REVISION_OPS
         new_revision = self.revision + 1 if moves_revision else None
         # The journal's facts about creations (built, changed, removed), from the team's knowledge, dated at the revision
@@ -912,6 +1320,8 @@ class MockHost(JournalMixin):
         if approved_by:
             result["approved_by"] = approved_by
         self._emit("committed", {"principal": principal, "op": op, "action_id": message["action_id"]})
+        # M8: a command of the Gubble's that committed opens its Trust window and can be marked (mock_trust.py).
+        self._observe_trust(principal, message, result)
         return result
 
     def _check_receipt_room(self, principal: str) -> None:
@@ -939,6 +1349,15 @@ class MockHost(JournalMixin):
         replay = copy.deepcopy(receipt.result)
         replay["replayed"] = True
         return replay
+
+    def _check_unsupported(self, message: dict) -> None:
+        """What the kernel refuses before it looks at revisions (CommandHost.Unsupported), where the mock follows it."""
+        if message["op"] in MECHANICS_PLAYER_OPS - MECHANICS_HOSTED:
+            raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
+        if message["op"] == "world.set_mode" and "difficulty" in message["args"]:
+            raise HostError("unsupported_capability", DIFFICULTY_NOT_YET, field_path="$.op")
+        if message["op"] == "room.undo" and self.mode != "creative":
+            raise HostError("unsupported_capability", UNDO_NOT_IN_THIS_MODE, field_path="$.op")
 
     def _check_revisions(self, principal: str, message: dict) -> None:
         op = message["op"]
@@ -1002,6 +1421,9 @@ class MockHost(JournalMixin):
             revision = entity.revision if entity else 0
             return f'{entity_id} ("{name}", revision {revision})'
 
+        if op == "effect.start":
+            # The prompt names the capability token only, as the kernel host's does.
+            return f"The companion asks to use {args['capability']}. Approve or deny it in the game."
         if op == "entity.remove":
             what = f"remove {named(args['target'])} from the room"
         elif op == "entity.transform":
@@ -1015,12 +1437,6 @@ class MockHost(JournalMixin):
                 x, y, z = (round(v, 2) for v in args["placement"]["position_m"])
                 parts.append(f"move it to ({x}, {y}, {z})")
             what = f"change {named(args['target'])}: " + " and ".join(parts)
-        elif op == "room.undo":
-            changed = self._undo_plan(args["to_revision"])
-            listed = ", ".join(entity_id for entity_id, _state in changed[:6])
-            more = f" and {len(changed) - 6} more" if len(changed) > 6 else ""
-            what = (f"undo the room from revision {self.revision} to revision {args['to_revision']}, "
-                    f"changing {len(changed)} entities: {listed or 'none'}{more}")
         elif op == "style.set":
             what = (f"switch the room style from {self.style['preset_id']} v{self.style['preset_version']} "
                     f"to {args['preset_id']} v{args['preset_version']}")
@@ -1062,9 +1478,14 @@ class MockHost(JournalMixin):
                     try:
                         self._check_revisions(approval.principal, message)
                         handler = getattr(self, "_op_" + message["op"].replace(".", "_"))
-                        handler(approval.principal, message, False, None)
-                        self._check_receipt_room(approval.principal)
-                        result = self._commit(approval.principal, message, handler, approved_by=PLAYER)
+                        self._approving = True
+                        try:
+                            handler(approval.principal, message, False, None)
+                            if not _is_bubble(message):
+                                self._check_receipt_room(approval.principal)
+                            result = self._commit(approval.principal, message, handler, approved_by=PLAYER)
+                        finally:
+                            self._approving = False
                         self._store_receipt(key, approval.fingerprint, result)
                         approval.state, approval.result = "approved", result
                     except HostError as error:
@@ -1116,9 +1537,8 @@ class MockHost(JournalMixin):
                 self._emit("approval_decided", {"request_id": approval.request_id, "state": approval.state})
         finally:
             self._view = view
-        for entity in list(self.entities.values()):
-            if entity.kind == "effect" and not entity.removed and entity.expires_at is not None and now >= entity.expires_at:
-                entity.removed = True
+        self._expire_effects()
+        self._expire_bubbles()
 
     # ------------------------------------------------------------------ helpers
 
@@ -1181,24 +1601,6 @@ class MockHost(JournalMixin):
     def _snapshot(self) -> dict:
         return {"entities": {k: e.durable_state() for k, e in self.entities.items() if e.kind not in ("effect", "avatar")},
                 "style": dict(self.style)}
-
-    def _undo_plan(self, to_revision: int) -> list[tuple[str, dict | None]]:
-        """(entity id, the state it would get, or None to remove it) for every entity undo would change."""
-        snapshot = self.history.get(to_revision)
-        if snapshot is None:
-            return []
-        changes: list[tuple[str, dict | None]] = []
-        for entity_id, state in snapshot["entities"].items():
-            entity = self.entities.get(entity_id)
-            current = entity.durable_state() if entity else None
-            if current is not None and {k: v for k, v in current.items() if k != "revision"} == \
-                    {k: v for k, v in state.items() if k != "revision"}:
-                continue
-            changes.append((entity_id, state))
-        for entity_id, entity in self.entities.items():
-            if entity.kind in ("object", "creation") and entity_id not in snapshot["entities"] and not entity.removed:
-                changes.append((entity_id, None))
-        return sorted(changes, key=lambda item: item[0])
 
     # ------------------------------------------------------------------ op handlers
     # Each handler validates first. With apply=False it only predicts the outcome; with apply=True it
@@ -1417,6 +1819,8 @@ class MockHost(JournalMixin):
     def _op_goal_set(self, principal, message, apply, new_revision):
         args = message["args"]
         actor = self._actor(principal, args)
+        if args["goal"] == "lead":
+            return self._lead(principal, message, actor, apply)
         if args["goal"] in ("follow", "come") and "target" not in args and not principal.startswith("player:") \
                 and not self.policy.follow_player_out_of_sight and "avatar:player" not in (self._view or {"avatar:player"}):
             raise HostError("target_not_found", "The player is not in sight.", field_path="$.args.goal")
@@ -1497,6 +1901,13 @@ class MockHost(JournalMixin):
         if job is not None and job["state"] == "running":
             job["state"] = "cancelled"
             self._task_ended(goal["job_id"], "cancelled")
+            self._trust_job_ended(goal["job_id"], "cancelled")
+            # A lead's end pops the bubble it led (decision 60; the kernel's LeadCancelled).
+            led = self._led_bubble(goal["job_id"])
+            if led is not None:
+                self._update_lead_receipt(led.lead, "ended", "stopped")
+                led.lead = None
+                self._end_bubble(led, "popped")
 
     def goal_arrived(self, actor_id: str) -> str:
         """The game's goal runner: the avatar has reached its goal (walked there, or turned to look or
@@ -1520,6 +1931,8 @@ class MockHost(JournalMixin):
                 raise KeyError("that avatar has no goal with a target running")
             if goal.get("phase") == "return":
                 return self._fetch_returned(actor_id, goal, job)
+            if goal["goal"] == "lead":
+                return self._lead_arrived(actor_id, goal, job)
             principal = self._principal_of(actor_id) or job["principal"]
             # The team's sight, as the host's arrival check (the target the player alone sees is in sight now).
             seen = self.team_sight(principal)
@@ -1551,6 +1964,8 @@ class MockHost(JournalMixin):
         "stopped" for a walk with no job, or "running" while it keeps trying."""
         with self._lock:
             goal = self.goals.get(actor_id)
+            if goal is not None and goal["goal"] == "lead":
+                return self._lead_blocked(actor_id, goal, seconds)
             if goal is None or goal["goal"] not in WALKING_GOALS:
                 raise KeyError("that avatar is not walking anywhere")
             goal["blocked_s"] = goal.get("blocked_s", 0.0) + seconds
@@ -1582,7 +1997,7 @@ class MockHost(JournalMixin):
             if length == 0.0:
                 away, length = [1.0, 0.0], 1.0
             scale = COME_ARRIVAL_M / length
-            self.entities[actor_id].position = [_r(player[0] + away[0] * scale), player[1],
+            self.entities[actor_id].position = [_r(player[0] + away[0] * scale), _r(player[1] + HOVER_M),
                                                 _r(player[2] + away[1] * scale)]
             self.facing[actor_id] = (-away[0] / length, -away[1] / length)  # it faces the player it came back to
             self._carry(actor_id)
@@ -1597,78 +2012,715 @@ class MockHost(JournalMixin):
             message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
             job["result"] = self._fail(job["principal"], message, error)
         self._task_ended(goal["job_id"], job["state"])
+        self._trust_job_ended(goal["job_id"], job["state"])
         self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
         return job["state"]
 
     def _op_goal_stop(self, principal, message, apply, new_revision):
-        # Always permitted. Without an actor it stops every actor the principal may direct, their
-        # goals and their effects; the player's stop therefore stops the companion as well.
+        # Always permitted. Without an actor it stops every actor the principal may direct and their goals; the
+        # player's stop therefore stops the companion as well. The Gubble carries out the island's abilities, so a
+        # stop that covers it also ends the effects this principal may stop (the kernel's StopCompanionEffects).
         args = message["args"]
         actors = [self._actor(principal, args)] if "actor" in args else sorted(self._directable(principal))
-        owners = {self._principal_of(actor) for actor in actors}
-        stopped_effects = sorted(e.id for e in self.entities.values()
-                                 if e.kind == "effect" and not e.removed and e.created_by in owners)
-        if apply:
-            for actor in actors:
-                self._cancel_job(actor)
-                self.goals.pop(actor, None)
-            for effect_id in stopped_effects:
-                self.entities[effect_id].removed = True
-        return {"affected": actors + stopped_effects}
+        carriers = {a for a in actors if a != self.avatars[PLAYER]}
+        ending = [e for e in self._stoppable(principal) if e.carrier in carriers]
+        if not apply:
+            return {}  # a preview of a stop says nothing (the kernel's Previewed)
+        # The bubble the Gubble leads pops with its stop (decision 60), as the player's own pop when it is the player's X.
+        led = self._pop_led_bubble(GUBBLE, principal.startswith("player:")) if GUBBLE in carriers else []
+        for actor in actors:
+            self._cancel_job(actor)
+            self.goals.pop(actor, None)
+        ended = led + self._end_effects(ending)
+        # Its bubbles pop too, the player's X whoever cast them (the kernel's PopBubbles).
+        if carriers:
+            ended += self._pop_bubbles(principal, "all")
+        return {"affected": actors + ended, "data": {"effects_stopped": len(ended)}}
+
+    # ------------------------------------------------------------------ the island's abilities (effects)
+    # The kernel's CommandHostEffects.cs: the pack says which abilities exist and their bounds; effect.start casts one,
+    # carried out by the Gubble, as the player or as the companion. Three primitives, one set of rules: light.emit (Glow, a
+    # light), particles.burst (Fireworks, a burst with a brief flash) and particles.float (Bubbles: since the founder's redesign
+    # one bubble at a spot, the place deciding, _bubble_effect_start; no stream). Glow and Fireworks follow the Gubble (targets:
+    # its own avatar) or play at a spot within the ability's reach and in the team's sight. The kernel hands them to the look by
+    # primitive (StartLook); the mock draws nothing, so its rules are all there is.
+
+    def _stoppable(self, principal: str) -> list[ActiveEffect]:
+        """The effects a stop by principal covers: the player's covers every effect, a companion's only its own."""
+        self._expire_effects()
+        return [e for e in self.effects.values() if principal.startswith("player:") or e.principal == principal]
+
+    def _end_effects(self, ending: list[ActiveEffect]) -> list[str]:
+        ended = []
+        sources = {effect.id for effect in ending}
+        batch = list(ending) + [effect for effect in self.effects.values()
+                                if effect.bubble_source in sources and effect.id not in sources]
+        for effect in batch:
+            if self.effects.pop(effect.id, None) is not None:
+                ended.append(effect.id)
+        for effect in self.effects.values():
+            effect.connections.difference_update(ended)
+        return ended
+
+    def _expire_effects(self) -> None:
+        """An effect ends at its duration (the host's clock)."""
+        now = self.clock.now()
+        self._end_effects([e for e in self.effects.values() if now >= e.expires_at])
+
+    def _carrier(self, principal: str) -> str:
+        """The avatar that carries out what the principal casts: the Gubble for the player, a companion's own avatar."""
+        return GUBBLE if principal.startswith("player:") else self.avatars[principal]
+
+    def _team_sees_spot(self, centre: list[float], principal: str, carrier: str) -> bool:
+        """Whether the place a point effect would float is in sight now: of the Gubble's eyes, or the player's (the
+        team's sight, or the player's own cast). A column EFFECT_SIGHT_HALF_WIDTH_M either side of the centre, as tall
+        as the wisp floats above it."""
+        low = [centre[0] - EFFECT_SIGHT_HALF_WIDTH_M, centre[1], centre[2] - EFFECT_SIGHT_HALF_WIDTH_M]
+        high = [centre[0] + EFFECT_SIGHT_HALF_WIDTH_M, centre[1] + WISP_LIFT_M, centre[2] + EFFECT_SIGHT_HALF_WIDTH_M]
+        eyes = [(carrier, "companion")]
+        if principal.startswith("player:") or (self.policy.shared_sight and principal == self._team_principal()):
+            eyes.append((self.avatars[PLAYER], "player"))
+        occluders = self._occluders()
+        for avatar_id, kind in eyes:
+            avatar = self.entities.get(avatar_id)
+            if avatar is None or avatar.removed:
+                continue
+            if perception.visible(perception.eye_point(avatar.position, kind), "effect:place", low, high, occluders):
+                return True
+        return False
+
+    def _plan_effect(self, principal: str, args: dict) -> dict:
+        """effect.start checked against the rules, the caster, the targets, the bounds, the place and the caps, in that
+        order, with the kernel's codes (PlanEffect). Runs before any hold, so a held request is one that can start."""
+        self._expire_effects()
+        player = principal.startswith("player:")
+        # The companion names only what the team has in sight now (the kernel's CheckPerceived, before the rules).
+        for target_id in args.get("targets", []):
+            if not player and self._entity(target_id) is None:
+                raise _not_found("$.args.targets")
+        if self.rules is None:
+            raise HostError("unsupported_capability", "This island's rules did not load, so it grants no abilities.",
+                            field_path="$.args.capability")
+        if args["capability"] in {"bloom", "fire"}:
+            raise HostError("unsupported_capability", "Use nature.cast for this ability; preview Fire first.", field_path="$.args.capability")
+        ability = self.rules.ability(args["capability"])
+        if ability is None:
+            raise HostError("unsupported_capability", "This island has no ability by that name. Call capabilities.list.",
+                            field_path="$.args.capability")
+        if ("player" if player else "companion") not in ability.cast_by:
+            raise HostError("permission_denied", "This island does not let the player cast that." if player
+                            else "This island does not let the companion cast that.", field_path="$.args.capability")
+        # Targets: the Gubble's own avatar (self, the light follows it) or none (point). Nothing else, from anyone.
+        carrier = self._carrier(principal)
+        targets = list(args.get("targets", []))
+        own = targets != []
+        if own and targets != [carrier]:
+            if player:
+                raise HostError("invalid_args", "This ability works on the Gubble or at a spot; it cannot be cast on that.",
+                                field_path="$.args.targets")
+            raise HostError("permission_denied", "A companion's ability may target only its own avatar.",
+                            field_path="$.args.targets")
+        if own and "self" not in ability.targets:
+            raise HostError("invalid_args", "This ability cannot be cast on the Gubble itself; name no targets and a spot.",
+                            field_path="$.args.targets", allowed=sorted(ability.targets))
+        if not own and "point" not in ability.targets:
+            raise HostError("invalid_args", "This ability works only on the Gubble itself; name its avatar in targets.",
+                            field_path="$.args.targets", allowed=sorted(ability.targets))
+        # The Bubble is cast at a spot, like Glow, and the place decides (decision 56): never on the Gubble itself.
+        bubble = ability.primitive == "particles.float"
+        if own and bubble:
+            raise HostError("invalid_args", BUBBLE_AT_A_SPOT, field_path="$.args.targets")
+        # Bounds: every param the ability's, within its range; omitted ones take the defaults.
+        params: dict[str, float] = {}
+        for name in sorted(args["params"]):
+            value, path = args["params"][name], textsafety.field_path(["args", "params", name])
+            if name not in ability.params:
+                raise HostError("invalid_args", "This ability takes no parameter by that name.", field_path=path,
+                                allowed=list(ability.params))
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise HostError("invalid_args", "This parameter is a number.", field_path=path)
+            low, high, _default = ability.params[name]
+            if not low <= value <= high:
+                raise HostError("invalid_args", "This parameter is out of the ability's range.", field_path=path,
+                                allowed=[low, high], actual=value)
+            params[name] = float(value)
+        for name, (_low, _high, default) in ability.params.items():
+            params.setdefault(name, default)
+        radius = float(args["area"]["radius_m"])
+        if radius > ability.area_radius_max_m:
+            raise HostError("invalid_args", "The area is larger than the ability allows.", field_path="$.args.area.radius_m",
+                            allowed=ability.area_radius_max_m, actual=radius)
+        duration = float(args["duration_s"])
+        if duration > ability.duration_max_s:
+            raise HostError("invalid_args", "That is longer than the ability lasts.", field_path="$.args.duration_s",
+                            allowed=ability.duration_max_s, actual=duration)
+        # The Gubble carries every ability out.
+        body = self.entities.get(carrier)
+        if body is None or body.removed:
+            raise HostError("not_ready", "The Gubble is not in the room.", retryable=True)
+        centre = [_r(v) for v in (body.position if own else args["area"]["center_m"])]
+        if not own:
+            # A spot: inside the room, within the Gubble's reach, and in the team's sight now (where the wisp will float).
+            if not self._inside_island(centre):
+                raise HostError("out_of_bounds", "That spot is outside the room.", field_path="$.args.area.center_m")
+            distance = math.dist(body.position, centre)
+            if distance > ability.reach_m:
+                raise HostError("out_of_bounds", "That spot is beyond the Gubble's reach; it must come closer first.",
+                                field_path="$.args.area.center_m", retryable=True, allowed=ability.reach_m,
+                                actual=round(distance, 3))
+            if not self._team_sees_spot(centre, principal, carrier):
+                raise HostError("target_not_found", "Neither of you can see that spot now. Look there first.",
+                                field_path="$.args.area.center_m")
+        # Caps: the team's earned Glow allowance within the pack's ceiling, then the room's fixed ceiling.
+        ability_limit = min(ability.max_active, self.glow_progress.earned_light_limit) \
+            if ability.capability == "glow" else ability.max_active
+        mine = sum(1 for e in self.effects.values() if e.capability == ability.capability)
+        if not bubble and mine >= ability_limit:
+            raise HostError("budget_exceeded", "As many of these are running as the island allows; stop one first.",
+                            field_path="$.args.capability", allowed=ability_limit, actual=mine)
+        # The bubble counts toward the room's cap at any effect's start; a bubble's cast replaces the one there (one at a time).
+        running = len(self.effects) + (0 if bubble else len(self.bubbles))
+        if running >= self.policy.max_active_effects:
+            raise HostError("budget_exceeded", "As many effects are running as the room allows; stop one first.",
+                            field_path="$.args.capability", allowed=self.policy.max_active_effects, actual=running)
+        variant, touch = args.get("variant", "auto"), args.get("touch", self.glow_progress.touch)
+        bubble_source = None
+        if ability.capability == "glow":
+            variant = self._resolve_glow_variant(variant, own, centre)
+            surface = self._glow_water_surface_at(centre) if variant == "bioluminesce" else None
+            if surface is not None:
+                # The kernel lifts a bioluminescent glow to the water's surface, which must still be in reach and in sight.
+                centre = [centre[0], surface, centre[2]]
+                if math.dist(body.position, centre) > ability.reach_m:
+                    raise HostError("out_of_bounds", "The water surface is beyond the Gubble's reach.", field_path="$.args.area.center_m")
+                if not self._team_sees_spot(centre, principal, carrier):
+                    raise HostError("target_not_found", "Neither of you can see the water surface.", field_path="$.args.area.center_m")
+            if variant == "glowing_bubbles":
+                nearby = [effect for effect in self.effects.values() if effect.capability == "bubbles" and
+                          (effect.follows if own else not effect.follows and math.dist(effect.centre, centre) <= 0.45)]
+                if not nearby:
+                    raise HostError("target_not_found", "Glow needs nearby bubbles to light.", field_path="$.args.variant")
+                bubble_source = nearby[-1].id
+        else:
+            if "variant" in args or "touch" in args:
+                raise HostError("invalid_args", "Glow touches and variants belong to Glow.", field_path="$.args")
+            variant = touch = "plain"
+        self._require_mock_primitive(ability)
+        return {"ability": ability, "self": own, "carrier": carrier, "centre": centre, "radius_m": radius,
+                "duration_s": duration, "params": params, "variant": variant, "touch": touch, "bubble_source": bubble_source}
+
+    @staticmethod
+    def _runtime_required(feature: str) -> None:
+        # The contract's code for "this host cannot do that here" (the kernel's, for a game with no renderer).
+        raise HostError("unavailable", f"{feature} needs the game itself; this mock host does not simulate it.", field_path="$.op")
+
+    @staticmethod
+    def _glow_water_surface_at(centre: list[float]) -> float | None:
+        """The water surface a bioluminescent glow rises to (the kernel's GlowWaterSurfaceAt). The box world has no water,
+        and it refuses that variant before asking (_resolve_glow_variant), so this never finds any."""
+        return None
+
+    def _require_mock_primitive(self, ability: Ability) -> None:
+        if ability.primitive not in {"light.emit", "particles.float", "particles.burst"}:
+            self._runtime_required("Terrain growth and fire")
+
+    def _resolve_glow_variant(self, variant: str, own: bool, centre: list[float]) -> str:
+        if own:
+            if variant in {"auto", "plain", "lantern"}:
+                return "lantern"
+            if variant == "glowing_bubbles":
+                return variant
+            raise HostError("invalid_args", "That Glow needs a place on the island.", field_path="$.args.variant")
+        if variant == "lantern":
+            raise HostError("invalid_args", "Lantern follows the Gubble.", field_path="$.args.variant")
+        if variant in {"torch", "bioluminesce", "skylight"}:
+            self._runtime_required("Terrain-aware Glow")
+        # Plain floor wisps are representable here; other auto classification requires real surfaces/water.
+        if variant == "auto":
+            if SEA_EXTENSION in self.room.get("extensions", {}) or centre[1] >= self.room_bounds["min_m"][1] + 0.2:
+                self._runtime_required("Terrain-aware automatic Glow")
+            return "plain"
+        return variant
+
+    @staticmethod
+    def _effect_data(plan: dict, effect_id: str | None = None, expires_at: float | None = None) -> dict:
+        data: dict = {}
+        if effect_id is not None:
+            data["effect"] = effect_id
+        data.update({"capability": plan["ability"].capability, "category": plan["ability"].category,
+                     "target": "self" if plan["self"] else "point", "params": dict(plan["params"]),
+                     "area": {"center_m": list(plan["centre"]), "radius_m": plan["radius_m"]}, "duration_s": plan["duration_s"]})
+        if expires_at is not None:
+            data["expires_utc"] = utc(expires_at)
+        if plan["ability"].capability == "glow":
+            data.update(variant=plan["variant"], touch=plan["touch"])
+        return data
 
     def _op_effect_start(self, principal, message, apply, new_revision):
-        args = message["args"]
-        capability = CAPABILITIES.get(args["capability"])
-        if capability is None:
-            raise HostError("unsupported_capability", "The game has no effect by that name. Call capabilities_list.",
-                            field_path="$.args.capability")
-        bounds = capability[1]
-        for name, value in args["params"].items():
-            if name not in bounds:
-                raise HostError("invalid_args", "That effect does not take a parameter by that name.",
-                                field_path=textsafety.field_path(["args", "params", name]))
-            low, high = bounds[name]
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
-                raise HostError("invalid_args", "An effect parameter is out of range.",
-                                field_path=textsafety.field_path(["args", "params", name]), allowed=[low, high])
-        if not _inside(args["area"]["center_m"], self.room_bounds):
-            raise HostError("out_of_bounds", "The effect's centre is outside the room.", field_path="$.args.area.center_m")
-        for i, target_id in enumerate(args.get("targets", [])):
-            target = self._require(target_id, f"$.args.targets[{i}]")
-            if target.protected:
-                raise HostError("target_protected", "A target is protected. Only the player can unlock it.",
-                                field_path=f"$.args.targets[{i}]")
-            if target.id == "avatar:player" and not principal.startswith("player:") \
-                    and not self.policy.companion_effects_may_target_player:
-                raise HostError("permission_denied", "Companion effects may not target the player.",
-                                field_path=f"$.args.targets[{i}]")
-        live = [e for e in self.entities.values() if e.kind == "effect" and not e.removed and e.created_by == principal]
-        if len(live) >= self.policy.max_effects_per_principal:
-            raise HostError("budget_exceeded", "Too many of your effects are running; stop one first.",
-                            allowed=self.policy.max_effects_per_principal, actual=len(live))
+        plan = self._plan_effect(principal, message["args"])
+        if plan["ability"].primitive == "particles.float":
+            return self._bubble_effect_start(principal, message, apply, plan)
         if not apply:
-            return {}
-        self._effect_counter += 1
-        effect_id = f"effect:{self._effect_counter:04d}"
-        centre, radius = args["area"]["center_m"], args["area"]["radius_m"]
-        self.entities[effect_id] = Entity(
-            id=effect_id, kind="effect", display_name=args["capability"].replace("_", " "), position=list(centre),
-            half_extents=[0, 0, 0], affordances=[], movable=False,
-            provenance_kind="ai_created" if principal.startswith("companion:") else "player_created",
-            explicit_bounds={"min_m": [_clamp(c - radius) for c in centre], "max_m": [_clamp(c + radius) for c in centre]},
-            created_by=principal, expires_at=self.clock.now() + float(args["duration_s"]))
-        return {"created": [effect_id], "affected": [effect_id]}
+            return {"data": self._effect_data(plan)}  # a preview says what would start
+        effect_id = "effect:" + "".join(secrets.choice(EFFECT_ID_ALPHABET) for _ in range(EFFECT_ID_LENGTH))
+        expires_at = self.clock.now() + plan["duration_s"]
+        nearby = []
+        for effect in self.effects.values():
+            if (effect.capability == "glow" and not effect.follows and effect.principal == principal
+                    and effect.variant in {"plain", "torch"} and 0.025 <= math.dist(effect.centre, plan["centre"]) <= 0.45
+                    and all(math.dist(effect.centre, accepted.centre) >= 0.025 for accepted in nearby)):
+                nearby.append(effect)
+        constellation = (plan["ability"].capability == "glow" and not plan["self"]
+                         and plan["variant"] in {"plain", "torch"} and len(nearby) >= 2)
+        self.effects[effect_id] = ActiveEffect(
+            id=effect_id, capability=plan["ability"].capability, principal=principal, carrier=plan["carrier"],
+            follows=plan["self"], centre=list(plan["centre"]), radius_m=plan["radius_m"], params=dict(plan["params"]),
+            expires_at=expires_at, variant=plan["variant"], touch=plan["touch"], bubble_source=plan["bubble_source"])
+        if plan["ability"].capability == "glow":
+            discovery = plan["variant"] if plan["variant"] in {"lantern", "torch", "bioluminesce", "skylight"} else None
+            self.glow_progress.record_observed(discovery, constellation)
+        if constellation:
+            group = nearby + [self.effects[effect_id]]
+            for effect in group:
+                effect.connections.update(other.id for other in group if effect is not other)
+        return {"created": [effect_id], "affected": [effect_id], "data": self._effect_data(plan, effect_id, expires_at)}
 
     def _op_effect_stop(self, principal, message, apply, new_revision):
-        # Always permitted. The player may stop any companion's effects; a companion only its own.
+        # Always permitted: one id, or all that principal may stop (the player any, a companion its own). An unknown
+        # id, or another's, stops nothing and still applies.
         which = message["args"]["effect"]
-        owners = {self._principal_of(avatar) for avatar in self._directable(principal)}
-        stoppable = [e for e in self.entities.values() if e.kind == "effect" and not e.removed and e.created_by in owners]
-        stopping = sorted((e for e in stoppable if which == "all" or e.id == which), key=lambda e: e.id)
+        ending = [e for e in self._stoppable(principal) if which == "all" or e.id == which]
+        if not apply:
+            return {}  # a preview of a stop says nothing (the kernel's Previewed)
+        ended = self._end_effects(ending) + self._pop_bubbles(principal, which)
+        outcome: dict = {"data": {"effects_stopped": len(ended)}}
+        if ended:
+            outcome["affected"] = ended
+        return outcome
+
+    def _op_glow_configure(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player chooses Glow's touch and sound settings.")
+        candidate = self.glow_progress.configured(**message["args"])
         if apply:
-            for effect in stopping:
-                effect.removed = True
-        return {"affected": [e.id for e in stopping]}
+            self.glow_progress = candidate
+        return {"data": {"touch": candidate.touch, "sound_volume": candidate.sound_volume, "muted": candidate.muted}}
+
+    def _op_effect_adjust(self, principal, message, apply, new_revision):
+        self._expire_effects()
+        args = message["args"]
+        if self.glow_progress.earned_light_limit < 5:
+            raise HostError("permission_denied", "Moving constellation points and changing their links comes with the fifth light.")
+        effect = self.effects.get(args["effect"])
+        if effect is None or effect.capability != "glow":
+            raise HostError("target_not_found", "That Glow has ended.", field_path="$.args.effect")
+        if effect.principal != principal:
+            raise HostError("permission_denied", "A caster can adjust only their own Glow.", field_path="$.args.effect")
+        if effect.follows or effect.variant not in {"plain", "torch"}:
+            raise HostError("invalid_args", "Only a free constellation point can be adjusted.", field_path="$.args.effect")
+        centre = list(args.get("center_m", effect.centre))
+        ability = self.rules.ability("glow") if self.rules else None
+        if ability is None:
+            raise HostError("unsupported_capability", "This island has no Glow.")
+        body = self.entities.get(self._carrier(principal))
+        if body is None or body.removed:
+            raise HostError("not_ready", "The Gubble is not in the room.")
+        if ((SEA_EXTENSION not in self.room.get("extensions", {}) and not _inside(centre, self.room_bounds))
+                or math.dist(body.position, centre) > ability.reach_m):
+            raise HostError("out_of_bounds", "The point must stay within the Gubble's reach.", field_path="$.args.center_m")
+        if not self._team_sees_spot(centre, principal, self._carrier(principal)):
+            raise HostError("target_not_found", "Neither of you can see that spot.", field_path="$.args.center_m")
+        self._resolve_glow_variant(effect.variant, False, centre)
+        links = list(args.get("connections", sorted(effect.connections)))
+        for linked_id in links:
+            linked = self.effects.get(linked_id)
+            if (linked is None or linked.id == effect.id or linked.capability != "glow" or linked.follows
+                    or linked.variant not in {"plain", "torch"}):
+                raise HostError("target_not_found", "A link needs another free Glow point.", field_path="$.args.connections")
+            if linked.principal != principal:
+                raise HostError("permission_denied", "A caster can link only their own Glow points.", field_path="$.args.connections")
+            if math.dist(linked.centre, centre) > ability.reach_m:
+                raise HostError("out_of_bounds", "Those points are too far apart to connect.", field_path="$.args.connections")
+        data = {"effect": effect.id, "center_m": centre, "connections": links}
+        if apply:
+            effect.centre = centre
+            for other in self.effects.values():
+                other.connections.discard(effect.id)
+            effect.connections = set(links)
+            for linked_id in links:
+                self.effects[linked_id].connections.add(effect.id)
+        return {"affected": [effect.id], "data": data} if apply else {"data": data}
+
+    def _op_nature_cast(self, principal, message, apply, new_revision):
+        # The contract checked the args (as the kernel's CheckNatureArgs) and _check_revisions the expectations; the kernel's
+        # nature begins here, which this mock does not simulate. The Bubbles expertise are no ground change: hosted here.
+        if _is_bubble(message):
+            return self._bubble_cast(principal, message, apply)
+        self._runtime_required("Bloom and Fire on the island's ground")
+
+    # ------------------------------------------------------------------ the Bubble (M9; the kernel's Kernel/Bubble)
+
+    def _bubbles_ability(self) -> Ability | None:
+        """The island's Bubbles (its particles.float ability), whose caster, reach and bounds every expertise uses."""
+        if self.rules is None:
+            return None
+        return next((a for a in self.rules.abilities if a.primitive == "particles.float"), None)
+
+    def _bubble_holding(self) -> MockBubble | None:
+        return next((b for b in self.bubbles.values() if b.holding), None)
+
+    def _inside_island(self, point: list[float]) -> bool:
+        """The kernel's InsideIsland, one rule for every cast, effect and lead, the body's own: without a sea, inside the room's
+        bounds; round an island the sea has no edge, so only the top and the bottom hold. Within ISLAND_SLACK_M either way."""
+        if SEA_EXTENSION not in self.room.get("extensions", {}):
+            return _inside(point, self.room_bounds, ISLAND_SLACK_M)
+        return self.room_bounds["min_m"][1] - ISLAND_SLACK_M <= point[1] <= self.room_bounds["max_m"][1] + ISLAND_SLACK_M
+
+    def _walk_in_centre(self, spot: list[float], radius: float) -> list[float]:
+        """The kernel's WalkInCentre (ClearOfGround): a bubble to walk into rests on what is under its spot, the floor or the top of a
+        thing whose footprint holds it, found as the kernel's ray finds it (from 2r over the spot down to 1 cm under it); a spot
+        inside a box rests on its top."""
+        start = spot[1] + 2 * radius
+        tops = [self.room_bounds["min_m"][1]]
+        for entity in self.entities.values():
+            if entity.removed or entity.id.startswith("avatar:"):
+                continue
+            box = entity.bounds()
+            if box["min_m"][0] <= spot[0] <= box["max_m"][0] and box["min_m"][2] <= spot[2] <= box["max_m"][2]:
+                tops.append(box["max_m"][1])
+        hits = [top for top in tops if spot[1] - 0.01 <= top <= start]
+        y = spot[1] + radius
+        if hits and max(hits) + radius + 0.005 > y:
+            y = max(hits) + radius + 0.005
+        return [spot[0], y, spot[2]]
+
+    @staticmethod
+    def _clear_of_the_player(centre: list[float], radius: float, feet: list[float]) -> bool:
+        """The kernel's ClearOfThePlayer: the body's middle farther from the bubble's centre than its radius, the step-in clearance
+        and the body's own radius; walking in is then the player's own consent."""
+        middle = [feet[0], feet[1] + perception.BODY_HEIGHT_M / 2, feet[2]]
+        return math.dist(middle, centre) > radius + BUBBLE_STEP_IN_CLEARANCE_M + perception.BODY_RADIUS_M
+
+    def _bubble_cast(self, principal: str, message: dict, apply: bool) -> dict:
+        """The kernel's BubbleCast, its refusals in its order. A preview of a cast on the player shows the ghost (its preview_id);
+        the prediction before a commit checks the ghost (before any hold); the commit forms the bubble and answers its receipt."""
+        args = message["args"]
+        preview = message.get("preview") is True
+        player = principal.startswith("player:")
+        capability = args["capability"]
+        boat = capability == "bubble_boat"
+        target = args.get("target")
+        # The companion names only what the team has in sight now (the kernel's CheckPerceived), before the rules.
+        if target is not None and not player and self._entity(target) is None:
+            raise _not_found("$.args.target")
+        # Lift is no cast since the redesign (decision 58): leading a bubble to a higher spot floats it up there.
+        if capability == "bubble_lift":
+            raise HostError("unsupported_capability", BUBBLE_LIFT_IS_A_LEAD, field_path="$.args.capability")
+        ability = self._bubbles_ability()
+        if ability is None:
+            raise HostError("unsupported_capability", "This island does not grant Bubbles.", field_path="$.args.capability")
+        if ("player" if player else "companion") not in ability.cast_by:
+            raise HostError("permission_denied", "This island does not allow this caster to use Bubbles.", field_path="$.args.capability")
+        centre = [_r(v) for v in args["center_m"]]
+        radius, duration = float(args["radius_m"]), float(args["duration_s"])
+        if radius > ability.area_radius_max_m:
+            raise HostError("invalid_args", "That radius is more than this island allows.", field_path="$.args.radius_m",
+                            allowed=ability.area_radius_max_m)
+        least, most = BUBBLE_BOAT_RADIUS_M if boat else BUBBLE_CARRY_RADIUS_M
+        if radius < least or radius > most:
+            raise HostError("invalid_args", "A Bubble boat is not that size." if boat else "A bubble that carries the player is not that size.",
+                            field_path="$.args.radius_m", allowed=[least, most])
+        if duration > ability.duration_max_s:
+            raise HostError("invalid_args", "That duration is more than this island allows.", field_path="$.args.duration_s",
+                            allowed=ability.duration_max_s)
+        if not self._inside_island(centre):
+            raise HostError("out_of_bounds", "Choose a point inside this island.", field_path="$.args.center_m")
+        gubble = self.entities.get(GUBBLE)
+        if gubble is None or gubble.removed or math.dist(gubble.position, centre) > ability.reach_m:
+            raise HostError("out_of_bounds", "Bring the Gubble closer before casting.", field_path="$.args.center_m", retryable=True,
+                            allowed=ability.reach_m)
+        if not self._team_sees_spot(centre, principal, GUBBLE):
+            raise HostError("target_not_found", "The team must see the place the Gubble will affect.", field_path="$.args.center_m")
+        if target is not None and target != self.avatars[PLAYER]:
+            if target == GUBBLE:
+                raise HostError("invalid_args", "A Bubble carries the player; the Gubble floats on its own.", field_path="$.args.target")
+            raise _not_found("$.args.target")
+        body = self.entities.get(self.avatars[PLAYER])
+        if body is None or body.removed:
+            raise HostError("not_ready", "The player's body is not in the room yet.", retryable=True)
+        feet = body.position
+        if target is not None:
+            if math.dist(feet, centre) > radius + BUBBLE_ENVELOP_REACH_M:
+                raise HostError("invalid_args", "A carry on the player forms round them: center it where they stand.", field_path="$.args.center_m")
+        elif boat:
+            # The box world has no water: the kernel's ShallowWaterAt finds none either.
+            raise HostError("invalid_args", BUBBLE_NO_WATER, field_path="$.args.center_m")
+        elif not self._clear_of_the_player(self._walk_in_centre(centre, radius), radius, feet):
+            # Judged where it forms (a point under a surface rests on it), before any price: the kernel's ClearOfThePlayer.
+            raise HostError("invalid_args", BUBBLE_ON_THE_PLAYER, field_path="$.args.center_m")
+        now = self.clock.now()
+        # One bubble at a time: this one replaces the one there, so only the effects count toward the room's cap.
+        if len(self.effects) >= self.policy.max_active_effects:
+            raise HostError("budget_exceeded", "As many effects are running as the room allows; stop one first.", field_path="$.args.capability",
+                            retryable=True, allowed=self.policy.max_active_effects)
+        keyed = not player and ability.tier == "keyed_yes"
+        signature = (capability, tuple(centre), radius, duration, target or "")
+        data = {"capability": capability, "center_m": centre, "radius_m": radius, "duration_s": duration, "cell_count": 0, "cells": [],
+                "cells_truncated": False, "requires_approval": keyed}
+        if target is not None:
+            data["target"] = target
+        if preview:
+            if target is not None:
+                data["preview_id"] = self._show_ghost(principal, signature, now)
+            return {"affected": [target], "data": data} if target is not None else {"data": data}
+        preview_id = args.get("preview_id")
+        # The player's click on a held cast is the consent itself (the kernel's approvedBy).
+        if (preview_id is not None or target is not None) and not self._approving:
+            ghost = self.bubble_ghosts.get(preview_id) if preview_id is not None else None
+            if ghost is None or ghost[0] != principal or ghost[1] != signature or ghost[3] <= now:
+                raise HostError("revision_conflict", BUBBLE_PREVIEW_AGAIN, field_path="$.args.preview_id", retryable=True)
+            if not player and now - ghost[2] < BUBBLE_GHOST_LEAD_S:
+                raise HostError("not_ready", BUBBLE_GHOST_LEAD, field_path="$.args.preview_id", retryable=True)
+        if not apply:
+            return {"data": data}
+        if preview_id is not None:
+            self.bubble_ghosts.pop(preview_id, None)
+        bubble = self._form_bubble(capability, principal, message["action_id"], target, centre, radius, now + duration)
+        bubble_id = bubble.id
+        receipt = {"capability": capability, "bubble": bubble_id, "center_m": centre, "radius_m": radius, "duration_s": duration,
+                   "expires_utc": utc(bubble.expires_at), "requires_approval": keyed, "carried": bubble.carried}
+        if target is not None:
+            receipt["target"] = target
+        return {"created": [bubble_id], "affected": [bubble_id] + ([target] if target is not None else []), "data": receipt}
+
+    def _form_bubble(self, capability: str, principal: str, action_id: str, target: str | None, centre: list[float], radius: float,
+                     expires_at: float) -> MockBubble:
+        """A new bubble; one at a time, so whatever bubble was there pops first (the kernel's FormBubble)."""
+        for old in list(self.bubbles.values()):
+            self._end_bubble(old, "popped")
+        bubble_id = "effect:" + "".join(secrets.choice(EFFECT_ID_ALPHABET) for _ in range(EFFECT_ID_LENGTH))
+        bubble = MockBubble(bubble_id, capability, principal, action_id, target, centre, radius, expires_at,
+                            holding=target is not None, carried=target is not None)
+        self.bubbles[bubble_id] = bubble
+        return bubble
+
+    def _bubble_effect_start(self, principal: str, message: dict, apply: bool, plan: dict) -> dict:
+        """effect.start of Bubbles, checked by _plan_effect: one player-sized bubble at the spot, the place deciding what it is
+        (the kernel's BubbleEffectStart). The box world has no water, so it is a carry on the player or a bubble to walk into."""
+        preview = message.get("preview") is True
+        player = principal.startswith("player:")
+        spot = list(plan["centre"])
+        body = self.entities.get(self.avatars[PLAYER])
+        if body is None or body.removed:
+            raise HostError("not_ready", "The player's body is not in the room yet.", retryable=True)
+        radius = BUBBLE_CARRY_RADIUS_DEFAULT_M
+        # On the player: their feet within reach of the spot, or a bubble to walk into that would form round them (the kernel's
+        # PlaceTheBubble judges the walk-in where it forms), so a carry, the companion's previewed first.
+        on_them = (math.dist(body.position, spot) <= radius + BUBBLE_ENVELOP_REACH_M
+                   or not self._clear_of_the_player(self._walk_in_centre(spot, radius), radius, body.position))
+        target = self.avatars[PLAYER] if on_them else None
+        kind = "carry" if target is not None else "walk_in"
+        duration = plan["duration_s"]
+        signature = ("effect.start:" + plan["ability"].capability, tuple(spot), radius, duration, target or "")
+        data = {"capability": plan["ability"].capability, "category": plan["ability"].category, "target": "point", "kind": kind,
+                "params": {}, "area": {"center_m": spot, "radius_m": radius}, "duration_s": duration}
+        now = self.clock.now()
+        if preview:
+            if target is not None:
+                self._show_ghost(principal, signature, now)  # the ghost the player sees round them is the consent
+            return {"data": data}
+        ghost = None
+        if target is not None:
+            ghost = next((t for t, g in self.bubble_ghosts.items() if g[0] == principal and g[1] == signature and g[3] > now), None)
+            if not player and not self._approving:
+                if ghost is None:
+                    raise HostError("revision_conflict", BUBBLE_GHOST_FIRST, field_path="$.args.area.center_m", retryable=True)
+                if now - self.bubble_ghosts[ghost][2] < BUBBLE_GHOST_LEAD_S:
+                    raise HostError("not_ready", BUBBLE_GHOST_LEAD, field_path="$.args.area.center_m", retryable=True)
+        if not apply:
+            return {"data": data}
+        if ghost is not None:
+            self.bubble_ghosts.pop(ghost, None)
+        bubble = self._form_bubble("bubble_carry", principal, message["action_id"], target, spot, radius, now + duration)
+        data.update(effect=bubble.id, bubble=bubble.id, expires_utc=utc(bubble.expires_at), carried=bubble.carried)
+        return {"created": [bubble.id], "affected": [bubble.id] + ([target] if target is not None else []), "data": data}
+
+    # ------------------------------------------------------------------ the Gubble's lead (goal.set lead; the kernel's CommandHostBubbleLead)
+
+    def _lead(self, principal: str, message: dict, actor: str, apply: bool) -> dict:
+        """goal.set lead: the bubble by its id (the companion names only one the team sees now), the spot inside the island; then the
+        Gubble's goal is replaced and the lead starts as a job. A spot higher than the bubble is a lift (the mock has no pool)."""
+        args = message["args"]
+        player = principal.startswith("player:")
+        bubble = self.bubbles.get(args["target"])
+        if bubble is None or (not player and not self._approving and not self._team_sees_spot(bubble.centre, principal, GUBBLE)):
+            raise _not_found("$.args.target")
+        spot = [_r(v) for v in args["position_m"]]
+        if not self._inside_island(spot):
+            raise HostError("out_of_bounds", "That spot is outside the island.", field_path="$.args.position_m")
+        lift = spot[1] - bubble.centre[1] > BUBBLE_LIFT_ABOVE_DRIFT_M
+        data = {"actor": actor, "goal": "lead", "bubble": bubble.id, "position_m": spot, "lift": lift}
+        if not player:
+            data["target_seen"] = "now"
+        if lift:
+            data["lift_price"] = self._trust_price("bubble_lift", principal)
+        outcome = {"affected": [actor, bubble.id], "data": data}
+        if not apply:
+            return {"data": data}
+        if bubble.lead is not None:
+            # A new lead of the same bubble re-aims it: the old lead ends (stopped), and the bubble stays.
+            self._update_lead_receipt(bubble.lead, "ended", "stopped")
+            bubble.lead = None
+        self._cancel_job(actor)
+        job_id = self._start_job(principal, actor, message["action_id"], "lead", bubble.id)
+        self.goals[actor] = {"goal": "lead", "target": bubble.id, "position_m": spot, "job_id": job_id, "set_by": principal,
+                             "started_utc": utc(self.clock.now())}
+        bubble.lead = {"job_id": job_id, "principal": principal, "action_id": message["action_id"], "spot": spot, "lift": lift}
+        outcome["job_id"] = job_id
+        return outcome
+
+    def _led_bubble(self, job_id: str) -> MockBubble | None:
+        return next((b for b in self.bubbles.values() if b.lead is not None and b.lead["job_id"] == job_id), None)
+
+    def _update_lead_receipt(self, lead: dict, field_name: str, value: Any) -> None:
+        """How a lead went, written into its goal.set receipt (a replay and receipt.lookup answer it so)."""
+        receipt = self.transient.get((lead["principal"], lead["action_id"]))
+        if receipt is not None and receipt.result.get("job_id") == lead["job_id"]:
+            receipt.result.setdefault("data", {})[field_name] = value
+
+    def _end_lead(self, bubble: MockBubble, word: str, error: HostError | None) -> None:
+        """A lead ends: its receipt says how, and the Gubble's job finishes (succeeded on arrival, failed with why otherwise)."""
+        lead, bubble.lead = bubble.lead, None
+        if lead is None:
+            return
+        self._update_lead_receipt(lead, "ended", word)
+        goal = self.goals.get(GUBBLE)
+        job = self.jobs.get(lead["job_id"])
+        if goal is not None and goal.get("job_id") == lead["job_id"] and job is not None and job["state"] == "running":
+            self._finish_job(GUBBLE, goal, job, error)
+
+    def _lead_arrived(self, actor_id: str, goal: dict, job: dict) -> str:
+        """The bubble reached its spot (the mock has no drift: the game's goal runner says so): it is there, and the lead succeeded."""
+        bubble = self._led_bubble(goal["job_id"])
+        if bubble is None:
+            return self._finish_job(actor_id, goal, job, HostError("target_not_found", LEAD_POPPED, field_path="$.args.target"))
+        bubble.centre = list(goal["position_m"])
+        self._end_lead(bubble, "arrived", None)
+        return job["state"]
+
+    def _lead_blocked(self, actor_id: str, goal: dict, seconds: float) -> str:
+        """A led bubble that cannot get on for unreachable_after_s stops where it is: the lead fails (target_unreachable)."""
+        goal["blocked_s"] = goal.get("blocked_s", 0.0) + seconds
+        if goal["blocked_s"] < self.policy.unreachable_after_s:
+            return "running"
+        bubble = self._led_bubble(goal["job_id"])
+        job = self.jobs[goal["job_id"]]
+        error = HostError("target_unreachable", LEAD_BLOCKED, field_path="$.args.position_m")
+        if bubble is None:
+            return self._finish_job(actor_id, goal, job, error)
+        self._end_lead(bubble, "blocked", error)
+        return job["state"]
+
+    def _pop_led_bubble(self, actor: str, by_player: bool) -> list[str]:
+        """goal.stop of the Gubble: the bubble it leads pops before its goal is cancelled, as the player's own pop when it is the
+        player's X (the kernel's PopLedBubble). Returns its id in a list, or an empty list when it leads none."""
+        goal = self.goals.get(actor)
+        bubble = self._led_bubble(goal.get("job_id", "")) if goal and goal.get("goal") == "lead" else None
+        if bubble is None:
+            return []
+        self._update_lead_receipt(bubble.lead, "ended", "stopped")
+        bubble.lead = None
+        self._end_bubble(bubble, "popped_by_player" if by_player else "popped")
+        return [bubble.id]
+
+    def _show_ghost(self, principal: str, signature: tuple, now: float) -> str:
+        while len(self.bubble_ghosts) >= BUBBLE_MAX_GHOSTS:
+            self.bubble_ghosts.popitem(last=False)
+        token = secrets.token_hex(16)
+        self.bubble_ghosts[token] = (principal, signature, now, now + BUBBLE_GHOST_LIFETIME_S)
+        return token
+
+    def _update_bubble_receipt(self, bubble: MockBubble, field_name: str, value: Any) -> None:
+        """What happened to a bubble since its cast, written into its receipt (a replay and receipt.lookup answer it so)."""
+        receipt = self.transient.get((bubble.principal, bubble.action_id))
+        if receipt is not None and receipt.result.get("data", {}).get("bubble") == bubble.id:
+            receipt.result["data"][field_name] = value
+
+    def _end_bubble(self, bubble: MockBubble, ended: str) -> None:
+        if self.bubbles.pop(bubble.id, None) is None:
+            return
+        bubble.holding = False
+        self._update_bubble_receipt(bubble, "ended", ended)
+        if bubble.lead is not None:
+            # The lead taking it somewhere ends with it: it popped before it got there.
+            self._end_lead(bubble, ended, HostError("target_not_found", LEAD_POPPED, field_path="$.args.target"))
+
+    def _pop_bubbles(self, principal: str, which: str) -> list[str]:
+        """goal.stop of the Gubble and effect.stop: the bubbles this principal may stop (the player any, a companion its own), one by
+        id or all; the player's stop also turns away every ghost. Returns the ids popped (the kernel's PopBubbles)."""
+        self._expire_bubbles()
+        player = principal.startswith("player:")
+        if which == "all":
+            if player:
+                self.bubble_ghosts.clear()
+            else:
+                for token in [t for t, ghost in self.bubble_ghosts.items() if ghost[0] == principal]:
+                    del self.bubble_ghosts[token]
+        popped = [b for b in self.bubbles.values() if (player or b.principal == principal) and (which == "all" or b.id == which)]
+        for bubble in popped:
+            self._end_bubble(bubble, "popped_by_player" if player else "popped")
+        return [b.id for b in popped]
+
+    def _expire_bubbles(self) -> None:
+        """A bubble at its duration pops, timed_out; a ghost goes at its lifetime (the host's clock)."""
+        now = self.clock.now()
+        for bubble in [b for b in self.bubbles.values() if now >= b.expires_at]:
+            self._end_bubble(bubble, "timed_out")
+        for token in [t for t, ghost in self.bubble_ghosts.items() if ghost[3] <= now]:
+            del self.bubble_ghosts[token]
+
+    def player_pops_bubble(self) -> bool:
+        """The dive key in the game (the player's body, never the companion's connection): the bubble that holds the player pops,
+        popped by the player, and every ghost round them goes. Returns whether a bubble popped."""
+        with self._lock:
+            self._expire_bubbles()
+            self.bubble_ghosts.clear()
+            holding = self._bubble_holding()
+            if holding is None:
+                return False
+            self._end_bubble(holding, "popped_by_player")
+            return True
+
+    def player_steps_into(self, bubble_id: str) -> bool:
+        """The player's own step into a bubble waiting at a point (the game's body; the mock has no physics): the step-in is the
+        consent, so it holds them and its receipt says carried."""
+        with self._lock:
+            self._expire_bubbles()
+            bubble = self.bubbles.get(bubble_id)
+            if bubble is None or bubble.target is not None or bubble.holding or self._bubble_holding() is not None:
+                return False
+            bubble.holding = bubble.carried = True
+            self._update_bubble_receipt(bubble, "carried", True)
+            return True
+
+    def _op_nature_trail(self, principal, message, apply, new_revision):
+        self._runtime_required("The flower trail")
+
+    def _op_nature_repair(self, principal, message, apply, new_revision):
+        # The kernel's CheckPerceived first: a companion names only what the team has in sight now.
+        if not principal.startswith("player:"):
+            self._require(message["args"]["target"], "$.args.target")
+        self._runtime_required("Repairing a scorched creation")
+
+    def _op_wish_submit(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player can start a wish.")
+        self._runtime_required("The wish queue and player-started runner")
+
+    def _op_wish_stop(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player can stop a wish.")
+        self._runtime_required("The wish queue and player-started runner")
 
     def _op_style_set(self, principal, message, apply, new_revision):
         args = message["args"]
@@ -1706,6 +2758,12 @@ class MockHost(JournalMixin):
         # What the kernel host answers (and replays from the durable receipt): the revision, nothing else.
         return {"data": {"checkpoint_revision": self.revision}}
 
+    def _op_item_pickup(self, principal, message, apply, new_revision):
+        """A Fractal's pickup or a gather, the player's alone: refused before it reaches here (_check_unsupported) in the mock."""
+        raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
+
+    _op_knack_set = _op_fractal_spend = _op_item_gather = _op_item_pickup
+
     def _op_world_set_physics(self, principal, message, apply, new_revision):
         # Player-only: a companion is refused before any handler runs. Not saved in room state, so transient.
         preset = message["args"]["preset"]
@@ -1716,49 +2774,25 @@ class MockHost(JournalMixin):
             self.physics_preset = preset
         return {}
 
+    def _op_world_set_mode(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player chooses the game mode.")
+        mode = message["args"]["mode"]
+        if mode not in self._glow_profiles:
+            raise HostError("invalid_args", "Choose creative, challenge or live.", field_path="$.args.mode")
+        if apply:
+            self._end_effects(list(self.effects.values()))
+            self.mode = mode
+        return {}
+
     def _op_room_undo(self, principal, message, apply, new_revision):
-        to_revision = message["args"]["to_revision"]
-        if to_revision >= self.revision or to_revision not in self.history:
-            raise HostError("invalid_args", "That revision cannot be restored.", field_path="$.args.to_revision",
-                            allowed=[min(self.history), max(self.revision - 1, 0)], actual=to_revision)
-        changes = self._undo_plan(to_revision)
-        if not principal.startswith("player:"):
-            # Protection is the player's. A companion's undo may not touch a protected entity, and may
-            # not change any entity's protection, in either direction.
-            for entity_id, state in changes:
-                entity = self.entities.get(entity_id)
-                now_protected = bool(entity and not entity.removed and entity.protected)
-                then_protected = bool(state and not state["removed"] and state["protected"])
-                if now_protected or then_protected != now_protected:
-                    raise HostError("target_protected",
-                                    "Undoing to that revision would change something protected. Only the player can do that.",
-                                    field_path="$.args.to_revision")
-            # Undoing the player's edits is never the companion's (docs/companion/LIVE-VOICE.md, "never
-            # exposed"): a companion's undo may only step back over revisions its own commands made.
-            if any(self.committed_by.get(r) != principal for r in range(to_revision + 1, self.revision + 1)):
-                raise HostError("permission_denied",
-                                "A companion can undo only its own changes. Undoing the player's changes is the player's.",
-                                field_path="$.args.to_revision")
-        if not apply:
-            return {"affected": [entity_id for entity_id, _state in changes][:256]}
-        snapshot = self.history[to_revision]
-        changed = []
-        for entity_id, state in changes:
-            if state is None:
-                entity = self.entities[entity_id]
-                entity.removed = True
-                entity.revision = new_revision
-            else:
-                restored = Entity(id=entity_id, **{k: copy.deepcopy(v) for k, v in state.items()})
-                restored.revision = new_revision
-                self.entities[entity_id] = restored
-            changed.append(entity_id)
-        for actor, held in list(self.holding.items()):
-            if held in changed:
-                del self.holding[actor]
-                self.entities[held].held_by = None
-        self.style = dict(snapshot["style"])
-        return {"affected": sorted(changed)[:256]}
+        """room.undo takes nature changes back by room revision (the kernel's NatureUndo), in Creative only (outside it,
+        _check_unsupported has refused it already). The mock has none to take back, so it answers as the kernel does when
+        the latest change is of another kind; nothing is undone, and building, moving and protecting cannot be undone at
+        all, by anyone."""
+        if message["args"]["to_revision"] >= self.revision:
+            raise HostError("invalid_args", UNDO_NOT_EARLIER, field_path="$.args.to_revision", actual=self.revision)
+        raise HostError("unsupported_capability", UNDO_ONLY_NATURE, field_path="$.args.to_revision")
 
     # ------------------------------------------------------------------ queries
 
@@ -1812,17 +2846,36 @@ class MockHost(JournalMixin):
             if protected_by:
                 data["protected_by"] = protected_by
             result["data"] = data
+        elif op == "player.status":
+            result["data"] = self._player_status()
+        elif op in {"nature.describe", "wishes.read"}:
+            if op == "wishes.read" and principal != PLAYER:
+                raise HostError("permission_denied", "Only the player can read wishes.")
+            self._runtime_required("The island's nature" if op == "nature.describe" else "The wish queue")
         elif op == "capabilities.list":
-            names = sorted(n for n, (cat, _p) in CAPABILITIES.items() if args.get("category") in (None, cat))
-            offset = _cursor(args.get("cursor"))
-            limit = args.get("limit", 50)
-            items = [{"capability": n, "category": CAPABILITIES[n][0],
-                      "params": {p: {"min": lo, "max": hi} for p, (lo, hi) in CAPABILITIES[n][1].items()},
-                      "area_radius_max_m": 10, "duration_max_s": 600}
-                     for n in names[offset:offset + limit]]
-            result["data"] = {"items": items}
-            if offset + limit < len(names):
-                result["data"]["next_cursor"] = str(offset + limit)
+            # From the island's rules: capability_summary items by capability, filtered by category, paged by a
+            # plain decimal offset (the kernel's Capabilities). A cursor it did not give is invalid_args.
+            abilities = sorted(self.rules.abilities if self.rules else (), key=lambda a: a.capability)
+            if "category" in args:
+                abilities = [a for a in abilities if a.category == args["category"]]
+            start = 0
+            if "cursor" in args:
+                cursor = args["cursor"]
+                if not (cursor.isascii() and cursor.isdigit()) or int(cursor) > len(abilities):
+                    raise HostError("invalid_args", "That cursor is not from this list.", field_path="$.args.cursor")
+                start = int(cursor)
+            page = abilities[start:start + args.get("limit", CAPABILITIES_DEFAULT_LIMIT)]
+            result["data"] = {"items": [{
+                "capability": a.capability, "category": a.category,
+                "params": {name: {"min": low, "max": high} for name, (low, high, _default) in a.params.items()},
+                "area_radius_max_m": a.area_radius_max_m, "duration_max_s": a.duration_max_s,
+                "reach_m": a.reach_m,
+                "max_active": min(a.max_active, self.policy.max_active_effects,
+                                  self.glow_progress.earned_light_limit if a.capability == "glow" else a.max_active,
+                                  BUBBLE_MAX if a.primitive == "particles.float" else a.max_active),
+                "command_op": "nature.cast" if a.primitive in {"growth.seed", "element.ignite"} else "effect.start"} for a in page]}
+            if start + len(page) < len(abilities):
+                result["data"]["next_cursor"] = str(start + len(page))
         elif op == "observe":
             actor = self._actor(principal, args)
             radius = min(float(args.get("radius_m", self.policy.observe_max_radius_m)), self.policy.observe_max_radius_m)
@@ -1881,6 +2934,8 @@ class MockHost(JournalMixin):
             result["data"] = data
         elif op == "journal.read":
             result["data"] = self._journal_read(principal, args)
+        elif op == eyes.OP:
+            result["data"] = self._view_look(principal, args)
         elif op == "map.find":
             result["data"] = self._map_find(principal, args)
         else:  # pragma: no cover - the schema already restricts ops

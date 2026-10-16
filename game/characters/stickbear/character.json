@@ -1,0 +1,699 @@
+{
+  "bounds_m": {
+    "max": [
+      0.047067967264366455,
+      0.1,
+      0.0092224142361613
+    ],
+    "min": [
+      -0.03492991187860698,
+      0.0,
+      -0.009851430186744729
+    ]
+  },
+  "collision_hint": {
+    "height_m": 0.1,
+    "kind": "capsule",
+    "radius_m": 0.02,
+    "visual_overhang": true
+  },
+  "depth_m": 0.01907384442290603,
+  "forward": "-Z",
+  "height_m": 0.1,
+  "motion": {
+    "kind": "stride",
+    "reason": "Extraordinarily long thin legs and outward feet suggest loose swinging strides; paws wave from the shoulders."
+  },
+  "name": "Stickbear",
+  "parts": [
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.005276232220926609,
+        0.04546700550905945,
+        0.0
+      ],
+      "name": "body",
+      "node_index": 1,
+      "parent": null,
+      "pivot_m": [
+        0.005276232220926609,
+        0.04546700550905945,
+        0.0
+      ],
+      "role": "body"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0005553928653606955,
+        0.0290655599538764,
+        0.0
+      ],
+      "name": "head",
+      "node_index": 2,
+      "parent": "body",
+      "pivot_m": [
+        0.0058316250862873046,
+        0.07453256546293585,
+        0.0
+      ],
+      "role": "head"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.006572148906768232,
+        0.01379225615645728,
+        0.0
+      ],
+      "name": "horn_screen_left",
+      "node_index": 3,
+      "parent": "head",
+      "pivot_m": [
+        0.012403773993055537,
+        0.08832482161939313,
+        0.0
+      ],
+      "role": "horn"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.005091101265806377,
+        0.013144297813536474,
+        0.0
+      ],
+      "name": "horn_screen_right",
+      "node_index": 4,
+      "parent": "head",
+      "pivot_m": [
+        0.0007405238204809275,
+        0.08767686327647232,
+        0.0
+      ],
+      "role": "horn"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0011107857307213927,
+        0.0032397917146040622,
+        0.0
+      ],
+      "name": "horn_bands_left",
+      "node_index": 5,
+      "parent": "horn_screen_left",
+      "pivot_m": [
+        0.011292988262334144,
+        0.0915646133339972,
+        0.0
+      ],
+      "role": "mark"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0008330892980410435,
+        0.004072881012645094,
+        0.0
+      ],
+      "name": "horn_bands_right",
+      "node_index": 6,
+      "parent": "horn_screen_right",
+      "pivot_m": [
+        -9.256547756011594e-05,
+        0.09174974428911742,
+        0.0
+      ],
+      "role": "mark"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.005646494131167072,
+        0.018235399079342837,
+        0.0
+      ],
+      "name": "arm_screen_left",
+      "node_index": 7,
+      "parent": "body",
+      "pivot_m": [
+        0.010922726352093681,
+        0.06370240458840229,
+        0.0
+      ],
+      "role": "arm"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0050911012658063776,
+        0.018420530034463076,
+        0.0
+      ],
+      "name": "arm_screen_right",
+      "node_index": 8,
+      "parent": "body",
+      "pivot_m": [
+        0.00018513095512023189,
+        0.06388753554352253,
+        0.0
+      ],
+      "role": "arm"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.021567756271507012,
+        0.01110785730721392,
+        0.0
+      ],
+      "name": "paw_screen_left",
+      "node_index": 9,
+      "parent": "arm_screen_left",
+      "pivot_m": [
+        0.03249048262360069,
+        0.07481026189561621,
+        0.0
+      ],
+      "role": "hand"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.02304880391246887,
+        0.018142833601782718,
+        0.0
+      ],
+      "name": "paw_screen_right",
+      "node_index": 10,
+      "parent": "arm_screen_right",
+      "pivot_m": [
+        -0.02286367295734864,
+        0.08203036914530525,
+        0.0
+      ],
+      "role": "hand"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.00416544649020522,
+        0.006479583429208111,
+        -0.009337484866706696
+      ],
+      "name": "heart_screen_left",
+      "node_index": 11,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.03665592911380591,
+        0.08128984532482432,
+        -0.009337484866706696
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0037026191024046376,
+        0.004998535788246258,
+        -0.006744205304028062
+      ],
+      "name": "heart_screen_right",
+      "node_index": 12,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.026566292059753277,
+        0.0870289049335515,
+        -0.006744205304028062
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.010367333486732987,
+        0.01027476800917286,
+        -0.005954202002341078
+      ],
+      "name": "digit_pad_left_0",
+      "node_index": 13,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.04285781611033368,
+        0.08508502990478907,
+        -0.005954202002341078
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.006664714384328349,
+        0.012681470425735877,
+        -0.007685991257135569
+      ],
+      "name": "digit_pad_left_1",
+      "node_index": 14,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.03915519700792904,
+        0.08749173232135209,
+        -0.007685991257135569
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.00277696432680348,
+        0.01481047640961855,
+        -0.007889289058080883
+      ],
+      "name": "digit_pad_left_2",
+      "node_index": 15,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.03526744695040417,
+        0.08962073830523476,
+        -0.007889289058080883
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.002499267894123129,
+        0.011385553739894264,
+        -0.0049071949657527696
+      ],
+      "name": "digit_pad_right_0",
+      "node_index": 16,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.02536294085147177,
+        0.09341592288519951,
+        -0.0049071949657527696
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.004443142922885564,
+        0.010367333486732994,
+        -0.0057913239769785746
+      ],
+      "name": "digit_pad_right_1",
+      "node_index": 17,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.027306815880234203,
+        0.09239770263203824,
+        -0.0057913239769785746
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.006664714384328346,
+        0.009626809666252054,
+        -0.0054614725419932205
+      ],
+      "name": "digit_pad_right_2",
+      "node_index": 18,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.029528387341676985,
+        0.0916571788115573,
+        -0.0054614725419932205
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.008516023935530664,
+        0.008608589413090784,
+        -0.004817615465274664
+      ],
+      "name": "digit_pad_right_3",
+      "node_index": 19,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.031379696892879304,
+        0.09063895855839603,
+        -0.004817615465274664
+      ],
+      "role": "pad"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.01212607756037519,
+        0.007682934637489619,
+        0.0
+      ],
+      "name": "claw_left_0",
+      "node_index": 20,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.04461656018397588,
+        0.08249319653310583,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.009071416800891366,
+        0.012959166858416221,
+        0.0
+      ],
+      "name": "claw_left_1",
+      "node_index": 21,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.04156189942449206,
+        0.08776942875403243,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.004905970310686146,
+        0.016754351438380985,
+        0.0
+      ],
+      "name": "claw_left_2",
+      "node_index": 22,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.03739645293428684,
+        0.0915646133339972,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0009256547756011646,
+        0.018790791944703525,
+        0.0
+      ],
+      "name": "claw_left_3",
+      "node_index": 23,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.03341613739920186,
+        0.09360105384031973,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001573613118521968,
+        0.01971644672030469,
+        0.0
+      ],
+      "name": "claw_left_4",
+      "node_index": 24,
+      "parent": "paw_screen_left",
+      "pivot_m": [
+        0.030916869505078725,
+        0.0945267086159209,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.011292988262334144,
+        0.0
+      ],
+      "name": "claw_right_0",
+      "node_index": 25,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.02286367295734864,
+        0.09332335740763939,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.002221571461442782,
+        0.011755815650134727,
+        0.0
+      ],
+      "name": "claw_right_1",
+      "node_index": 26,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.02508524441879142,
+        0.09378618479543997,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0045357084004456795,
+        0.011385553739894264,
+        0.0
+      ],
+      "name": "claw_right_2",
+      "node_index": 27,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.02739938135779432,
+        0.09341592288519951,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.006849845339448577,
+        0.010645029919413337,
+        0.0
+      ],
+      "name": "claw_right_3",
+      "node_index": 28,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.029713518296797217,
+        0.09267539906471858,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.008978851323331247,
+        0.009811940621372292,
+        0.0
+      ],
+      "name": "claw_right_4",
+      "node_index": 29,
+      "parent": "paw_screen_right",
+      "pivot_m": [
+        -0.031842524280679886,
+        0.09184230976667754,
+        0.0
+      ],
+      "role": "claw"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.00037026191024046393,
+        -0.0029620952819237115,
+        0.0
+      ],
+      "name": "leg_screen_left",
+      "node_index": 30,
+      "parent": "body",
+      "pivot_m": [
+        0.004905970310686145,
+        0.04250491022713574,
+        0.0
+      ],
+      "role": "leg"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0050911012658063776,
+        -0.0026843988492433676,
+        0.0
+      ],
+      "name": "leg_screen_right",
+      "node_index": 31,
+      "parent": "body",
+      "pivot_m": [
+        0.00018513095512023189,
+        0.042782606659816085,
+        0.0
+      ],
+      "role": "leg"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0006479583429208121,
+        -0.036841060068926144,
+        0.0
+      ],
+      "name": "foot_screen_left",
+      "node_index": 32,
+      "parent": "leg_screen_left",
+      "pivot_m": [
+        0.004258011967765333,
+        0.0056638501582095945,
+        0.0
+      ],
+      "role": "foot"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.006387017951648,
+        -0.03693362554648626,
+        0.0
+      ],
+      "name": "foot_screen_right",
+      "node_index": 33,
+      "parent": "leg_screen_right",
+      "pivot_m": [
+        -0.0062018869965277685,
+        0.005848981113329826,
+        0.0
+      ],
+      "role": "foot"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.007590369159929508,
+        0.008423458457970559,
+        -0.006347119105663858
+      ],
+      "name": "eye_screen_left",
+      "node_index": 34,
+      "parent": "head",
+      "pivot_m": [
+        0.013421994246216812,
+        0.08295602392090641,
+        -0.006347119105663858
+      ],
+      "role": "eye"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0012959166858416138,
+        -0.0002622945663974304
+      ],
+      "name": "eye_glint_screen_left",
+      "node_index": 35,
+      "parent": "eye_screen_left",
+      "pivot_m": [
+        0.013421994246216812,
+        0.08425194060674802,
+        -0.006609413672061288
+      ],
+      "role": "eye_highlight"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001388482163401739,
+        0.008978851323331247,
+        -0.007223363175019427
+      ],
+      "name": "eye_screen_right",
+      "node_index": 36,
+      "parent": "head",
+      "pivot_m": [
+        0.0044431429228855655,
+        0.0835114167862671,
+        -0.007223363175019427
+      ],
+      "role": "eye"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0012959166858416277,
+        -0.0002499441940949339
+      ],
+      "name": "eye_glint_screen_right",
+      "node_index": 37,
+      "parent": "eye_screen_right",
+      "pivot_m": [
+        0.0044431429228855655,
+        0.08480733347210873,
+        -0.007473307369114361
+      ],
+      "role": "eye_highlight"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0037951845799647542,
+        0.0064795834292081245,
+        -0.007538123452684136
+      ],
+      "name": "mouth",
+      "node_index": 38,
+      "parent": "head",
+      "pivot_m": [
+        0.009626809666252059,
+        0.08101214889214398,
+        -0.007538123452684136
+      ],
+      "role": "mouth"
+    }
+  ],
+  "provenance": {
+    "description_sha256": "23bf5e1c7d505dc6d137634fdc439d404d9c8a32d4eb982c4380ab2bf0fbdcb1",
+    "interpretation_sha256": "8031314e2831f11d6fd02d3b0758b147b30e4259b334785d7220f8c6f42d90a8",
+    "photo_sha256": "6f6f8944eda56329b1ba16e3ffeac3cfb822436932a7b00b73ceab22cacb39c1",
+    "photo_size_px": [
+      4284,
+      5712
+    ]
+  },
+  "root_pivot_m": [
+    0,
+    0,
+    0
+  ],
+  "schema": "enfractal.character.draft",
+  "triangles": 34272,
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "units": "metres",
+  "up": "+Y",
+  "version": 1,
+  "width_m": 0.08199787914297343
+}

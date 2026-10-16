@@ -89,9 +89,12 @@ public partial class RoomDataTest : Node3D
             var shelfHit = Ray(new Vector3(-0.1f, 2.5f, -2.5f), new Vector3(-0.1f, 0.5f, -2.5f));
             Check(Entity(shelfHit) == "obj:shelving_left" && Mathf.Abs(shelfHit["position"].AsVector3().Y - 1.79f) < 0.01f, "the shelving collides at its 1.79 m top");
             garageBuilt.QueueFree();
+            CheckMeshBytesReleased(garage, garageDirectory);
+
+            CheckIslands(room);
 
             var preset = StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, FileAccess.GetSha256(RoomWorld.DefaultStyle));
-            Check(preset.PresetId == "storybook_painterly" && preset.PresetVersion == 1 && preset.Path == "res://styles/storybook_painterly/v1.json", "the seed preset resolves by id and version against its pin");
+            Check(preset.PresetId == "storybook_painterly" && preset.PresetVersion == RoomWorld.DefaultStyleVersion && preset.Path == RoomWorld.DefaultStyle, "the seed preset resolves by id and version against its pin");
             CheckThrows(() => StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, new string('0', 64)), "must never change", "a preset that no longer matches its pin is refused");
             CheckThrows(() => StylePreset.Resolve(RoomWorld.DefaultStyleId, 99), "not found", "a missing preset version is refused");
             Check(preset.RoleRoughness.ContainsKey("wood") && preset.MaxShadowedLights >= 1, "per-role treatments and budgets are read");
@@ -103,7 +106,7 @@ public partial class RoomDataTest : Node3D
 
             var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(world);
-            for (var i = 0; i < 120 && !world.WorldReady && world.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await Frames(1);
             Check(world.WorldReady, "the room scene boots: " + world.LoadError);
             if (world.WorldReady)
             {
@@ -115,16 +118,16 @@ public partial class RoomDataTest : Node3D
             var pinned = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             pinned.RoomDirectory = "user://tests/rooms/test_room";
             AddChild(pinned);
-            for (var i = 0; i < 120 && !pinned.WorldReady && pinned.LoadError.Length == 0; i++) await Frames(1);
-            Check(pinned.WorldReady && pinned.StyleNote.Contains("unavailable") && pinned.GetMeta("style").AsString() == "storybook_painterly@1",
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !pinned.WorldReady && pinned.LoadError.Length == 0;) await Frames(1);
+            Check(pinned.WorldReady && pinned.StyleNote.Contains("unavailable") && pinned.GetMeta("style").AsString() == $"storybook_painterly@{RoomWorld.DefaultStyleVersion}",
                 "a room whose style pin does not verify opens with the default look and says so: " + pinned.LoadError);
             pinned.QueueFree();
             await Frames(1);
-            WriteCopy(null, b => Replace(b, "\"files\": [", "\"default_style\": {\"preset_id\": \"storybook_painterly\", \"preset_version\": 1, \"preset_sha256\": \"" + FileAccess.GetSha256(RoomWorld.DefaultStyle) + "\"},\n  \"files\": ["));
+            WriteCopy(null, b => Replace(b, "\"files\": [", "\"default_style\": {\"preset_id\": \"storybook_painterly\", \"preset_version\": 1, \"preset_sha256\": \"" + FileAccess.GetSha256(StylePreset.PathFor(RoomWorld.DefaultStyleId, 1)) + "\"},\n  \"files\": ["));
             var verified = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             verified.RoomDirectory = "user://tests/rooms/test_room";
             AddChild(verified);
-            for (var i = 0; i < 120 && !verified.WorldReady && verified.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !verified.WorldReady && verified.LoadError.Length == 0;) await Frames(1);
             Check(verified.WorldReady && verified.StyleNote.Length == 0 && verified.GetMeta("style").AsString() == "storybook_painterly@1",
                 "a room whose style pin verifies opens in that style without a fallback note: " + verified.LoadError + verified.StyleNote);
             GD.Print($"NATIVE_ROOM_DATA: {_checks - _failures}/{_checks} checks passed; room contract, integrity, derived scene, look seam");
@@ -135,6 +138,55 @@ public partial class RoomDataTest : Node3D
             GD.PushError("Room data test exception: " + exception);
             GetTree().Quit(1);
         }
+    }
+
+    /// <summary>
+    /// The 10x world's blocks (contract round S2, packet S6): the island example's plant copies and terrain tiles load, a copy's
+    /// id resolves to its row and only its one spelling does, and each of contracts/examples/rooms_invalid's islands, one broken
+    /// rule each, is refused for that rule (the reasons contracts/tests/test_contracts.py names for validate.py).
+    /// </summary>
+    private void CheckIslands(RoomData testRoom)
+    {
+        Check(testRoom.Copies == null && testRoom.Terrain == null, "a room without plant copies or terrain tiles reads neither");
+        var examples = Path.GetFullPath(ProjectSettings.GlobalizePath("res://") + "../contracts/examples");
+        var island = RoomData.Load(examples + "/rooms/island_example");
+        var copies = island.Copies;
+        Check(copies != null && copies.Groups == 2 && string.Join(",", copies.Sets.Select(s => $"{s.Name}:{s.Kind}:{s.Count}:{s.TileCount}")) == "grass:Plant:5:4,broadleaf:Tree:2:1,stones:Stone:2:2",
+            "the island example's plant copies load: grass, two broadleaf trees and two stones in their tiles, two groups");
+        var terrain = island.Terrain;
+        Check(terrain != null && string.Join(",", terrain.LevelGridM) == "0.1,0.4,1.6" && string.Join(",", terrain.Parts.Select(p => $"{p.PartId}:{p.Tiles.Count}")) == "shell:terrain_grass:2,shell:terrain_sand:1",
+            "the island example's terrain tiles load: three levels, the grass in two 16 m tiles and the sand in one");
+        if (copies == null) return;
+        var grass = copies.Find("grass")!;
+        var trees = copies.Find("broadleaf")!;
+        Check(copies.TryResolve("plant:grass-0", out var set, out var row) && set == grass && row == 0 && grass.Position(0).IsEqualApprox(new Vector3(-12.5f, 0, -12.25f)),
+            "plant:grass-0 resolves to the first row of the grass table, the copy in the first tile (-12.5, 0, -12.25)");
+        Check(copies.TryResolve("plant:broadleaf-1", out set, out row) && set == trees && trees.Tree(row) is { Caps.Length: 1 } tree &&
+              Mathf.IsEqualApprox(tree.PoleTopM, 0.935f) && Mathf.IsEqualApprox(tree.Caps[0].TopM, 0.94f) && trees.Position(row).IsEqualApprox(new Vector3(-5, 0, -9)),
+            "plant:broadleaf-1 resolves to its tree row: at (-5, 0, -9), its pole to 0.935 m under one cap topped at 0.94 m");
+        var refused = new[] { "plant:grass-5", "plant:grass-01", "plant:grass--1", "plant:moss-0", "plant:Grass-1", "obj:grass-1", "plant:grass-1 ", "plant:grass" }
+            .Where(id => copies.TryResolve(id, out _, out _)).ToArray();
+        Check(refused.Length == 0, "only a copy's one spelling resolves, and only for a row its table holds: " + string.Join(", ", refused));
+        Check(grass.FindTile(-1, -1) is var t && t >= 0 && grass.Tile(t).Count == 2 && grass.FindTile(5, 5) == -1 && grass.TileOfRow(2) == t,
+            "the grass table's tile index finds tile (-1, -1) with its two rows, and a row's tile");
+        Check(PlantCopies.IdOf("grass", 1207) == "plant:grass-1207" && copies.Find("stones")!.Submerged(1) && !copies.Find("stones")!.Submerged(0),
+            "a copy's id is spelled plant:<set>-<row>; the stone in the shallows is flagged submerged");
+        var reasons = new (string Room, string Reason)[]
+        {
+            ("plant_rows_out_of_order", "row 2 (plant:grass-2) is out of order: rows in a tile are sorted by x, then z"),
+            ("plant_row_in_the_wrong_tile", "row 1 (plant:grass-1) at (-3.25, -4.75) lies in tile (-1, -1), not in its index entry (-1, -2)"),
+            ("plant_table_cut_short", "table plants/grass.bin is 328 bytes; its header's 4 tiles and 5 rows of 56 bytes make 384"),
+            ("plant_tree_pole_above_its_caps", "row 1 (plant:broadleaf-1) has its pole above its highest cap"),
+            ("plant_group_left_unused", "plant group 3 has no copy"),
+            ("plant_flag_undefined", "row 0 (plant:stones-0) sets flag bits 0x4; only 0x1 are defined"),
+            ("plant_tree_that_does_not_climb", "$.plant_copies.sets[1].collides: 'tree_climb' was expected"),
+            ("terrain_tile_without_its_far_level", "tile (0, -1) has no level 2; every tile has every level"),
+            ("terrain_tile_outside_its_square", "node tile_-1_-1_lod0 reaches outside its tile's square"),
+        };
+        var invalid = System.IO.Directory.GetDirectories(examples + "/rooms_invalid").Select(Path.GetFileName).OrderBy(n => n).ToArray();
+        Check(invalid.SequenceEqual(reasons.Select(r => r.Room).OrderBy(n => n)), "every invalid island of the contract examples is tried: " + string.Join(", ", invalid));
+        foreach (var (name, reason) in reasons)
+            CheckRejected(() => RoomData.Load(examples + "/rooms_invalid/" + name), reason, $"the invalid island {name} is refused for its rule");
     }
 
     // Emoji markers only where an emoji puts them. The same vectors are in contracts/tests/test_contracts.py and
@@ -244,6 +296,35 @@ public partial class RoomDataTest : Node3D
         var text = System.Text.Encoding.UTF8.GetString(bytes);
         if (!text.Contains(from)) throw new InvalidOperationException($"fixture text '{from}' not found");
         return System.Text.Encoding.UTF8.GetBytes(text.Replace(from, to));
+    }
+
+    /// <summary>
+    /// S12b: a build lets the room's mesh bytes go (a 10x island's are about 40 MB); a second build reads each file again and checks
+    /// it against the manifest as the load did, so a file changed on disk since the load fails closed instead of being drawn.
+    /// </summary>
+    private void CheckMeshBytesReleased(RoomData garage, string garageDirectory)
+    {
+        Check(garage.VerifiedMeshes.Count == 0, "the build lets the room's mesh bytes go");
+        var again = RoomBuilder.Build(garage);
+        Check(again.GetNode("Objects").GetChildren().OfType<Node3D>().All(n => n.GetNode("Visual").FindChildren("*", "MeshInstance3D", true, false).Count > 0) && garage.VerifiedMeshes.Count == 0,
+            "a second build reads the meshes again, checked against the manifest, and lets them go again");
+        again.Free();
+        var copy = "user://tests/rooms/garage_example";
+        var absolute = ProjectSettings.GlobalizePath(copy);
+        if (System.IO.Directory.Exists(absolute)) System.IO.Directory.Delete(absolute, recursive: true);
+        foreach (var file in System.IO.Directory.EnumerateFiles(garageDirectory, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(absolute, Path.GetRelativePath(garageDirectory, file));
+            System.IO.Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+        var copied = RoomData.Load(copy);
+        RoomBuilder.Build(copied).Free();
+        var mesh = System.IO.Directory.EnumerateFiles(absolute, "*.glb", SearchOption.AllDirectories).OrderBy(p => p, StringComparer.Ordinal).First();
+        var bytes = File.ReadAllBytes(mesh);
+        bytes[^1] ^= 0x20;
+        File.WriteAllBytes(mesh, bytes);
+        CheckRejected(() => RoomBuilder.Build(copied), "hash does not match", "a mesh changed on disk since the load fails closed when a later build reads it again");
     }
 
     private void CheckRejected(Action action, string fragment, string label)

@@ -20,7 +20,7 @@ import unittest
 
 from support import COMPANION, PLAYER, FakeClock, HostPolicy, command, contract_problems, contracts, example, new_host, query
 
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # the companion sees only the table from here
 OUT_OF_EVERY_SIGHT = [-1.7, 0.0, -1.2]  # the player sees only the table (and the companion) from here
@@ -127,7 +127,7 @@ class TheTeamsMap(TeamCase):
 
     def test_eviction_spares_creations_and_task_targets(self):
         self.host.policy = dataclasses.replace(self.host.policy, perception_memory_entries=2)
-        made = self.act("creation.place", {"source": SPINNER, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
+        made = self.act("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
         self.assertTrue(made["ok"], made)
         creation = made["created"][0]
         self.ask("room.describe")  # both avatars see everything: the bound keeps the creation, the rest is routine
@@ -191,7 +191,7 @@ class Journal(TeamCase):
         self.assertIn("pin_m", task)
 
     def test_creations_built_changed_and_removed_are_facts(self):
-        made = self.act("creation.place", {"source": SPINNER, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
+        made = self.act("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
         self.assertTrue(made["ok"], made)
         [built] = self.journal(kind="built")["entries"]
         self.assertEqual((built["actor"], built["directed_by"], built["revision"]), (PLAYER, PLAYER, made["revision"]))
@@ -199,6 +199,12 @@ class Journal(TeamCase):
 
 
 class Unreachable(TeamCase):
+    """Inject the body reporting a true blockage, such as a closed pen with a roof.
+
+    A lone wall or open pen cannot imply blockage for the floating Gubble. This
+    box-only mock does not compute routes; these cases test the host's timer.
+    """
+
     def test_a_walking_goal_blocked_for_5_s_fails_with_target_unreachable(self):
         for goal, args in (("fetch", {"target": "obj:book"}), ("go_to", {"target": "obj:box"}),
                            ("come", {"target": "avatar:player"})):

@@ -1,0 +1,1361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/island-rules.schema.json",
+  "title": "EnFractal island rules",
+  "description": "An island's own laws as data: the abilities the island grants, each carried out by one engine primitive, with its bounds, who may cast it, what it may target and its safety tier. Written by the integrator and by theme packs through contract rounds; read by the host's rules loader, the mock host and later the HUD. Stored as game/rules/<rules_id>/v<rules_version>.json (loaded as res://rules/<rules_id>/v<rules_version>.json). A seed or draft version may be edited in place; once a version is candidate or approved, or anything pins it, its file never changes and a change means a new version file. A pack can only narrow the engine's limits: each primitive's outer limits are the if/then rules under $defs/ability, and an ability's bounds must sit inside them. A command must then sit inside the ability's bounds. contracts/validate.py checks what a schema cannot: unique capabilities and categories, each default inside its range, and each default radius and duration at most its maximum. Since the mechanics round (M0, 14 October 2026) a pack may also carry six optional blocks, the design's numbers as data (docs/game/MECHANICS.md): traits (hearts, harm, the stamina bar, connection energy, the wallet), cost (each ability's price in pips), modes (one row per mode and difficulty), names (what the screen calls things), knacks and fractals. Each is optional and so is each part of it: an absent block or part keeps today's behaviour, so a pack without them plays exactly as before. contracts/validate.py also checks the blocks against each other: prices name the pack's abilities, the most health and stamina a pack allows fit the command contract's bounds, knacks stay within a fifth and upside, and the mode rows are unique.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "rules_id",
+    "rules_version",
+    "display_name",
+    "status",
+    "magic_word",
+    "abilities"
+  ],
+  "properties": {
+    "schema": {
+      "const": "enfractal.island_rules"
+    },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "rules_id": {
+      "$ref": "common.schema.json#/$defs/token"
+    },
+    "rules_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "display_name": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/display_text"
+        },
+        {
+          "maxLength": 80
+        }
+      ],
+      "minLength": 1
+    },
+    "description": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/display_text"
+        },
+        {
+          "maxLength": 500
+        }
+      ]
+    },
+    "status": {
+      "description": "seed: starting values, not reviewed; draft: in development; candidate: submitted for review; approved: passed review; retired: kept for old saves. As for style presets: a candidate, approved or pinned version never changes.",
+      "enum": [
+        "seed",
+        "draft",
+        "candidate",
+        "approved",
+        "retired"
+      ]
+    },
+    "magic_word": {
+      "description": "What the island calls its magic (a tech island might say 'tech'). Shown to people and models; untrusted text like every name.",
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/display_text"
+        },
+        {
+          "maxLength": 40
+        }
+      ],
+      "minLength": 1
+    },
+    "abilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/ability"
+      }
+    },
+    "traits": {
+      "$ref": "#/$defs/traits"
+    },
+    "cost": {
+      "$ref": "#/$defs/cost"
+    },
+    "modes": {
+      "$ref": "#/$defs/modes"
+    },
+    "names": {
+      "$ref": "#/$defs/names"
+    },
+    "knacks": {
+      "$ref": "#/$defs/knacks"
+    },
+    "fractals": {
+      "$ref": "#/$defs/fractals"
+    },
+    "extensions": {
+      "$ref": "common.schema.json#/$defs/extensions"
+    }
+  },
+  "$defs": {
+    "ability": {
+      "description": "One ability: an engine primitive with the island's narrower bounds.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "category",
+        "primitive",
+        "display_name",
+        "cast_by",
+        "tier",
+        "targets",
+        "reach_m",
+        "params",
+        "area_radius_default_m",
+        "area_radius_max_m",
+        "duration_default_s",
+        "duration_max_s",
+        "max_active"
+      ],
+      "properties": {
+        "capability": {
+          "description": "The name capabilities.list, effect.start and nature.cast use. Unique within a pack.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "category": {
+          "description": "What kind of magic the ability is. Unique within a pack; the primitive fixes it (light.emit is light, particles.float is float, particles.burst is burst, growth.seed is growth, element.ignite is fire). The HUD places abilities on its wheel by category, with slots fixed by the engine: light 1, growth 2, float 3, burst 4, build 5, fire 6. That mapping is the HUD's rule, not this contract's, so category stays a token here.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "primitive": {
+          "description": "The engine primitive that carries the ability out. Each primitive's outer limits are an if/then rule below. A host loads a pack only when it carries out every primitive the pack names, so a pack that uses a newer primitive is a new pack version.",
+          "enum": [
+            "light.emit",
+            "particles.float",
+            "particles.burst",
+            "growth.seed",
+            "element.ignite"
+          ]
+        },
+        "display_name": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 80
+            }
+          ],
+          "minLength": 1
+        },
+        "cast_by": {
+          "description": "Which principals may cast it. The companion may target only its own avatar.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "player",
+              "companion"
+            ]
+          }
+        },
+        "tier": {
+          "description": "Its safety tier, LIVE-VOICE.md's T0 to T3: auto (T0, runs at once), auto_undo (T1, runs at once with an undo snapshot), preview_commit (T2, a preview that commits unless stopped), keyed_yes (T3, the host holds it for the player's spoken or keyed yes).",
+          "enum": [
+            "auto",
+            "auto_undo",
+            "preview_commit",
+            "keyed_yes"
+          ]
+        },
+        "targets": {
+          "description": "What it may be cast on. The Gubble carries every ability out, whoever casts it. self: the effect follows the Gubble (effect.start targets its avatar). point: the effect is at area.center_m, cast there from where the Gubble stands (effect.start names no targets).",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "self",
+              "point"
+            ]
+          }
+        },
+        "reach_m": {
+          "description": "How far from the caster's avatar a point effect may be centred.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "params": {
+          "description": "Each numeric parameter's inclusive range and its default; the host fills an omitted parameter with its default. Names follow effect.start params, and names that look like identity or authority are refused there and here.",
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "not": {
+              "enum": [
+                "principal",
+                "action_id",
+                "approval",
+                "approval_id",
+                "approved",
+                "owner",
+                "owner_id",
+                "room_id",
+                "actor",
+                "grant",
+                "role"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "min",
+              "max",
+              "default"
+            ],
+            "properties": {
+              "min": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              },
+              "max": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              },
+              "default": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              }
+            }
+          }
+        },
+        "area_radius_default_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "area_radius_max_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "duration_default_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 600
+        },
+        "duration_max_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 600
+        },
+        "max_active": {
+          "description": "At most this many of this ability active at once. The host also caps active effects per room.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        }
+      },
+      "allOf": [
+        {
+          "description": "light.emit, a real light (an omni light following the caster or floating at a point). Its outer limits: intensity only, from 0.05 to 2.0; radius at most 3 m; duration at most 600 s (the command contract's own maximum); at most 8 active; reach at most 5 m; category light.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "light.emit"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "light"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 3
+              },
+              "area_radius_max_m": {
+                "maximum": 3
+              },
+              "duration_default_s": {
+                "maximum": 600
+              },
+              "duration_max_s": {
+                "maximum": 600
+              },
+              "max_active": {
+                "maximum": 8
+              }
+            }
+          }
+        },
+        {
+          "description": "particles.float, the Bubble (Bubbles): one player-sized bubble cast at a spot, the place deciding what it is (a carry round the player, a boat on water, a bubble to walk into), moved only while the Gubble leads it. intensity is unused by the host since the redesign. Its outer limits: intensity only, from 0.05 to 2.0; radius (how far the particles spread and drift) at most 3 m; duration at most 120 s, because a stream costs particles every frame; at most 4 active, half the room's cap of 8 effects; reach at most 5 m; category float.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "particles.float"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "float"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 3
+              },
+              "area_radius_max_m": {
+                "maximum": 3
+              },
+              "duration_default_s": {
+                "maximum": 120
+              },
+              "duration_max_s": {
+                "maximum": 120
+              },
+              "max_active": {
+                "maximum": 4
+              }
+            }
+          }
+        },
+        {
+          "description": "particles.burst, a burst of sparks with a brief flash of real light (Fireworks): a small burst over the Gubble (self), or a rocket trail rising from the Gubble and bursting above a spot (point). Cosmetic: nothing collides with the sparks. The flash is one light, so it counts toward the look's light budget and, while it lasts, toward LightLevelAt; with at most one light per effect, the room's cap of 8 effects still bounds the lights. intensity is how big and bright the burst is, sparks and flash together (1 is the look's standard). Its outer limits: intensity only, from 0.05 to 2.0; radius (the burst's spread) at most 3 m; duration (rise, burst and fading sparks) at most 10 s; at most 4 active; reach at most 8 m, because a rocket carries further than a light or a stream; category burst.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "particles.burst"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "burst"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 8
+              },
+              "area_radius_default_m": {
+                "maximum": 3
+              },
+              "area_radius_max_m": {
+                "maximum": 3
+              },
+              "duration_default_s": {
+                "maximum": 10
+              },
+              "duration_max_s": {
+                "maximum": 10
+              },
+              "max_active": {
+                "maximum": 4
+              }
+            }
+          }
+        },
+        {
+          "description": "growth.seed, flowers on the island's ground (Bloom, and the flower trail behind the Gubble): host-simulated room state, cast through nature.cast at a point (never self). They take root only on walkable soil or grass above water, grow with light and moisture and fade after their life. intensity is how far grown they start. Its outer limits: intensity only, from 0.05 to 2.0; radius at most 0.6 m; duration (the flowers' life) at most 600 s; one at a time; reach at most 5 m; category growth.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "growth.seed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "growth"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 0.6
+              },
+              "area_radius_max_m": {
+                "maximum": 0.6
+              },
+              "duration_default_s": {
+                "maximum": 600
+              },
+              "duration_max_s": {
+                "maximum": 600
+              },
+              "max_active": {
+                "maximum": 1
+              }
+            }
+          }
+        },
+        {
+          "description": "element.ignite, fire on the island's ground (Fire): host-simulated room state, cast through nature.cast at a point after a preview, one fire at a time, at most 200 cells burning. It needs dry fuel, spreads with dryness and wind, rain puts it out, and burnt ground turns to ash that regrows. What it does to things and avatars is the host's fire rule by game mode (contracts/README.md, \"Nature\"); locks never burn. intensity is how fast it burns. Its outer limits: intensity only, from 0.05 to 2.0; radius at most 1.5 m; duration at most 60 s; one at a time; reach at most 5 m; category fire.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "element.ignite"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "fire"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 1.5
+              },
+              "area_radius_max_m": {
+                "maximum": 1.5
+              },
+              "duration_default_s": {
+                "maximum": 60
+              },
+              "duration_max_s": {
+                "maximum": 60
+              },
+              "max_active": {
+                "maximum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "traits": {
+      "description": "The body's and the pool's starting numbers and rates (docs/game/MECHANICS.md sections 4 and 5), provisional pack values tuned by playing. Optional, and so is each part: an absent part keeps today's behaviour (100 health and harm in health points; 0.45 m of stamina growing 0.10 m per completed climb to 3.0 m; the 0.10 m/s refill on standable ground; nothing charged for running, deep water or diving; no connection energy; today's wallet). The kernel host reads it; the body never does.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "hearts": {
+          "$ref": "#/$defs/hearts"
+        },
+        "harm": {
+          "$ref": "#/$defs/harm"
+        },
+        "stamina": {
+          "$ref": "#/$defs/stamina"
+        },
+        "pips": {
+          "$ref": "#/$defs/pips"
+        },
+        "wallet": {
+          "$ref": "#/$defs/wallet"
+        }
+      }
+    },
+    "hearts": {
+      "description": "Hearts, counted in quarters: every harm and every heal is a whole number of quarters, rounded at the moment of harm, never on the screen. A heart is four quarters. Knockout is all hearts gone, as today. The maximum is a field of the player's vitals (the hearts bought with Fractals), never a constant.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "health_per_quarter",
+        "start_hearts",
+        "cap_hearts",
+        "heal_quarter_every_s",
+        "heal_after_unharmed_s"
+      ],
+      "properties": {
+        "health_per_quarter": {
+          "description": "Health points in one quarter at base (5: a heart is 20 health). The Big heart knack multiplies it, so a tougher body takes fewer quarters from the same fall. Fall damage stays in health points (decision K), so more hearts survive bigger falls.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 6
+        },
+        "start_hearts": {
+          "description": "A new team's hearts (5: 100 health, today's maximum).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "cap_hearts": {
+          "description": "The most hearts a body may hold (30, drawn as two rows of 15): 600 health at base, 720 with Big heart at full rank, the command contract's bound.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "heal_quarter_every_s": {
+          "description": "Healing lands in whole quarters, one every this many seconds (2.5) ...",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 600
+        },
+        "heal_after_unharmed_s": {
+          "description": "... once this many seconds have passed without harm (10), and only on safe ground: today's rule.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 600
+        }
+      }
+    },
+    "harm": {
+      "description": "How the world hurts, in quarters.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fire_quarters_per_s"
+      ],
+      "properties": {
+        "fire_quarters_per_s": {
+          "description": "Fire's harm to an avatar standing in it, in quarters a second (1: twenty seconds to burn five hearts; today 12 health a second, in half-second steps).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 8
+        },
+        "fall_cap_quarters": {
+          "description": "Optional: the most quarters one fall may take, in every mode unless the mode's row sets its own. Absent: no cap, today's behaviour. The design names no number (it offers a cap of four hearts, 16 quarters, if the family wants a floor): the founder's to set.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        }
+      }
+    },
+    "stamina": {
+      "description": "The stamina bar, in metres of climbing (the bar's own unit). It opens in bands found with Fractals: the first band is the starting bar, each later band adds band_m, and bands_per_bar of them fill one bar before a second is drawn under it. Climbing drains it a metre of bar for every climb_m_per_bar_m metres risen (absent: one metre, today's) and holding_m_per_s a second while hanging still (absent: today's 0.01); running, deep water and diving drain it at the rates below, charged by the kernel from the seconds the body reports while a key moves it (a swimmer floating still reports none: the founder, 16 October, decision 64; the ledger seam, game/scripts/native/Seams/StaminaLedger.cs); it refills on standable ground, never while running; at empty the body cannot run (it walks at its whole pace) until the first bar, the top row, refills to a fraction of itself (the founder, 15 October: completely). Knacks (Big bar, Steady climber, Strong swimmer, Long breath) multiply what they move, on the vitals and the body, never here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_m",
+        "band_m",
+        "bands",
+        "bands_per_bar",
+        "running_m_per_s",
+        "refill_m_per_s",
+        "empty_no_run_until_fraction"
+      ],
+      "properties": {
+        "start_m": {
+          "description": "The starting bar, the first band (0.4 m; today 0.45).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 4.8
+        },
+        "band_m": {
+          "description": "What each later band adds (0.4 m).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 4.8
+        },
+        "bands": {
+          "description": "How many bands, the first included (10: 0.4 m to 4.0 m; today a bar grown 0.10 m per completed climb to 3.0 m, a reward that retires when the bands land, decision L).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "bands_per_bar": {
+          "description": "Bands drawn on one bar before a second bar starts under it (5).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "running_m_per_s": {
+          "description": "Running's cost (0.02 m a second, the founder's number of 15 October: a full starting bar lasts 20 s of running).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "refill_m_per_s": {
+          "description": "The refill while walking or standing on standable ground, never while running (0.10 m a second, today's).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "deep_water_m_per_s": {
+          "description": "Optional: swimming in deep water's cost, less by Strong swimmer's factor (0.02 m a second, the founder's number of 15 October: 20 s on a starting bar). Absent: nothing drains there.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "dive_m_per_s": {
+          "description": "Optional: time under water's cost, less by Long breath's factor (0.04 m a second, the founder's number of 15 October: 10 s on a starting bar). Absent: nothing drains there (the diver's drift up stays as built).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "climb_m_per_bar_m": {
+          "description": "Optional: the metres climbed for each metre of bar (1.5, the founder's number of 16 October, decision 65: 'the 1 m bar per metre climb is a bit harsh', so a 0.4 m starting bar buys 60 cm of climb), multiplied by Steady climber's factor. Absent: 1, today's (a metre of bar per metre risen).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "holding_m_per_s": {
+          "description": "Optional: what hanging still on a face costs, in metres of bar a second (0, the founder's number of 16 October, decision 64: standing still costs nothing). Absent: today's 0.01.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "empty_no_run_until_fraction": {
+          "description": "Once the bar runs empty the body cannot run (Shift is ignored; the walk keeps its whole pace) until the first bar, the top row of bands_per_bar bands with Big bar (the whole bar while it has one row), refills to this fraction of itself (1, completely: the founder, 15 October). It replaced 'half speed until a quarter', which still let an empty body run faster than a full one walked.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "pips": {
+      "description": "Connection energy: whole pips round the Gubble that pay for its abilities outside Creative (decided: whole pips, never a 100-point pool). One pool per team per mode, kept with the player's vitals. Prices are the cost block's.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "expertise_per_pip",
+        "ceiling",
+        "refill_near_every_s",
+        "refill_near_within_m",
+        "refill_far_every_s",
+        "camp_fraction"
+      ],
+      "properties": {
+        "start": {
+          "description": "A new team's pool and its maximum (8).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "expertise_per_pip": {
+          "description": "The maximum rises one pip per this many expertise learned by either of the pair (5: a team that holds Glow's five starts at 9).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "ceiling": {
+          "description": "The maximum never passes this (40).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40
+        },
+        "refill_near_every_s": {
+          "description": "One pip every this many seconds while the Gubble is within refill_near_within_m of the player (5) ...",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 3600
+        },
+        "refill_near_within_m": {
+          "description": "... (2 m) ...",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 150
+        },
+        "refill_far_every_s": {
+          "description": "... and one every this many seconds apart (15).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 3600
+        },
+        "camp_fraction": {
+          "description": "At camp, and after time away, the pool wakes this full (0.5, half).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "wallet": {
+      "description": "The team's wallet when a save is made, in the creation compiler's materials. Absent: today's (wood 20, stone 10, copper 10, leaf 20). Empty once gathering works (decision M, packet M1).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start"
+      ],
+      "properties": {
+        "start": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "wood",
+            "stone",
+            "copper",
+            "leaf"
+          ],
+          "properties": {
+            "wood": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "stone": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "copper": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "leaf": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            }
+          }
+        }
+      }
+    },
+    "cost": {
+      "description": "What the Gubble's abilities cost outside Creative, in whole pips (docs/game/MECHANICS.md section 5). Each price names an ability of this pack by its capability, or a Bubbles expertise (bubble_carry, bubble_boat, bubble_lift, which need the pack's bubbles), with its ordered price (even, so that half is whole) and its own-idea factor. The price follows the principal alone, never a field, a tag or a wish's words: the player's keys, wheel and HUD pay the ordered price, and every command on the Gubble's connection pays ordered times own_idea_factor. It is charged once, at commit, never on a preview; stops and refused commands cost nothing; an empty pool refuses with energy_exhausted. In Creative a shadow pool shows the price and never refuses. An ability with no price costs nothing, and an absent block charges nothing: today's behaviour.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prices"
+      ],
+      "properties": {
+        "prices": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 64,
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/price"
+          }
+        },
+        "torch_fire": {
+          "description": "Lighting something with a carried torch is an item's use, not magic: 0 pips (decision O); its consequences belong to whoever carried it. Absent: 0.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 40
+        }
+      }
+    },
+    "price": {
+      "description": "One ability's price: the player's order pays ordered; the Gubble's own idea pays ordered times own_idea_factor, a whole number of pips.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordered",
+        "own_idea_factor"
+      ],
+      "properties": {
+        "ordered": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "own_idea_factor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "modes": {
+      "description": "One record the game consults per mode and difficulty (docs/game/MECHANICS.md section 8): Creative is every consequence switch off, the Challenge difficulties are multipliers, and Live's rows are present but refused at the menu and in play (available is false) until Live exists. The mode and difficulty are chosen at the opening menu and fixed per island save. Absent: today's rules (Creative or not, and Live plays as Challenge).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows"
+      ],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/mode_row"
+          }
+        }
+      }
+    },
+    "mode_row": {
+      "description": "One mode, or one difficulty of Challenge, or one kind of Live. Creative: nothing hurts or drains, the hearts and the bar are drawn full and grey, pips are a shadow pool, undo works, fire asks once. Challenge: damage and refill multiplied, consequences on, no undo; Gentle halves every hurt and removes none. Live: as Standard, present and refused (available false) until Live exists.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "available",
+        "damage_multiplier",
+        "refill_multiplier",
+        "consequences",
+        "undo",
+        "shadow_pool",
+        "torch_self_ignite"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "creative",
+            "challenge",
+            "live"
+          ]
+        },
+        "difficulty": {
+          "description": "Challenge only, and required there.",
+          "enum": [
+            "gentle",
+            "standard",
+            "brave"
+          ]
+        },
+        "variant": {
+          "description": "Live only, and required there.",
+          "enum": [
+            "cooperative",
+            "competitive"
+          ]
+        },
+        "available": {
+          "description": "Whether the menu offers it and play accepts it. Live's rows are false until Live exists (\"Live (solo preview)\" is Challenge Standard meanwhile).",
+          "type": "boolean"
+        },
+        "damage_multiplier": {
+          "description": "Every hurt, bites and falls included, is multiplied by this (Gentle 0.5, Standard 1, Brave 1.5) and none is removed. 0 in Creative, where nothing hurts or drains. The tumble's look reads the landing at Standard in every mode; the hearts it costs follow this.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "refill_multiplier": {
+          "description": "The pool's refill pace is multiplied by this (Gentle 1.5, Standard 1, Brave 0.75; Creative's shadow pool refills at the Standard rate).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 4
+        },
+        "consequences": {
+          "description": "Whether anything hurts, drains or burns builds without asking (false in Creative only).",
+          "type": "boolean"
+        },
+        "undo": {
+          "description": "Whether room.undo takes nature changes back (Creative only, the founder's rule of 13 October).",
+          "type": "boolean"
+        },
+        "shadow_pool": {
+          "description": "Pips drain and refill but never refuse (Creative only).",
+          "type": "boolean"
+        },
+        "fall_cap_quarters": {
+          "description": "Optional: the most quarters one fall may take in this mode, over traits.harm's. Absent: traits.harm's, or no cap. The design names no number per difficulty: the founder's to set.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "torch_self_ignite": {
+          "description": "A lit torch left lying in dry grass catches it after a minute, with a warning first: on in Live only (the torch round's decision 2).",
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "creative"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "consequences": {
+                "const": false
+              },
+              "undo": {
+                "const": true
+              },
+              "shadow_pool": {
+                "const": true
+              },
+              "damage_multiplier": {
+                "const": 0
+              },
+              "torch_self_ignite": {
+                "const": false
+              },
+              "difficulty": false,
+              "variant": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "challenge"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "consequences": {
+                "const": true
+              },
+              "undo": {
+                "const": false
+              },
+              "shadow_pool": {
+                "const": false
+              },
+              "damage_multiplier": {
+                "exclusiveMinimum": 0
+              },
+              "torch_self_ignite": {
+                "const": false
+              },
+              "variant": false
+            },
+            "required": [
+              "difficulty"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "live"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "consequences": {
+                "const": true
+              },
+              "undo": {
+                "const": false
+              },
+              "shadow_pool": {
+                "const": false
+              },
+              "damage_multiplier": {
+                "exclusiveMinimum": 0
+              },
+              "available": {
+                "const": false
+              },
+              "difficulty": false
+            },
+            "required": [
+              "variant"
+            ]
+          }
+        }
+      ]
+    },
+    "names": {
+      "description": "What the screen and the journal call things: untrusted text, shown only, never read as instructions; ids and icons never change. Optional, and each word too: an absent word keeps today's (the journal's Discoveries page says Discoveries until the meters packet applies expertise).",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "hearts": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "stamina": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "pips": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "fractals": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "expertise": {
+          "description": "What the code calls discoveries (decision J).",
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "camp": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "trust": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "knacks": {
+          "description": "Each knack's name, by its id in the knacks table.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "additionalProperties": {
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 40
+              }
+            ],
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "knacks": {
+      "description": "The talents a player picks (docs/game/MECHANICS.md section 7): each moves one number of the body's motion or vitals, applied on the body's controller and the vitals, never on the collision body, the size, the eye height or the reach and never in a drawn character's motion profile, by at most a fifth at full rank and always upside (Cat feet's safe drop, in metres, is the founder's exception). Ranks rise by achieving something on an island, shown as a ring. Only the player sets a knack (knack.set); the companion never reads, writes or rerolls one. Absent: no knacks, today's behaviour.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slots",
+        "table"
+      ],
+      "properties": {
+        "slots": {
+          "description": "When each slot opens: one at creation (or surprise me), a second at the first summit, a third with the souvenir of a second island's summit. Swaps are free in the menu.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "slot",
+              "opens"
+            ],
+            "properties": {
+              "slot": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "opens": {
+                "enum": [
+                  "creation",
+                  "first_summit",
+                  "second_island_summit"
+                ]
+              }
+            }
+          }
+        },
+        "table": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/knack"
+          }
+        }
+      }
+    },
+    "knack": {
+      "description": "One knack: the one number it moves and its ranks. A factor multiplies the number: above 1 for walk_run_speed, hop_height, stamina_per_bar, climb_per_stamina (the distance climbed for the same stamina), swim (the swim speed, and deep water's cost down by the same rank), health_per_quarter, plant_growth and gather_speed; below 1 for breath (the stamina spent under water) and build_time. safe_drop is in metres (Cat feet: 0.45, 0.60, 0.75 m from today's 0.30 m).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "knack",
+        "moves",
+        "unit",
+        "ranks",
+        "available"
+      ],
+      "properties": {
+        "knack": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "moves": {
+          "enum": [
+            "walk_run_speed",
+            "hop_height",
+            "stamina_per_bar",
+            "climb_per_stamina",
+            "swim",
+            "breath",
+            "health_per_quarter",
+            "safe_drop",
+            "build_time",
+            "plant_growth",
+            "gather_speed"
+          ]
+        },
+        "unit": {
+          "enum": [
+            "factor",
+            "m"
+          ]
+        },
+        "ranks": {
+          "description": "Rank 1 first; each rank moves the number further.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10
+          }
+        },
+        "available": {
+          "description": "False until the verb it speeds exists (Handy: building; Green thumb: planting; Strong arm: gathering, chopping and hitting): the menu does not offer it.",
+          "type": "boolean"
+        }
+      }
+    },
+    "fractals": {
+      "description": "The found things that grow the body (docs/game/MECHANICS.md section 6), placed by the generator at reachable crests from the island's budget and carried in the room manifest's extensions.x_fractals. Untyped (decided): a Fractal has no kind until it is spent at a camp, per_heart of them for a heart or per_band for the next stamina band; typed Fractals (a heart or a band from the ground up) stay behind the typed flag for an evening's comparison. Picking one up is the player's alone (item.pickup); the Gubble may find and mark them, never gather them. Quests point the way to Fractals within the budget and never mint one. Absent: no Fractals, today's behaviour.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "budget_min",
+        "budget_max",
+        "per_heart",
+        "per_band",
+        "typed"
+      ],
+      "properties": {
+        "budget_min": {
+          "description": "The fewest Fractals the generator places on an island (20 on the garage).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "budget_max": {
+          "description": "The most (25 on the garage).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "reachable_first_run": {
+          "description": "Optional: how many of them the base body reaches on a first run (about 15 on the garage), the generator's reach report's target.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "per_heart": {
+          "description": "Fractals spent at a camp for one heart (5).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "per_band": {
+          "description": "Fractals spent at a camp for the next stamina band (5).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "typed": {
+          "description": "False: untyped, the decided default. True: typed Fractals, behind this flag.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

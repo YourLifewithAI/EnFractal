@@ -1,0 +1,39 @@
+{
+  "schema": "enfractal.look_review_cameras",
+  "version": 1,
+  "room_id": "any island",
+  "description": "The look suite's island cameras (S9, the 10x world), worked out from the island's own data instead of fixed world coordinates, so the same file serves any island at any scale (the 1x and 10x garage alike): spawn (at the player's spawn facing the island's middle), summit (on the highest ground facing the farthest land), hamlet (beside the densest cluster of structures facing its middle), beach (on the beach nearest the spawn facing along the coast), each the HUD's F2 view with both avatars staged, and a flight over the island from the spawn to the far side above the summit, for the frame-time record while moving; and two fixed cameras on the 10x garage alone (L9), fractal_near and fractal_far, at its most open Fractal. The rules are in game/tests/native/Look/IslandCameras.cs; the harness writes each camera's derived placement into timings.json. Pass the island with -Room (a folder: the 10x export, or .cache/landscape-fixture's 1x garage with -Room landscape). The clock is the landscape's own setup answer, as in landscape_cameras.json.",
+  "resolution": [1920, 1080],
+  "clock": {
+    "hour": 9.0,
+    "date": "2026-06-21",
+    "lamps": "off",
+    "note": "The landscape package's own setup: summer, day 172 (21 June), 09:00 apparent solar time."
+  },
+  "cameras": [
+    { "derive": "island" },
+    {
+      "id": "fractal_near",
+      "label": "A Fractal at reach",
+      "purpose": "The 10x garage only (its Fractals are placed at 10x): fractal:c90007134ecf, the island's most open Fractal (band 1), seen from a body length away a little above the 10 cm eye, the player beside it for scale: the form, its facets or felt, its glint up close (docs/look/FRACTALS.md).",
+      "stage": { "player_m": [-20.51, 1.523, -5.11], "yaw_deg": 85.0, "companion_m": [-20.79, 1.523, -5.014] },
+      "position_m": [-20.601, 1.548, -5.339],
+      "look_at_m": [-20.62, 1.493, -5.12],
+      "focus_m": [-20.62, 1.493, -5.12],
+      "fov_deg": 50,
+      "view": "shoulder"
+    },
+    {
+      "id": "fractal_far",
+      "label": "The same Fractal from a band below",
+      "purpose": "The 10x garage only: the player 14 m off and a band (0.38 m) below that Fractal, facing it, seen as the F2 view zoomed out with the wheel (1.2 m behind the player and 0.55 m up, F2's 68-degree lens, its focus on the player as in play; at the default arm the meadow's shrubs stand at the eye): where its glint must read. Chosen with the land, the objects and every copy taller than 6 cm clear of the line and none crowding the camera (docs/look/FRACTALS.md).",
+      "stage": { "player_m": [-19.4, 1.132, -19.067], "yaw_deg": 175.0, "companion_m": [-19.554, 1.132, -19.03] },
+      "position_m": [-19.295, 1.824, -20.262],
+      "look_at_m": [-20.62, 1.493, -5.12],
+      "focus_m": [-19.4, 1.147, -19.067],
+      "fov_deg": 68,
+      "view": "shoulder",
+      "derived": true
+    }
+  ]
+}

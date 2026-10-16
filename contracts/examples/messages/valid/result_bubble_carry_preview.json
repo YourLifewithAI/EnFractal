@@ -1,0 +1,29 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "nature.cast",
+  "action_id": "carry-0001",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": true,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "data": {
+    "capability": "bubble_carry",
+    "center_m": [
+      1.0,
+      0.0,
+      0.9
+    ],
+    "radius_m": 0.08,
+    "duration_s": 20,
+    "target": "avatar:player",
+    "cell_count": 0,
+    "cells": [],
+    "cells_truncated": false,
+    "requires_approval": false,
+    "preview_id": "784ee8c473793042e27e4fb9944f101b"
+  }
+}

@@ -1,6 +1,6 @@
 """Fetch, as the merged contract defines it (contracts/README.md, "The sandbox verbs"), on the mock host.
 
-The companion walks to the target, picks it up with entity.grab's checks and limit, and brings it back to the
+The Gubble floats to the target, picks it up with entity.grab's checks and limit, and brings it back to the
 player, still holding it; its job succeeds then. entity.release, from the companion or the player directing it,
 puts it down, so the goal stays transient and the move that is saved is its own durable command. Holding is not
 saved: a carried thing is saved where it was last put down.
@@ -19,11 +19,11 @@ from mcp_harness import McpHarness
 from support import COMPANION, PLAYER, FakeClock, HostPolicy, command, contract_problems, new_host, query
 
 from enfractal_companion import mock_game
-from enfractal_companion.mock_host import COME_ARRIVAL_M
+from enfractal_companion.mock_host import COME_ARRIVAL_M, HOVER_M
 
 FAST = HostPolicy(companion_messages_per_s=1_000_000)
-BESIDE_THE_BOOK = [0.45, 0.0, 0.24]  # the book lies at (0.45, 0, 0.1); the companion spawns at (0.45, 0, 0.6)
-BESIDE_THE_DOORSTOP = [-0.15, 0.0, 0.5]
+BESIDE_THE_BOOK = [0.45, HOVER_M, 0.24]  # book at (0.45, 0, 0.1); Gubble spawn at (0.45, HOVER_M, 0.6)
+BESIDE_THE_DOORSTOP = [-0.15, HOVER_M, 0.5]
 OUT_OF_EVERY_SIGHT = [-1.7, 0.0, -1.2]
 
 
@@ -89,7 +89,9 @@ class Lifecycle(FetchCase):
         self.assertEqual(self.status(job), {"job_id": job, "state": "succeeded"})
         self.assertEqual(self.held_by("obj:book"), "avatar:companion")  # a fetch ends holding the thing
         companion, player = self.position("avatar:companion"), self.position("avatar:player")
-        self.assertAlmostEqual(math.dist(companion, player), COME_ARRIVAL_M, places=3)
+        self.assertAlmostEqual(math.hypot(companion[0] - player[0], companion[2] - player[2]),
+                               COME_ARRIVAL_M, places=3)
+        self.assertAlmostEqual(companion[1], player[1] + HOVER_M, places=6)
         self.assertEqual(self.position("obj:book"), companion)  # carried with it
         self.assertEqual(self.host.revision, 0)  # holding and carrying are not saved
         self.assertNotIn("avatar:companion", self.host.goals)
@@ -128,6 +130,27 @@ class Lifecycle(FetchCase):
         self.assertTrue(started["ok"], started)
         self.assertEqual(self.arrive(), "succeeded")
         self.assertEqual(self.held_by("obj:doorstop"), "avatar:companion")
+
+    def test_a_fetch_returns_level_with_the_player_on_the_30_cm_box(self):
+        started = self.fetch("obj:book")
+        self.assertTrue(started["ok"], started)
+        self.walk_to(BESIDE_THE_BOOK)
+        self.assertEqual(self.arrive(), "running")
+        box = self.host.entities["obj:box"].bounds()
+        top = box["max_m"][1]
+        self.assertAlmostEqual(top, 0.30, places=6)
+        player = self.position("obj:box")[:]
+        player[1] = top
+        self.host.move_avatar("avatar:player", player)
+        self.assertEqual(self.arrive(), "succeeded")
+        companion = self.position("avatar:companion")
+        self.assertAlmostEqual(companion[1], 0.32, places=6)
+        self.assertAlmostEqual(math.hypot(companion[0] - player[0], companion[2] - player[2]),
+                               COME_ARRIVAL_M, places=3)
+        self.assertEqual(self.position("obj:book"), companion)
+        self.assertEqual(self.held_by("obj:book"), "avatar:companion")
+        self.assertEqual(self.status(started["job_id"])["state"], "succeeded")
+        self.assertEqual(self.host.revision, 0)
 
     def test_carrying_moves_the_thing_with_its_holder_and_saves_nothing(self):
         self.assertTrue(self.act("entity.grab", {"actor": "avatar:companion", "target": "obj:book"})["ok"])

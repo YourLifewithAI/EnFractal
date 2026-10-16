@@ -27,8 +27,9 @@ def sea_id(value):
     return value
 
 
-def sea_data(sea, bounds):
-    """Return (x_landscape_sea record, room bounds grown to take in the playable sea)."""
+def sea_data(sea, bounds, margin=None):
+    """Return (x_landscape_sea record, room bounds grown to take in the playable sea). margin is the generator's
+    grid margin (x_generator.margin_m), which the game's open-sea floor is measured from (RoomSea.OpenSeaBedAt)."""
     require(isinstance(sea, dict), 'invalid sea record')
     level = number(sea['level_m'], -10, 10)
     reef, play = sea['reef'], sea['play_area']
@@ -51,6 +52,8 @@ def sea_data(sea, bounds):
                  for b in records(sea['beaches'], MAX_BEACHES)],
         jetty=None)
     require(len({b['id'] for b in out['beaches']}) == len(out['beaches']), 'duplicate beach id')
+    if margin is not None:
+        out['grid_margin_m'] = number(margin, 0, 100)
     jetty = sea.get('jetty')
     if jetty is not None:
         require(isinstance(jetty, dict), 'invalid jetty')

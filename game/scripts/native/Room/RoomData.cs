@@ -55,7 +55,7 @@ public sealed record ShellOpening(string Id, string Kind, string HostPartId, Vec
 /// UTF-8 with LF line endings. Full schema validation is contracts/validate.py; this loader enforces
 /// what the game relies on and fails closed.
 /// </summary>
-public sealed class RoomData
+public sealed partial class RoomData
 {
     public const int SchemaVersion = 1;
     // Same rules as contracts/common.schema.json: one spelling per file, no ".", ".." or empty segments.
@@ -100,8 +100,54 @@ public sealed class RoomData
     public StylePin? DefaultStyle { get; private init; }
     /// <summary>The island's sea (extensions.x_landscape_sea, checked on reading), or null: a room without it has no sea edge.</summary>
     public RoomSea? Sea { get; private init; }
-    /// <summary>Mesh bytes exactly as hash-verified, keyed by full path; the builder never reads them from disk again.</summary>
-    public IReadOnlyDictionary<string, byte[]> VerifiedMeshes { get; private init; } = new Dictionary<string, byte[]>();
+    /// <summary>
+    /// Mesh bytes exactly as hash-verified, keyed by full path, until the room is built (RoomBuilder.Build lets them go:
+    /// ReleaseMeshBytes). MeshBytes gives a file's bytes either way, read and checked against the manifest again when let go.
+    /// </summary>
+    public IReadOnlyDictionary<string, byte[]> VerifiedMeshes => _meshes;
+    private Dictionary<string, byte[]> _meshes = new();
+    /// <summary>Every mesh file's manifest entry by full path (its path in the room, hash and size), to check a file read again.</summary>
+    private Dictionary<string, (string Path, string Sha, long Bytes)> _meshPins = new();
+
+    /// <summary>
+    /// A mesh file's verified bytes by full path, or null when the room has no such mesh: kept from the load, or read again and
+    /// checked as the load checked it (size, hash, self-contained) once the build let them go; a file that changed fails closed.
+    /// </summary>
+    public byte[]? MeshBytes(string path)
+    {
+        lock (_meshes)
+        {
+            if (_meshes.TryGetValue(path, out var kept)) return kept;
+            if (!_meshPins.TryGetValue(path, out var pin)) return null;
+            var bytes = ReadPinned(path, pin.Path);
+            Expect(bytes.LongLength == pin.Bytes, $"room.json: {pin.Path} is {bytes.LongLength} bytes, files list says {pin.Bytes}");
+            Expect(Sha256Hex(bytes) == pin.Sha, $"room.json: {pin.Path} hash does not match the files list");
+            RequireSelfContainedGlb(bytes, $"room.json: {pin.Path}");
+            _meshes[path] = bytes;
+            return bytes;
+        }
+    }
+
+    /// <summary>The mesh files read at load by full path, with each one's manifest entry (its path as listed, hash and size).</summary>
+    private sealed class MeshFiles : Dictionary<string, byte[]>
+    {
+        public MeshFiles() : base(StringComparer.Ordinal) { }
+        public readonly Dictionary<string, (string Path, string Sha, long Bytes)> Pins = new(StringComparer.Ordinal);
+    }
+
+    /// <summary>Keep a mesh file's verified bytes under its full path, and its entry in the files list that verified it.</summary>
+    private static byte[] Keep(Dictionary<string, byte[]> meshes, string full, string path, Dictionary<string, (string Sha, long Bytes)> listed, byte[] bytes)
+    {
+        meshes[full] = bytes;
+        if (meshes is MeshFiles files && listed.TryGetValue(path, out var pin)) files.Pins[full] = (path, pin.Sha, pin.Bytes);
+        return bytes;
+    }
+
+    /// <summary>Let the mesh files' bytes go once the scene is built from them (S12b: a 10x island's are about 40 MB); MeshBytes reads them again if asked.</summary>
+    public void ReleaseMeshBytes()
+    {
+        lock (_meshes) _meshes.Clear();
+    }
 
     public SpawnPoint SpawnFor(string role, SpawnPoint? except = null) =>
         Spawns.FirstOrDefault(s => s.Role == role && s != except) ??
@@ -122,13 +168,14 @@ public sealed class RoomData
         var folder = directory[(directory.LastIndexOf('/') + 1)..];
         Expect(folder == roomId, $"room_id {roomId} must match its directory name {folder}");
 
-        var meshes = new Dictionary<string, byte[]>();
+        var meshes = new MeshFiles();
         var listed = new Dictionary<string, (string Sha, long Bytes)>();
         foreach (var entry in Arr(root, "files"))
         {
             var path = SafePath(Str(entry, "path"));
             Expect(listed.TryAdd(path, (Str(entry, "sha256"), entry.GetProperty("bytes").GetInt64())), $"file {path} is listed twice");
         }
+        Prefetch(directory, listed);
         var assets = new Dictionary<string, AssetInfo>();
         AssetInfo AssetAt(string path)
         {
@@ -170,20 +217,42 @@ public sealed class RoomData
         Expect(min.X < max.X && min.Y < max.Y && min.Z < max.Z, "bounds min must be below max");
         var ids = shell.Select(s => s.Id).Concat(objects.Select(o => o.Id)).ToArray();
         Expect(ids.Length == ids.Distinct().Count(), "shell and object ids must be unique");
+        // Copies burn and regrow, so nothing in the baseline rests on one (contracts/README.md, "Plant copies").
+        foreach (var instance in objects)
+            Expect(instance.SupportTarget?.StartsWith("plant:", StringComparison.Ordinal) != true,
+                $"{instance.Id} rests on the plant copy {instance.SupportTarget}; no manifest object rests on a copy");
         Expect(spawns.Any(s => s.Role is "player" or "any") && spawns.Any(s => s.Role is "companion" or "any"), "room needs player and companion spawns");
         RoomSea? sea = null;
         if (root.TryGetProperty("extensions", out var extensions) && extensions.ValueKind == JsonValueKind.Object &&
             extensions.TryGetProperty(RoomSea.ExtensionName, out var seaRecord))
-            sea = RoomSea.Parse(seaRecord, new Aabb(min, max - min));
+        {
+            // The generator's grid, which its far sea floor is measured from, is the source room's bounds grown by its margin.
+            Aabb? source = null;
+            if (extensions.TryGetProperty("x_landscape_source", out var origin) && origin.ValueKind == JsonValueKind.Object &&
+                origin.TryGetProperty("bounds", out var sourceBounds) && sourceBounds.ValueKind == JsonValueKind.Object)
+            {
+                var low = Vec3(sourceBounds.GetProperty("min_m"));
+                var high = Vec3(sourceBounds.GetProperty("max_m"));
+                Expect(low.X < high.X && low.Y <= high.Y && low.Z < high.Z, "x_landscape_source bounds min must be below max");
+                source = new Aabb(low, high - low);
+            }
+            sea = RoomSea.Parse(seaRecord, new Aabb(min, max - min), source);
+        }
+        // The 10x world (S2): plant copies and terrain tiles, checked against the bounds as the manifest writes them.
+        var (lowM, highM) = (Doubles(bounds.GetProperty("min_m")), Doubles(bounds.GetProperty("max_m")));
+        var copies = root.TryGetProperty("plant_copies", out var copiesBlock) ? ParsePlantCopies(copiesBlock, directory, listed, meshes, lowM, highM) : null;
+        var terrain = root.TryGetProperty("terrain_tiles", out var tilesBlock) ? ParseTerrainTiles(tilesBlock, directory, shell, meshes) : null;
         StylePin? style = null;
         if (root.TryGetProperty("default_style", out var pin))
             style = new StylePin(Str(pin, "preset_id"), Int(pin, "preset_version"), Str(pin, "preset_sha256"));
 
+
         return new RoomData
         {
-            Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, VerifiedMeshes = meshes,
+            Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, _meshes = meshes, _meshPins = meshes.Pins,
             SourceKind = Str(root.GetProperty("source"), "kind"), ManifestSha256 = Sha256Hex(manifestBytes),
             Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints, Openings = openings, Sea = sea,
+            Copies = copies, Terrain = terrain,
         };
     }
 
@@ -203,7 +272,7 @@ public sealed class RoomData
         else
         {
             mesh = SafePath(Str(geometry, "mesh"));
-            meshes[directory + "/" + mesh] = ReadMesh(directory, listed, mesh, "room.json");
+            Keep(meshes, directory + "/" + mesh, mesh, listed, ReadMesh(directory, listed, mesh, "room.json"));
         }
         if (part.TryGetProperty("texture", out var texture)) ReadListed(directory, listed, SafePath(texture.GetString()!), "room.json");
         var collides = part.GetProperty("collides").GetBoolean();
@@ -230,12 +299,12 @@ public sealed class RoomData
         if (geometryKind == "mesh")
         {
             mesh = SafePath(Str(geometry, "mesh"));
-            meshes[assetDirectory + "/" + mesh] = ReadMesh(assetDirectory, listed, mesh, label);
+            Keep(meshes, assetDirectory + "/" + mesh, mesh, listed, ReadMesh(assetDirectory, listed, mesh, label));
         }
         else primitive = Str(geometry, "primitive");
         var collision = root.GetProperty("collision");
         var collisionFile = OptStr(collision, "file");
-        if (collisionFile != null) meshes[assetDirectory + "/" + collisionFile] = ReadMesh(assetDirectory, listed, SafePath(collisionFile), label);
+        if (collisionFile != null) Keep(meshes, assetDirectory + "/" + collisionFile, SafePath(collisionFile), listed, ReadMesh(assetDirectory, listed, SafePath(collisionFile), label));
         var collisionKind = Str(collision, "kind");
         Expect(geometryKind != "mesh" || collisionKind != "primitive", $"{label}: a mesh asset cannot use primitive collision");
         var physics = root.GetProperty("physics");
@@ -254,10 +323,33 @@ public sealed class RoomData
     public static byte[] ReadListed(string directory, Dictionary<string, (string Sha, long Bytes)> listed, string path, string label)
     {
         Expect(listed.TryGetValue(path, out var pin), $"{label}: {path} is referenced but not listed in files");
+        if (Prefetched.TryGetValue(listed, out var verified) && verified.TryGetValue(path, out var ready)) return ready;
         var bytes = ReadPinned(directory + "/" + path, path);
         Expect(bytes.LongLength == pin.Bytes, $"{label}: {path} is {bytes.LongLength} bytes, files list says {pin.Bytes}");
         Expect(Sha256Hex(bytes) == pin.Sha, $"{label}: {path} hash does not match the files list");
         return bytes;
+    }
+
+    /// <summary>Bytes of a room's listed files already read and verified (size and hash) by Prefetch, for that room's files list.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Dictionary<string, (string Sha, long Bytes)>, System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>> Prefetched = new();
+
+    /// <summary>
+    /// A room's large pinned files (meshes and plant tables: a 10x island's are about 60 MB) read and hashed side by side before
+    /// its parts ask for them in manifest order. Only bytes whose size and hash match are kept; anything else is read again where
+    /// it is referenced, which reports the problem with its own message, so the rules and their messages are unchanged.
+    /// </summary>
+    private static void Prefetch(string directory, Dictionary<string, (string Sha, long Bytes)> listed)
+    {
+        var verified = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.Ordinal);
+        var large = listed.Where(e => e.Key.EndsWith(".glb", StringComparison.Ordinal) || e.Key.EndsWith(".bin", StringComparison.Ordinal)).ToArray();
+        System.Threading.Tasks.Parallel.ForEach(large, entry =>
+        {
+            var full = directory + "/" + entry.Key;
+            if (!FileAccess.FileExists(full)) return;
+            var bytes = FileAccess.GetFileAsBytes(full);
+            if (bytes.LongLength == entry.Value.Bytes && Sha256Hex(bytes) == entry.Value.Sha) verified[entry.Key] = bytes;
+        });
+        Prefetched.AddOrUpdate(listed, verified);
     }
 
     private static byte[] ReadPinned(string path, string label)

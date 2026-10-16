@@ -124,6 +124,39 @@ def query(op: str, args: dict, query_id: str = "q-1", room_id: str = "test_room"
     return {"schema": "enfractal.query", "version": 1, "query_id": query_id, "room_id": room_id, "op": op, "args": args}
 
 
+GUBBLE = "avatar:companion"
+# Spots in the test room for point glows, from the companion beside the player or at its spawn (both hosts):
+IN_THE_OPEN = [0.6, 0.0, 1.0]  # on the rug, in plain sight and within the Gubble's 2 m reach
+BEHIND_BOX = [1.45, 0.0, 0.15]  # within reach, but the box hides it from both avatars
+OUT_OF_REACH = [-1.6, 0.0, -1.2]  # inside the room, more than 2 m from the Gubble
+OUTSIDE_ROOM = [0.6, 0.0, 1.6]  # past the room's far wall (z 1.5)
+FAR_IN_SIGHT = [1.7, 0.0, -1.3]  # in plain sight, beyond Glow's and Bubbles' 2 m reach but inside Fireworks' 4 m
+
+
+def glow(action_id: str, *, at: list[float] | None = None, params: dict | None = None, radius: float = 0.5,
+         duration: float = 60, targets: list[str] | None = None, capability: str = "glow", **extra) -> dict:
+    """An effect.start of the shipped pack's glow: on the Gubble (targets its own avatar: self) unless `at` names a spot
+    (no targets: a point there)."""
+    args = {"capability": capability, "params": {"intensity": 0.6} if params is None else params,
+            "area": {"center_m": list(at or [0.0, 0.0, 0.0]), "radius_m": radius}, "duration_s": duration}
+    if targets is not None:
+        args["targets"] = targets
+    elif at is None:
+        args["targets"] = [GUBBLE]
+    return command("effect.start", args, action_id, **extra)
+
+
+# A duration each of storybook_wild v2's abilities allows (Fireworks lasts at most 6 s).
+CAST_DURATION_S = {"glow": 60, "bubbles": 20, "fireworks": 4}
+
+
+def cast(capability: str, action_id: str, *, duration: float | None = None, **kwargs) -> dict:
+    """An effect.start of any of the shipped pack's abilities, shaped as glow() shapes it: on the Gubble unless `at`
+    names a spot. The duration defaults to one the ability allows."""
+    return glow(action_id, capability=capability, duration=CAST_DURATION_S.get(capability, 4) if duration is None else duration,
+                **kwargs)
+
+
 def example(name: str, kind: str = "valid") -> dict:
     return json.loads((EXAMPLES / kind / f"{name}.json").read_bytes())
 

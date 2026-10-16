@@ -11,13 +11,13 @@ from pathlib import Path
 
 import test_host_boundary as base
 from support import (
-    COMPANION, GARAGE_TO_TEST_ROOM, PLAYER, REPO, HostPolicy, command, contracts, example, new_host, query, retarget,
+    COMPANION, GARAGE_TO_TEST_ROOM, PLAYER, REPO, HostPolicy, command, contracts, example, glow, new_host, query, retarget,
 )
 
 from enfractal_companion.textsafety import hidden_characters
 
 FAST = dict(companion_messages_per_s=1_000_000)
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 
 class FixCase(base.HostCase):
@@ -150,8 +150,10 @@ class Checkpoints(FixCase):
         before = self.host.revision
         for i in range(5):
             self.assertEqual(self.send(command("room.checkpoint", {}, f"cp-{i}"))["revision"], before)
+        # The undo still names the revision it undoes from: not stale (no revision_conflict). It takes back nature changes
+        # only, and a move is not one, so it answers that instead.
         undo = self.host.player_command(command("room.undo", {"to_revision": 0}, "p-undo", expected_revision=before))
-        self.assertTrue(undo["ok"], undo)
+        self.assertRefused(undo, "unsupported_capability", "$.args.to_revision")
 
     def test_checkpoints_are_capped_like_room_state(self):
         for i in range(5):
@@ -251,7 +253,7 @@ class Numbers(FixCase):
         for _ in range(140):
             node["x"] = {}
             node = node["x"]
-        source = copy.deepcopy(SPINNER)
+        source = copy.deepcopy(SAMPLE)
         source["parts"][0]["shape_hint"] = deep
         result = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1"))
         self.assertRefused(result, "request_invalid")
@@ -269,8 +271,8 @@ class Text(FixCase):
             with self.subTest(value=ascii(value)):
                 result = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "g-1", **{field: value}))
                 self.assertRefused(result, "request_invalid", "$.note")
-        source = copy.deepcopy(SPINNER)
-        source["name"] = "Spinner" + chr(0x3164)
+        source = copy.deepcopy(SAMPLE)
+        source["name"] = "Trigger light" + chr(0x3164)
         result = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1"))
         self.assertRefused(result, "invalid_args", "$.args.source.name")
 
@@ -333,7 +335,7 @@ class Text(FixCase):
         for i, key in enumerate([chr(0xFF50) + "rincipal", "pr" + chr(0x0456) + "ncipal", "principal ", "on_behalf_of",
                                  "approved_by_player", "PRINCIPAL", "pr" + chr(0x0131) + "ncipal", "Owner", "api_token"]):
             with self.subTest(key=ascii(key)):
-                source = copy.deepcopy(SPINNER)
+                source = copy.deepcopy(SAMPLE)
                 source["parts"][0][key] = PLAYER
                 result = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}},
                                            f"sp-{i}"))
@@ -368,12 +370,7 @@ class Approvals(FixCase):
         source = retarget(example("command_transform_bean_bag_into_glider"), GARAGE_TO_TEST_ROOM)["args"]["into"]
         transform = self.hold(command("entity.transform", {"target": "obj:book", "into": source}, "tf-1",
                                       expected_entities={"obj:book": 0}))
-        self.assertIn('turn obj:book ("Book", revision 0) into "Storm glider"', transform["approval_needed"]["reason"])
-        moved = self.send(command("entity.place", {"target": "obj:rug", "placement": {"position_m": [0.1, 0, 0.6]}},
-                                  "move-1"))
-        self.assertTrue(moved["ok"], moved)  # the companion's own change: the only kind its undo may step back over
-        undo = self.hold(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertIn("from revision 1 to revision 0, changing 1 entities: obj:rug", undo["approval_needed"]["reason"])
+        self.assertIn('turn obj:book ("Book", revision 0) into "Worn glide"', transform["approval_needed"]["reason"])
 
     def test_approval_text_names_the_presets_for_a_style_change(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -383,14 +380,14 @@ class Approvals(FixCase):
             self.assertIn("to toybox v1", held["approval_needed"]["reason"])
 
     def test_approval_text_for_a_revision_names_the_new_name_and_place(self):
-        placed = self.host.player_command(command("creation.place", {"source": SPINNER, "placement": {"position_m": [0.5, 0, 0.5]}},
+        placed = self.host.player_command(command("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.5, 0, 0.5]}},
                                                   "p-place"))
         creation = placed["created"][0]
-        source = dict(copy.deepcopy(SPINNER), name="Bigger spinner")
+        source = dict(copy.deepcopy(SAMPLE), name="Bigger light")
         held = self.hold(command("creation.revise", {"target": creation, "source": source,
                                                      "placement": {"position_m": [0.6, 0, 0.4]}}, "rev-1",
                                  expected_entities={creation: 1}))
-        self.assertIn('rebuild it as "Bigger spinner" and move it to (0.6, 0, 0.4)', held["approval_needed"]["reason"])
+        self.assertIn('rebuild it as "Bigger light" and move it to (0.6, 0, 0.4)', held["approval_needed"]["reason"])
 
     def test_another_companions_approval_looks_like_no_approval(self):
         self.host = new_host(clock=self.clock, extra_companions={"companion:visitor": "avatar:visitor"})
@@ -416,29 +413,35 @@ class Approvals(FixCase):
 
 class Budgets(FixCase):
     def glow(self, action_id, duration=60):
-        return self.send(command("effect.start", {"capability": "glow", "params": {"intensity": 1},
-                                                  "area": {"center_m": [0, 0.3, 0], "radius_m": 1}, "duration_s": duration},
-                                 action_id))
+        return self.send(glow(action_id, params={"intensity": 1}, radius=1, duration=duration))
 
     def test_effects_expire_after_their_duration(self):
-        self.assertTrue(self.glow("glow-1", duration=5)["ok"])
-        self.assertIn("effect:0001", [i["id"] for i in self.send(query("entities.list", {"filter": {"kind": "effect"}}))["data"]["items"]])
+        started = self.glow("glow-1", duration=5)
+        self.assertTrue(started["ok"], started)
+        self.assertEqual(self.host.active_effect_ids(), started["created"])
+        # Effects are not entities (as on the kernel host): no query lists them, before or after.
+        self.assertEqual(self.send(query("entities.list", {"filter": {"kind": "effect"}}))["data"]["items"], [])
         self.clock.advance(6)
-        self.assertEqual(self.send(query("entities.list", {"filter": {"kind": "effect"}}, "q-2"))["data"]["items"], [])
+        self.assertEqual(self.host.active_effect_ids(), [])
+        stop = self.send(command("effect.stop", {"effect": started["created"][0]}, "stop-1"))
+        self.assertEqual((stop["ok"], stop["data"]["effects_stopped"]), (True, 0))
 
-    def test_refuses_a_fifth_running_effect_until_one_ends(self):
-        for i in range(4):
+    def test_refuses_a_fourth_running_glow_until_one_ends(self):
+        # The pack's max_active for glow is 3, counted across both principals.
+        for i in range(3):
             self.assertTrue(self.glow(f"glow-{i}", duration=5)["ok"])
-        self.assertRefused(self.glow("glow-4"), "budget_exceeded")
+        refused = self.glow("glow-3")
+        self.assertRefused(refused, "budget_exceeded", "$.args.capability")
+        self.assertEqual((refused["error"]["allowed"], refused["error"]["actual"]), (3, 3))
         self.clock.advance(6)
-        self.assertTrue(self.glow("glow-5")["ok"])
+        self.assertTrue(self.glow("glow-4")["ok"])
 
     def test_refuses_creations_beyond_the_room_budget(self):
         self.host.policy = dataclasses.replace(self.host.policy, max_creations=2)
         for i in range(2):
-            self.assertTrue(self.send(command("creation.place", {"source": SPINNER, "placement": {"position_m": [0.5, 0, 0.5]}},
+            self.assertTrue(self.send(command("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.5, 0, 0.5]}},
                                               f"c-{i}"))["ok"])
-        self.assertRefused(self.send(command("creation.place", {"source": SPINNER, "placement": {"position_m": [0.5, 0, 0.5]}},
+        self.assertRefused(self.send(command("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.5, 0, 0.5]}},
                                              "c-2")), "budget_exceeded")
 
     def test_refuses_releasing_with_the_players_avatar(self):

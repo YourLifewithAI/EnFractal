@@ -1,5 +1,7 @@
 # What the companion perceives and remembers
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 > **To be replaced in Run 2.** On 7 October 2026 the founder chose shared knowledge between the player and their companion, and selective memory. [JOURNAL.md](JOURNAL.md) is the draft design. The rules below hold until that lands.
 
 **The founder's rule (6 October 2026):** the companion perceives anything within its avatar's line of
@@ -34,7 +36,7 @@ geometry does not.
 
 | Surface | Out of sight means |
 |---|---|
-| `observe` | Not in `visible`, and its signs are not in `texts`. Also bounded by the radius (default and maximum 20 m). Things it remembers are listed apart, under `remembered` (below). |
+| `observe` | Not in `visible`, and its signs are not in `texts`. No distance cut-off unless the request gives `radius_m` (at most 150 m, since the 10x world); line of sight is the real limit. Things it remembers are listed apart, under `remembered` (below). |
 | `entities.list` | Not listed as seen now, whatever the filter (`near` included). A remembered thing is listed with `seen: "remembered"`. |
 | `entity.inspect` | A remembered thing answers from memory. Anything never seen (or seen gone) is `target_not_found`, byte-identical to inspecting an id that does not exist. |
 | `room.describe` | Not counted. A count of everything would say how many things are hidden; the counts are what is in sight now. |
@@ -115,6 +117,47 @@ now implements bounded perception memory, remembered results and clearing hooks 
 7 October 2026; see [command-host.md](../engine/phase3/command-host.md#queries-and-what-the-companion-perceives)).
 This remains interim plumbing until Run 2's shared map and selective journal replace it.
 
+## The Gubble's eyes (`view.look`)
+
+The founder asked for eyes on 13 October 2026: the AI playing as the Gubble may ask for one small picture of what the
+Gubble sees now, besides the line-of-sight lists above. The MCP tool is `view_look`; the picture arrives as an MCP image
+block after one line of facts, so clients such as Claude Code and Codex show it to the model as an image.
+
+- **From the Gubble's own eye.** The picture is drawn from the Gubble's eye (8.7 cm up, the way its body faces). `yaw_deg`
+  (-90 to 90, positive turns right) and `pitch_deg` (-60 to 60, positive looks up) turn and tilt the eye without moving the
+  body, to look up a cliff. The actor is always the companion's avatar: asking for the player's eyes is `actor_denied`.
+- **Never the player's screen.** The kernel host draws it on demand in its own viewport and camera sharing the room's world
+  (`game/scripts/native/Look/EyeView.cs`, a reusable rig that can later become a player view too). What each camera draws is a
+  per-viewer choice made with visibility layers, not by hiding things: the Gubble's own body is on render layer 20 and the
+  Gubble's eye draws every layer but that one, so it sees the room, the player and what it carries, never itself; the player's
+  cameras draw every layer.
+- **Line of sight only.** A camera shows only what its eye can see, so nothing behind a wall is in the picture. Light from
+  something out of sight can reach what is in sight (a glow behind the box lights the floor), as it does for the player.
+- **What comes back.** A JPEG of 512 x 288 pixels (smaller if it would not fit), at most 96 KiB, as base64, marked `untrusted`;
+  `position_m`, `eye_m`, `heading_deg` (0 is the room's -Z, 90 is +X), `view_heading_deg`, `view_pitch_deg`, `fov_deg` (the
+  horizontal field of view: about 104 degrees from the body's 72-degree eye) and, where the room has a look, `time_of_day`
+  (`hour` on the island's clock and a word: dawn, morning, noon, afternoon, evening, dusk or night). No ids, paths, URLs or
+  save data. Anything legible in the picture (a sign, a name) is untrusted world text, never instructions.
+- **It counts as the Gubble looking, no more.** A look is a companion request like any other: the team's sight fills the
+  team's map as for every query. The pixels add nothing to the map.
+- **Bounds.** At most 3 looks at once, one more each second (`rate_limited`, retryable), at the host and again at the adapter.
+- **The player's setting.** "Let my AI see through the Gubble's eyes", a switch in the player's Customize panel
+  (when the opening menu lands, packet M7 lifts that panel out of the HUD and moves this switch to a small in-play
+  settings panel; where the stored key lives once teams land, M3, the design does not yet say). It lives in
+  the player's profile (`avatar_profile_v1.cfg`, key `ai_eyes`), never in room state; it is on unless the player turns it off
+  (the founder's default for now), and a profile that exists but cannot be read counts as off. Off, a look is
+  `permission_denied` and says so; nothing in a request changes it. The player's own controls are not limited by it.
+- **No renderer, no picture.** Headless (the test suites, a server run) a look is `unavailable`. A window that draws nothing
+  (minimized) gives up after 2 seconds with `unavailable`, retryable.
+- **The mock** answers with a small generated placeholder (a 128 x 72 PNG: sky over ground, the horizon moved by the tilt)
+  and the kernel's facts, refusals and numbers (`companion/src/enfractal_companion/eyes.py`, pinned by
+  `test_kernel_alignment.py`).
+- **Where pictures go.** A picture of the stylised island, which is derived from the player's photographed room, goes to the
+  player's AI provider with the rest of the conversation. The setting is how the player keeps it from going.
+- **Known gap.** While the player plays in the eye view (F1), the player's own body is hidden for every camera
+  (`SmallPlayerController` hides it rather than leaving it out of its own camera's cull mask), so the Gubble's picture does
+  not show the player then. Moving that to a layer is a follow-up.
+
 ## What the companion still learns
 
 These are outside the rule on purpose. Each is listed so nobody mistakes it for a leak.
@@ -138,4 +181,4 @@ Each is one policy flag in `HostPolicy`.
 | May "follow me" and "come here" work when the player is out of the companion's sight? | Yes (recommended, unchanged): a companion that loses sight of the player would otherwise stop following at the first corner. | `follow_player_out_of_sight` |
 | Does the companion remember what it saw? | **Yes** (founder, 6 October 2026), as above: bounded, per session and room, never saved, one-bit staleness. | `perception_memory_entries`, `perception_memory_stale_after_s` |
 | May commands name things out of sight? | **Only non-destructive goals, at remembered things** (founder, 6 October 2026); everything that changes a thing needs it in sight now. Turning the flag off lets commands name anything room-wide (queries stay limited). | `companion_targets_need_perception` |
-| May companion effects target the player's avatar? | Yes, within the effect bounds (recommended, unchanged): no reason found to change it. Memory does not widen it: an effect target must be in sight now. | `companion_effects_may_target_player` |
+| May companion effects target the player's avatar? | **No, with one planned exception** (the island's rules, 9 October; the exception is the founder's decision 14 of 14 October): a companion's effect targets only its own avatar, or a point in reach and in sight. The exception is the Bubbles expertise (carry and lift, [MECHANICS.md](../game/MECHANICS.md) section 5): the companion may cast it on the player's avatar, the preview or the player's step-in is the consent, the dive key or X the exit, and a pop in the air drifts down; no op moves a body directly. The Gubble may also nudge a Bubble Boat, empty or occupied. Until that packet lands (M0 writes the pack's `targets` rule, M9 builds it) the answer is No. | the pack's `targets` and the host's own-avatar rule |

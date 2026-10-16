@@ -1,0 +1,40 @@
+{
+  "schema": "enfractal.look_review_cameras",
+  "version": 1,
+  "room_id": "landscape_garage_nominal",
+  "description": "The living shore's review cameras (Run 2, the first recorded play's fix round, L1): the HUD's shoulder view (F2) on the 10x island garage's south shore, where the generator's coast is a straight line 15 m long. shore_along stands where the founder marked it (the jetty's gravel at (9.45, 0, -34.3)) looking west along the shore with the sea on the right; shore_beach stands on the jetty looking east down the beach. Pass the 10x island with -Room (a folder) and the -Only ids; the wash is held at shore_clock_s seconds of the shore's clock (looks without a living shore ignore it), so a before and an after show the same moment. The founder's morning (16 October, 08:30) for the two views along the shore, noon for the jetty's.",
+  "resolution": [1920, 1080],
+  "clock": {
+    "hour": 8.5,
+    "date": "2026-10-16",
+    "lamps": "off",
+    "note": "The founder's own morning: 16 October, 08:30, as mark 2 was taken (08:31 on the HUD's clock). shore_beach is at noon the same day."
+  },
+  "cameras": [
+    {
+      "id": "shore_along",
+      "label": "The shore from the jetty's gravel, looking along it",
+      "purpose": "Mark 2's spot: the founder on the gravel at (9.45, 0, -34.3), the shoulder view looking west along the shore, the sea on the right. The coastline was a perfect line where the water met the land; now the wash climbs the sand and draws back, with a wet band and a little foam on its edge.",
+      "hud_view": 1,
+      "shore_clock_s": 1.2,
+      "stage": { "player_m": [9.45, 0.05, -34.3], "yaw_deg": 90, "companion_m": [9.3, 0.07, -34.15] }
+    },
+    {
+      "id": "shore_along_back",
+      "label": "The same shore, the wash drawn back",
+      "purpose": "The same view a few seconds later in the wash: the sea drawn back from the sand it wetted, a lace of foam on its edge.",
+      "hud_view": 1,
+      "shore_clock_s": 5.9,
+      "stage": { "player_m": [9.45, 0.05, -34.3], "yaw_deg": 90, "companion_m": [9.3, 0.07, -34.15] }
+    },
+    {
+      "id": "shore_beach",
+      "hour": 12.0,
+      "label": "Down the beach from the jetty",
+      "purpose": "On the jetty (14.725, 0.03, -34.55) looking east down the beach: the straight shore that ran off to the far end, the sea on the right now washing in and drawing back along it.",
+      "hud_view": 1,
+      "shore_clock_s": 3.1,
+      "stage": { "player_m": [14.725, 0.05, -34.55], "yaw_deg": 270, "companion_m": [14.6, 0.08, -34.35] }
+    }
+  ]
+}

@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 enfractal-companion = "enfractal_companion.server:main"
 enfractal-companion-mock-game = "enfractal_companion.mock_game:main"
+enfractal-wish-runner = "enfractal_companion.wish_runner:main"
 
 [build-system]
 requires = ["hatchling==1.32.4"]

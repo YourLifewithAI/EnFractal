@@ -71,6 +71,7 @@ public partial class SandboxVerbsTest : Node3D
             await TestFetch();
             await TestFetchStopsAndRefusals();
             await TestFetchFloating();
+            await TestCatchUp();
             await TestUnreachable();
             GD.Print($"NATIVE_KERNEL_SANDBOX: {_checks - _failures}/{_checks} checks passed; pick up, carry, drop, place with snapping, stack and push through enfractal.command, with receipts, refusals, saved poses and a reload; fetch through the host{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveSave();
@@ -536,6 +537,44 @@ public partial class SandboxVerbsTest : Node3D
             planar <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.02f && _host.HeldBy(CompanionAvatar) == "obj:doorstop",
             $"the Gubble floats up onto the box (highest feet {highest:0.000} m, the top at {box.End.Y:0.000} m), picks the doorstop up and floats back to the player holding it ({planar:0.00} m away): " + job?.ToJsonString());
         Check(Ok(Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Player)), "and puts it down beside the player");
+    }
+
+    /// <summary>
+    /// The Gubble catching up (S8 of the 10x world): following, far from the player and out of their view (here past a lowered
+    /// CatchUpBeyondM: the test room is small), it reappears beside them, and its AI's next result, of any kind, carries the
+    /// caught_up notice, once; the player's results never do. A fetch carried back to a player facing away never catches up.
+    /// </summary>
+    private async Task TestCatchUp()
+    {
+        var previous = GetViewport().GetCamera3D();
+        _player.EyeCamera.MakeCurrent();
+        _companion.CatchUpBeyondM = 0.4f;
+        await Stand(_player, new Vector3(0.0f, 0.006f, 0.15f), Vector3.Forward, "north of the rug, facing north");
+        await Stand(_companion, new Vector3(0.0f, 0.006f, 1.35f), Vector3.Forward, "behind the player by the south wall, out of their view");
+        var caught = _companion.CatchUps;
+        var follow = Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        for (var i = 0; i < 60 && _companion.CatchUps == caught; i++) await Frames(1);
+        var status = Query("player.status", new JsonObject(), Companion);
+        var notice = status["notices"]?.AsArray().OfType<JsonObject>().FirstOrDefault(n => n["kind"]?.GetValue<string>() == "caught_up");
+        Check(Ok(follow) && _companion.CatchUps == caught + 1 && notice?["distance_m"]?.GetValue<double>() > 0 && notice["from_m"] != null && notice["to_m"] != null && notice["at_utc"] != null,
+            "following far behind the player and out of their view, the Gubble catches up, and its next result tells its AI: " + status["notices"]?.ToJsonString());
+        Check(Query("player.status", new JsonObject(), Companion)["notices"] == null && Query("player.status", new JsonObject(), Player)["notices"] == null,
+            "the notice comes once, and only to the Gubble");
+        Send(Command(NextId("stay"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stay" }), Player);
+
+        _companion.CatchUpBeyondM = 0.05f;
+        Check(Ok(Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:doorstop", ["placement"] = Placement(-1.2, 0, 0.9) }), Player)), "the doorstop goes back west of the rug");
+        await Stand(_player, new Vector3(0.0f, 0.006f, 1.0f), Vector3.Right, "on the rug's south side, facing east, away from the doorstop");
+        await Stand(_companion, new Vector3(-0.5f, 0.006f, 0.9f), Vector3.Left, "facing the doorstop");
+        caught = _companion.CatchUps;
+        var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Player);
+        var held = await UntilJobEnds(1500, () => _host.HeldBy(CompanionAvatar) == "obj:doorstop");
+        var job = JobStatus(fetch, Player);
+        Check(Ok(fetch) && held && job?["state"]?.GetValue<string>() == "succeeded" && _companion.CatchUps == caught,
+            "a fetch carried back to a player facing away, past even a 5 cm catch-up distance, never catches up: it travels the whole way: " + job?.ToJsonString());
+        Check(Ok(Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Player)), "and puts the doorstop down");
+        _companion.CatchUpBeyondM = EnFractal.Native.CompanionAvatar.CatchUpM;
+        previous?.MakeCurrent();
     }
 
     /// <summary>A goal whose body has reported blocked for about 5 s fails with target_unreachable, and the body stops trying.</summary>

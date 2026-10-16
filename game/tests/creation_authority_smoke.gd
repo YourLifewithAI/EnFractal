@@ -127,6 +127,9 @@ func _test_locks() -> void:
 	near_garden.z_m = 379.75
 	_expect_code(host.submit(PLAYER, near_garden), "protected_zone", "assembly footprint cannot cross a locked object")
 	_expect_code(host.preflight(PLAYER, _wind_source(), 0.0, 377.5, 0.0), "protected_zone", "a wind radius cannot reach into a locked object")
+	var revisions_before_refusal := [host.revision, host.permission_revision]
+	_expect_code(host.preflight(PLAYER, _source(), 0.0, 379.75, 0.0), "protected_zone", "a footprint over a locked object is refused at preflight")
+	_expect([host.revision, host.permission_revision] == revisions_before_refusal, "a refused preflight changes no revision (moved from the retired editor smoke)")
 	_expect(not host.can_affect(PLAYER, PLAYER, Vector3(0, 12, 385)), "a locked zone receives no effects")
 	_expect_code(host.submit(COMPANION, _lock(host, "unlock", "companion_unlock", ["obj:garden"])), "unlock_denied", "the companion can never unlock")
 	_expect(host.is_locked("obj:garden") and host.revision == 1, "a refused unlock changes nothing")
@@ -550,10 +553,11 @@ func _test_version_two_saves() -> void:
 	var request := _command(host, "place", "before_upgrade", _source())
 	host.submit(PLAYER, request)
 	var old: Dictionary = host.export_envelope()
-	_expect(old.version == 5 and old.object_poses == {} and old.team == {}, "saves are version 5 and carry the object poses and the team block")
+	_expect(old.version == 7 and old.object_poses == {} and old.team == {} and old.nature == {}, "saves are version 7 and carry the object poses, the team block and the nature block")
 	var four: Dictionary = old.duplicate(true)
 	four.version = 4
 	four.erase("team")
+	four.erase("nature")
 	var upgraded_four = Authority.new()
 	upgraded_four.configure(ROOM, Callable(self, "_flat"), _test_path("version_four_upgraded"))
 	_expect(upgraded_four.load_envelope(four).ok and upgraded_four.submit(PLAYER, request).get("replayed", false) and upgraded_four.team() == {},
@@ -562,6 +566,7 @@ func _test_version_two_saves() -> void:
 	three.version = 3
 	three.erase("object_poses")
 	three.erase("team")
+	three.erase("nature")
 	var upgraded_three = Authority.new()
 	upgraded_three.configure(ROOM, Callable(self, "_flat"), _test_path("version_three_upgraded"))
 	_expect(upgraded_three.load_envelope(three).ok and upgraded_three.submit(PLAYER, request).get("replayed", false) and upgraded_three.snapshot(PLAYER).object_poses == {},
@@ -571,6 +576,7 @@ func _test_version_two_saves() -> void:
 	old.erase("checkpoints")
 	old.erase("object_poses")
 	old.erase("team")
+	old.erase("nature")
 	var upgraded = Authority.new()
 	upgraded.configure(ROOM, Callable(self, "_flat"), _test_path("version_two_upgraded"))
 	_expect(upgraded.load_envelope(old).ok and upgraded.submit(PLAYER, request).get("replayed", false), "a version 2 save still loads, with its receipts")

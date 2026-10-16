@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from pipeline.landscape.harness.common import load_json, require, sha
+from pipeline.landscape.harness.package import magnify_inventory
 
 
 def number(value, low, high):
@@ -34,16 +35,19 @@ def sorted_ids(value):
     return sorted(value, key=lambda r: r['id'])
 
 
-def source_data(room, pins, folder):
+def source_data(room, pins, folder, world_scale=1.):
     """Whitelist the C3 shell and C4 inventory shared by corpus and roomscan.
 
     Poses use the bottom-centre pivot, metres, +Y up, -Z forward. Polygon winding
     stays authored; sorting points would destroy geometry. Never read truth.json,
     assets, evidence sheets, labels, display names, recipes or capture metadata.
+    The 10x world: `room` is the room as read_package returns it (magnified by the
+    package's world scale), and the inventory is magnified as much, so the intro's
+    boxes stand where the land grew from them; the pins stay the true-size files'.
     """
     inventory_path = Path(folder)/'inventory.json'
     require(sha(inventory_path.read_bytes()) == pins['inventory_sha256'], 'inventory hash mismatch')
-    inventory = load_json(inventory_path)
+    inventory = magnify_inventory(load_json(inventory_path), world_scale)
     bounds = {k: vector(room['bounds'][k]) for k in ('min_m', 'max_m')}
     require(all(a < b for a, b in zip(bounds['min_m'], bounds['max_m'])), 'invalid source bounds')
     parts = []
@@ -72,7 +76,9 @@ def source_data(room, pins, folder):
                 'invalid source opening kind')
         host = identifier(opening['host_part_id'], r'shell:[A-Za-z0-9_-]{1,64}')
         require(host in part_ids, 'source opening host missing')
-        size = vector(opening['size_m'], 2, 0, 20)
+        # An opening fits its room: at most 20 m, or the room's widest side in a bigger room (a room magnified
+        # into the 10x world keeps its doors in proportion).
+        size = vector(opening['size_m'], 2, 0, max(20, *(bounds['max_m'][i]-bounds['min_m'][i] for i in (0, 2))))
         require(all(v > 0 for v in size), 'source opening size must be positive')
         openings.append({'id': identifier(opening['id']), 'kind': opening['kind'],
                          'host_part_id': host, 'center_m': vector(opening['center_m']), 'size_m': size})

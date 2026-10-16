@@ -70,10 +70,16 @@ public partial class LookPresetTest
         var unset = declared.Except(set).ToArray();
         Check(unset.Length == 0, "every uniform of the land shader is set (none left at the shader default): unset " + string.Join(",", unset));
         var source = Regex.Replace(Regex.Replace(shader.Code, @"/\*.*?\*/", "", RegexOptions.Singleline), @"//[^\n]*", "");
-        var declarations = Regex.Matches(source, @"^\s*(?:instance\s+)?uniform\s+\w+\s+(\w+)[^;]*;", RegexOptions.Multiline);
-        var body = Regex.Replace(source, @"^\s*(?:instance\s+)?uniform\s+[^;]*;", "", RegexOptions.Multiline);
+        var declarations = Regex.Matches(source, @"^\s*(?:(?:instance|global)\s+)?uniform\s+\w+\s+(\w+)[^;]*;", RegexOptions.Multiline);
+        var body = Regex.Replace(source, @"^\s*(?:(?:instance|global)\s+)?uniform\s+[^;]*;", "", RegexOptions.Multiline);
         var ignored = declarations.Select(m => m.Groups[1].Value).Where(n => !Regex.IsMatch(body, $@"\b{n}\b")).ToArray();
-        Check(declarations.Count == declared.Count + 1 && ignored.Length == 0, "the land shader reads every uniform it declares (and the one per-instance seed): ignored " + string.Join(",", ignored));
+        // Besides the material's own: three per-instance values (the paint seed, the intro's mark, a plant's season habit), the intro's five globals (Look/Intro) and the land's season globals (LandSeason).
+        string[] Scoped(string scope) => Regex.Matches(source, $@"^\s*{scope}\s+uniform\s+\w+\s+(\w+)", RegexOptions.Multiline).Select(m => m.Groups[1].Value).Order().ToArray();
+        var instances = Scoped("instance");
+        var globals = Scoped("global");
+        Check(declarations.Count == declared.Count + instances.Length + globals.Length && instances.SequenceEqual(new[] { "intro_part", "paint_seed", "season_habit" })
+            && globals.SequenceEqual(new[] { "intro_area", "intro_colour", "intro_grow", "intro_rise", "intro_start" }.Concat(LandSeason.Globals.Select(g => g.Name)).Concat(GrassLook.Globals.Select(g => g.Name)).Order()) && ignored.Length == 0,
+            $"the land shader reads every uniform it declares (and its per-instance seed and intro mark, and the intro's globals: {string.Join(",", instances.Concat(globals))}): ignored " + string.Join(",", ignored));
         var lightFunction = body[body.IndexOf("void light()", StringComparison.Ordinal)..];
         Check(!Regex.IsMatch(lightFunction, @"1\.0\s*-\s*ATTENUATION") && Regex.IsMatch(lightFunction, @"band\s*=[^;]*\*\s*light_warmth\s*;"),
             "the land shader lights like the room's: no light added in a cast shadow, a warm terminator only from warm light");
@@ -224,7 +230,7 @@ public partial class LookPresetTest
     private async Task CheckRealLandscape(StylePreset preset)
     {
         var directory = FindLandscapeFixture();
-        if (directory == null) { GD.Print("LOOK_INFO: no garage landscape exported under .cache/landscape-fixture (tools/test-room.ps1 builds one); the real-room checks were skipped"); return; }
+        if (directory == null) { GD.Print("LOOK_INFO: no garage landscape (-- --landscape=DIR; tools/test-room.ps1 passes the shared fixture cache's); the real-room checks were skipped"); return; }
         MaterialLibrary.Configure(preset);
         var land = RoomData.Load(directory);
         var (holder, look) = NewDirector(preset, land, "RealLandscapeHolder");
@@ -244,6 +250,7 @@ public partial class LookPresetTest
         var factor = MeshOf("shell:terrain_meadow").GetSurfaceOverrideMaterial(0) is ShaderMaterial { } meadowMaterial
             ? meadowMaterial.GetShaderParameter("base_color").AsColor().SrgbToLinear() : default;
         Check(factor.R > factor.G && Mathf.Abs(factor.R - 0.57f) < 0.02f, $"while the glTF factor under it is the cream envelope (linear {factor}): the colour was always in the vertex colour");
+        CheckIslandCameras(land, built);
         holder.QueueFree();
         await Frames(1);
     }
@@ -255,8 +262,17 @@ public partial class LookPresetTest
         return "";
     }
 
+    /// <summary>
+    /// "-- --landscape=DIR" (the runners pass the shared fixture cache's garage, tools/landscape-fixture.ps1), else a garage this
+    /// worktree exported under its own .cache/landscape-fixture before the cache was shared.
+    /// </summary>
     private static string? FindLandscapeFixture()
     {
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--landscape=", StringComparison.Ordinal)) is { } given)
+        {
+            var path = given["--landscape=".Length..].Replace('\\', '/');
+            return System.IO.File.Exists(System.IO.Path.Combine(path, "room.json")) ? path : null;
+        }
         var cache = System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectSettings.GlobalizePath("res://"), "../.cache/landscape-fixture"));
         if (!System.IO.Directory.Exists(cache)) return null;
         return System.IO.Directory.GetDirectories(cache).Select(d => System.IO.Path.Combine(d, "landscape_garage_nominal"))

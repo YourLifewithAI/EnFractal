@@ -54,6 +54,9 @@ public partial class CommandHost
         var (actor, body) = SandboxActor(args, principal);
         RequireChange(principal);
         var target = Str(args, "target")!;
+        // The player's own grab of a Fractal (the companion's is refused before, NamesAFractal): picked up, never carried.
+        if (target.StartsWith("fractal:", StringComparison.Ordinal) && Fractals.Any(f => f.Id == target))
+            throw new Refusal("invalid_args", "A Fractal is picked up, not carried: use item.pickup.", "$.args.target");
         var item = CheckGrab(actor, body, target);
         if (preview) return Previewed("entity.grab", principal, actionId, target);
         // Grabbing what this avatar already holds changes nothing and answers as a grab.
@@ -206,9 +209,9 @@ public partial class CommandHost
     /// </summary>
     private void RequireChange(string principal)
     {
-        if (!Authority.Call("is_ready").AsBool())
+        if (!Authority.Call(KernelNames.IsReady).AsBool())
             throw new Refusal("not_ready", "The room's saved state is not loaded, so nothing in it can be moved.", retryable: true);
-        if (!Authority.Call("may_change", principal).AsBool())
+        if (!Authority.Call(KernelNames.MayChange, principal).AsBool())
             throw new Refusal("permission_denied", "A visitor cannot move things.");
     }
 
@@ -261,6 +264,8 @@ public partial class CommandHost
     {
         var position = KernelJson.ReadVector(placement.GetProperty("position_m"));
         if (!Room.Bounds.Grow(0.001f).HasPoint(position)) throw new Refusal("out_of_bounds", "That position is outside the room.", "$.args.placement.position_m");
+        // Far from the bodies the land's walkable ground is built first (S12b, TerrainCollision), so the thing settles on it.
+        TerrainCollision.EnsureAround(this, position, TerrainCollision.FarActionM);
         var rotation = thing.Rotation;
         if (placement.TryGetProperty("rotation", out var turn))
         {
@@ -370,7 +375,7 @@ public partial class CommandHost
             var held = _held[actor];
             // A holder that left the room, or whose principal may no longer change it (demoted to visitor, a save that
             // stopped being available), lets go: the thing goes back to where it was last put down.
-            if (BodyOf(actor) is not { } body || !body.IsInsideTree() || !Authority.Call("may_change", actor == PlayerAvatar ? PlayerPrincipal : CompanionPrincipal).AsBool())
+            if (BodyOf(actor) is not { } body || !body.IsInsideTree() || !Authority.Call(KernelNames.MayChange, actor == PlayerAvatar ? PlayerPrincipal : CompanionPrincipal).AsBool())
             {
                 LetGo(actor);
                 ApplyObjectPoses(ObjectPoses());
@@ -383,7 +388,7 @@ public partial class CommandHost
     // ---- poses and the scene ----
 
     /// <summary>The authority's object poses (objects play has moved).</summary>
-    private Godot.Collections.Dictionary ObjectPoses() => Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary() is { } snapshot && snapshot.ContainsKey("object_poses")
+    private Godot.Collections.Dictionary ObjectPoses() => Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument).AsGodotDictionary() is { } snapshot && snapshot.ContainsKey("object_poses")
         ? snapshot["object_poses"].AsGodotDictionary() : new Godot.Collections.Dictionary();
 
     /// <summary>Where an object is now: carried, where play last put it, or where the room manifest puts it.</summary>
@@ -398,6 +403,14 @@ public partial class CommandHost
         var rotation = pose["rotation"].AsGodotArray();
         return (new Vector3((float)position[0].AsDouble(), (float)position[1].AsDouble(), (float)position[2].AsDouble()),
             new Quaternion((float)rotation[0].AsDouble(), (float)rotation[1].AsDouble(), (float)rotation[2].AsDouble(), (float)rotation[3].AsDouble()).Normalized());
+    }
+
+    /// <summary>PoseOf, from saved poses already read into C# (ReadEntitySnapshot).</summary>
+    private (Vector3 Position, Quaternion Rotation) PoseOf(ObjectInstance item, Dictionary<string, (Vector3 Position, Quaternion Rotation)> poses)
+    {
+        foreach (var (actor, held) in _held)
+            if (held.Target == item.Id && BodyOf(actor) != null) return Carried(actor, held);
+        return poses.TryGetValue(item.Id, out var pose) ? pose : (item.PositionM, item.Rotation);
     }
 
     private Thing ThingOf(ObjectInstance item, Vector3 position, Quaternion rotation) =>
@@ -453,7 +466,7 @@ public partial class CommandHost
         if (_objectNodes == null || _objectNodes.Values.Any(n => !IsInstanceValid(n)))
         {
             _objectNodes = new Dictionary<string, Node3D>(StringComparer.Ordinal);
-            if (GetParent()?.GetNodeOrNull("Room") is { } built) IndexObjects(built);
+            if (GetParent()?.GetNodeOrNull(BuiltPath) is { } built) IndexObjects(built);
         }
         return _objectNodes.GetValueOrDefault(id);
     }
@@ -466,6 +479,37 @@ public partial class CommandHost
     }
 
     // ---- the player's hand keys (RoomHud: F and V) ----
+
+    /// <summary>The focus: the thing the next hand key would act on (empty Id for none), its bounds, and the tag's words.</summary>
+    public readonly record struct HandsFocus(string Id, Aabb Box, string Tag);
+
+    /// <summary>
+    /// What F would act on now, and what the keys would do there (RUN-2-OPEN-SEA.md, "Things to touch"): carrying, the thing
+    /// with a walkable top F would set it on (none: F sets it down in front, and nothing is lit); else the thing F would
+    /// pick up, tagged with the keys that work on it, or the honest reason. The same choices PlayerHands and PlayerPush make.
+    /// </summary>
+    public HandsFocus PlayerFocus()
+    {
+        if (Player == null || !IsInstanceValid(Player)) return default;
+        // Only what is within reach can be the focus (both choices below keep only what PlayerReaches): the rest is never built.
+        var entities = ObjectEntitiesNear(Player);
+        if (_held.TryGetValue(PlayerAvatar, out var held))
+        {
+            var support = SandboxControls.SupportAhead(Player, entities, held.Target, PlayerReaches);
+            return support == null ? default : new HandsFocus(support["id"]!.GetValue<string>(), BoundsOf(support),
+                string.Format(SandboxControls.FocusWords.SetOn, HeldName(PlayerAvatar), support["display_name"]!.GetValue<string>()));
+        }
+        var target = SandboxControls.ThingAhead(Player, entities, SandboxRules.CarryLimitKg(PlayerAvatar), MassOf, PlayerReaches);
+        if (target == null) return default;
+        var id = target["id"]!.GetValue<string>();
+        var mass = MassOf(id);
+        var tag = mass <= SandboxRules.CarryLimitKg(PlayerAvatar) ? SandboxControls.FocusWords.PickUpOrPush
+            : mass <= SandboxRules.PushLimitKg(PlayerAvatar) ? SandboxControls.FocusWords.PushOnly : SandboxControls.FocusWords.TooHeavy;
+        return new HandsFocus(id, BoundsOf(target), tag);
+    }
+
+    /// <summary>The built node of a room object (for the focus highlight), or null.</summary>
+    public Node3D? ObjectNodeOf(string id) => ObjectNode(id);
 
     /// <summary>F: pick up what the player faces within reach, or put down what it holds: on the thing it faces if that has a walkable top, else in front of it.</summary>
     public HandsOutcome PlayerHands()
@@ -491,7 +535,7 @@ public partial class CommandHost
         var target = SandboxControls.ThingAhead(Player, entities, SandboxRules.CarryLimitKg(PlayerAvatar), MassOf, PlayerReaches);
         if (target == null) return new(false, "Nothing to pick up within reach. Walk up to something and face it.");
         var grabbed = PlayerSandbox("entity.grab", new JsonObject { ["target"] = target["id"]!.GetValue<string>() });
-        return Outcome(grabbed, $"Holding {HeldName(PlayerAvatar)}. F sets it down in front of you, or on top of what you face.");
+        return Outcome(grabbed, $"Holding {HeldName(PlayerAvatar)}. {PlayerControls.Label(Act.Hands)} sets it down in front of you, or on top of what you face.");
     }
 
     /// <summary>V: push what the player faces within reach, HandPushM along the player's facing.</summary>

@@ -1,5 +1,7 @@
 # Persistence rules carried forward from the save/travel service
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 The PostgreSQL save/travel service was removed in the room-scale cleanup (restorable from the `geography-era-final` tag). Its storage engine does not fit a single-player room game, but the rules it enforced do. File-based room saves must honor them from the start so that a later multiplayer service can adopt the same semantics instead of retrofitting them.
 
 ## Rules
@@ -13,13 +15,18 @@ The PostgreSQL save/travel service was removed in the room-scale cleanup (restor
 - **Movement and effect state are never persisted.** Saves hold entities, creations, locks, identities, pins and receipts; a loaded room restores a checked spawn point and resets consent for active effects.
 - **The trusted save path is not the AI's path.** The companion adapter never receives save-file access or raw envelopes; all its changes go through the same command path as manual edits.
 
-## Shape of a room save (proposal for R0)
+## Shape of a room save
+
+**Today.** The proposal that stood here for R0 (`user://rooms/<room_id>/state.json`) was not built as drawn (`user://rooms/` holds exported rooms, not saves). The saves are:
 
 ```text
-user://rooms/<room_id>/
-  state.json         schema, version, room manifest pin, store revision, session, entities, locks, receipts
-  state.json.tmp     atomic write staging
-  checkpoints/       dated snapshots referenced by transfers and undo
+user://saves/rooms/<room_id>/<manifest prefix>/inventions.json
+                     the room save: schema enfractal.creation-world, version 6, written by the command host
+                     (<manifest prefix> is the first 16 hex characters of the room manifest's hash)
+user://single_player/progression/player_modes_v1.json   the vitals, one record per mode (version 1)
+user://single_player/progression/glow_trial_v1.json     the Glow record, kept once per mode today (file version 2)
 ```
+
+**Design** ([docs/game/MECHANICS.md](../game/MECHANICS.md) sections 2 and 10; packets M0, M1 and M3 of [RUN-2-MECHANICS.md](../runs/RUN-2-MECHANICS.md)): the island's save moves under the team and the mode, beside a team file, the vitals store and one expertise store per team, so two profiles on one island, or one profile in two modes, never share a file. The room save goes from version 6 to 7, the Glow file from 2 to 3 and the vitals store from 1 to 2. The exact layout was fixed in M0's contract round ([contracts/README.md](../../contracts/README.md), "Teams and the save layout"; the documents in `contracts/team.schema.json`) and is built in M3 as a new `game/scripts/native/Saves/**` (that directory does not exist yet). The move is the one step that can lose a save, so it writes the new path, verifies it, then removes the old file, and the old files stay until the next launch. The rules above (atomic writes, fencing, receipts) carry over unchanged.
 
 Size caps and quota numbers are set in R0 from measured room content, not copied from the old service.

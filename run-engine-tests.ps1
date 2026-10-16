@@ -31,7 +31,6 @@ $tests = @(
     'creation_authority_smoke.gd',
     'creation_visuals_smoke.gd',
     'invention_runtime_smoke.gd',
-    'invention_editor_smoke.gd',
     'durable_creation_smoke.gd',
     'kernel_canonical_json_smoke.gd'
 )
@@ -57,7 +56,7 @@ if ($probe.Stderr -or $probe.Stdout -notmatch 'Native release probe passed:') {
 Write-Output ($probe.Stdout.Trim().Split("`n") | Select-Object -Last 1)
 
 # C# kernel: canonical JSON golden fixture (C# and GDScript), the enfractal.command host, the play HUD and the sandbox verbs.
-foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command_host.tscn', 'native_kernel_play_hud.tscn', 'native_kernel_sandbox.tscn', 'native_kernel_journal.tscn', 'native_kernel_rebuild.tscn')) {
+foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command_host.tscn', 'native_kernel_play_hud.tscn', 'native_kernel_sandbox.tscn', 'native_kernel_journal.tscn', 'native_kernel_rebuild.tscn', 'native_kernel_nature.tscn', 'native_kernel_bubble.tscn', 'native_playtest.tscn')) {
     $kernel = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $enginePath `
         -Arguments @('--headless', '--path', $projectPath, '--fixed-fps', '60', "res://tests/$scene") -TimeoutSeconds 120
     if ($kernel.Stderr -or $kernel.Stdout -notmatch 'NATIVE_KERNEL_[A-Z_]+: \d+/\d+ checks passed') {
@@ -77,3 +76,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "Companion tests failed with exit code $LASTEXITCODE."
 }
 Write-Output ("companion: " + (($companionOutput | Select-String -Pattern '^Ran \d+ tests' | Select-Object -Last 1).Line))
+
+# The playtest reader (R2): report.py against its fixture and the contract's example play, in a throwaway environment pinned by
+# tools/playtest/requirements.txt (Pillow for the contact sheet; the tests skip the sheet without it).
+$playtestOutput = & $uv.Source run --no-project --quiet --with-requirements (Join-Path $PSScriptRoot 'tools/playtest/requirements.txt') `
+    python -m unittest discover -s (Join-Path $PSScriptRoot 'tools/playtest/tests') 2>&1 | ForEach-Object { "$_" }
+if ($LASTEXITCODE -ne 0) {
+    Write-Output $playtestOutput
+    throw "Playtest reader tests failed with exit code $LASTEXITCODE."
+}
+Write-Output ("playtest reader: " + (($playtestOutput | Select-String -Pattern '^Ran \d+ tests' | Select-Object -Last 1).Line))

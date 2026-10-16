@@ -70,13 +70,15 @@ Real gravity at 10 cm reads as a hopping insect: a jump is over in a quarter of 
 
 ## Cameras
 
-`game/scripts/native/RoomHud.cs` owns the three views. F1 and F2 are unchanged.
+`game/scripts/native/RoomHud.cs` owns the views. **Two views since 13 October** (the founder: the game commits to first person and third person): F1 and F2, where F2 now zooms (below). F3 (diorama) and F4 (isometric) are shelved: their keys, and `[` and `]`, are unbound and free, and the rows below describe code that only the look harness reaches (`hud_view` 2 and 3 in `tools/look`).
+
+**F2 zooms and orbits (13 October).** The wheel moves the over-the-shoulder camera from today's arm (3.2 body heights, 32 cm for the 10 cm body: exactly the view it always was) out to **8 m** (80 body heights, where the body is about 1 % of the frame's height), a click being 15 % in or 18 % out, about 20 clicks in all. Walls, furniture, the ceiling and the ground hold the lens in as they always held the arm. Up to **0.8 m** (eight body heights, six clicks) it is still the shoulder camera: a drag turns the body, W A S D are the body's, and the arm's pivot slides from the shoulder to the player's middle. Past 0.8 m the camera is the orbit rig's (the F3 rig, with F2's 68° lens): a left drag orbits it round the player (0.0025 rad a pixel, tilting between 2° and 63° down), W A S D move relative to the camera's heading and the body turns to face its motion, and the focus stays the player's body. **Under water, orbiting, W swims level across the camera's heading** (Space rises, Ctrl sinks); in F1, and in F2 up to 0.8 m, W swims the way you look. Zooming back in past 0.8 m hands the camera's heading and pitch to the body, so the view does not swing.
 
 | Key | View | Framing | Mouse and wheel |
 |---|---|---|---|
 | F1 | Eye | 8.7 cm up, 72° lens | Mouse turns the body and looks up and down |
 | F2 | Over the shoulder | 8 cm up, 32 cm behind on a spring arm, 68° lens | As F1; the arm pitches with the look |
-| F3 | **Diorama** (was a frozen reference view) | A high-angle orbit centred on the player's middle: 50° down at 0.9 m by default, 38° lens | Mouse orbits round the player and tilts between **20° and 80°** down; the wheel zooms between **0.30 and 2.4 m** (about 12 % a notch); W A S D move relative to the view and the body turns to face its motion |
+| F3 | **Diorama** (was a frozen reference view) | A high-angle orbit centred on the player's middle: 50° down at 0.9 m by default, 38° lens | A left drag orbits round the player and tilts between **20° and 80°** down; the wheel zooms between **0.30 and 2.4 m** (about 12 % a notch); W A S D move relative to the view and the body turns to face its motion |
 
 The diorama rig is not attached to the body, so it orbits without turning it, and its pivot eases after the body (a jump or a step does not jolt the view). It is a `SpringArm3D` with a 2 cm sphere that collides with world geometry only (layer 1), so walls, furniture and the ceiling hold the lens on the player's side instead of letting it pass through; the test checks it under a 12 cm deck. The narrow lens and the look's depth of field are what make it read as a miniature: `LookDirector` focuses whichever camera is current on the player (`FocusTarget`), and its tilt-shift narrows the in-focus band and strengthens the blur as the camera looks down, so the high angle gets the strongest miniature effect. The orbit's yaw, pitch and distance persist across F3 visits within a session; entering F3 starts behind the player.
 
@@ -206,7 +208,7 @@ Since 7 October, key **G** sends `world.set_physics` (contract `7e2c779`) throug
 
 ## Founder playtest (ten minutes)
 
-Run `pwsh -NoProfile -File run-room.ps1`. Click the window to capture the mouse.
+Run `pwsh -NoProfile -File run-room.ps1`. The cursor is free (since the Glow playtest, 9 October): hold the left button and drag to look around.
 
 | Key | Does |
 |---|---|
@@ -215,9 +217,9 @@ Run `pwsh -NoProfile -File run-room.ps1`. Click the window to capture the mouse.
 | Space | Jump (6.5 cm) |
 | R | Recover to the last safe footing |
 | **G** | Cycle gravity: tuned (3.5) → real (9.8) → floaty (0.6, slow falls, more air steering) → tuned; the console prints which |
-| F1 / F2 / F3 | Eye camera / over-the-shoulder / **diorama**: in F3 the mouse orbits, the wheel zooms, and W A S D move relative to the view |
+| F1 / F2 | Eye camera / over-the-shoulder (13 October: the wheel zooms F2 out to 8 m; past 0.8 m a left drag orbits and W A S D move relative to the view). F3, the diorama, is shelved |
 | 1 2 3 4 5 | Companion: follow, stay, come, stop, point ahead |
-| F4 | Isometric view; **Q** and **E** turn it a quarter turn (the invention workshop that also bound them is gone) |
+| F4 | (Shelved, 13 October.) The isometric view; **Q** and **E** turned it a quarter turn (the invention workshop that also bound them is gone), then `[` and `]` |
 | L | Lamps on or off |
 | **T** | Step the time of day: dawn, morning, noon, late afternoon, sunset, dusk, night, then back to the real clock |
 | **Shift+T** | Step the season: March equinox, June solstice, September equinox, December solstice, then back to the real calendar |
@@ -287,7 +289,7 @@ Depth of field needs no change without TAA (its jitter shows no noise in the cap
 
 ## Next playtest checklist
 
-Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mouse.
+Run `pwsh -NoProfile -File run-room.ps1`; hold the left button and drag to look around.
 
 1. **Shift** while walking with **W**: does the run now feel like a real change of pace, and does it start and stop crisply?
 2. **G** twice to reach floaty (the console prints `room_floaty gravity=0.6`). **Space** next to the book: does the jump hang about a second? Hold a direction in the air: can you steer it? Walk off the box edge or the book: is the slow drift fun or too slow? **G** again returns to tuned.
@@ -299,7 +301,7 @@ Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mou
 
 ## Carry playtest (Run 2, P3)
 
-Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mouse. The room remembers where things are put (`%APPDATA%\Godot\app_userdata\EnFractal\saves\rooms\test_room\`); delete that folder to start over.
+Run `pwsh -NoProfile -File run-room.ps1`; hold the left button and drag to look around. The room remembers where things are put (`%APPDATA%\Godot\app_userdata\EnFractal\saves\rooms\test_room\`); delete that folder to start over.
 
 | Key | Does |
 |---|---|

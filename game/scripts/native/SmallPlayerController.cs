@@ -26,7 +26,7 @@ public partial class SmallPlayerController : CharacterBody3D
     [Export] public float GroundAccelerationMps2 { get; set; } = 6.0f;
     /// <summary>Scaled by the world profile's air_control (more in floaty gravity).</summary>
     [Export] public float AirAccelerationMps2 { get; set; } = 2.0f;
-    /// <summary>How fast the body turns to face its motion when movement follows a free camera (F3).</summary>
+    /// <summary>How fast the body turns to face its motion when movement follows a free camera (F2 zoomed out to orbit).</summary>
     [Export] public float TurnRateRadPerS { get; set; } = 10.0f;
     /// <summary>Jump apex above the take-off floor in the room's default gravity and heavier. Clears the 4 cm book with room to spare.</summary>
     [Export] public float JumpApexM { get; set; } = 0.065f;
@@ -74,8 +74,8 @@ public partial class SmallPlayerController : CharacterBody3D
     /// (half the gravity, about twice the height), up to MaxJumpApexM.
     /// </summary>
     public float JumpSpeedMps => GravityMps2 >= ReferenceGravityMps2
-        ? SpeedForApex(GravityMps2, JumpApexM)
-        : Mathf.Min(SpeedForApex(ReferenceGravityMps2, JumpApexM), SpeedForApex(GravityMps2, Mathf.Max(JumpApexM, MaxJumpApexM)));
+        ? SpeedForApex(GravityMps2, HopApexM)
+        : Mathf.Min(SpeedForApex(ReferenceGravityMps2, HopApexM), SpeedForApex(GravityMps2, Mathf.Max(HopApexM, MaxHopApexM)));
 
     /// <summary>The apex the jump reaches under the current gravity, integrated at the physics tick.</summary>
     public float JumpApexNowM
@@ -108,8 +108,10 @@ public partial class SmallPlayerController : CharacterBody3D
 
     public bool InputEnabled { get; private set; } = true;
     /// <summary>
-    /// Set while a free camera (the F3 diorama view) owns the mouse: movement input is relative to this
-    /// heading instead of the body's, the body turns to face where it moves, and mouse look is off.
+    /// Set while a free camera owns the mouse (F2 zoomed out past the HUD's orbit threshold; the shelved F3 and F4 views the look
+    /// harness still sets): movement input is relative to this heading instead of the body's, the body turns to face where it
+    /// moves, and mouse look is off. Under water W then swims level across this heading (it swims the way you look only while the
+    /// camera is the body's own: F1 and F2 at the shoulder).
     /// </summary>
     public float? MovementFrameYaw { get; private set; }
     public Camera3D EyeCamera { get; private set; } = null!;
@@ -135,6 +137,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public int BoundsStops { get; private set; }
     public Vector3 CreationVelocity => _creationVelocity;
     public bool HasCreationGuard { get; private set; }
+    /// <summary>Ticks on which a creation guard took back the creation's share of a move.</summary>
+    public int CreationGuardStops { get; private set; }
 
     // ---- Climbing and swimming (founder's playtest, 8 October: "climbing cliffs and climbing trees", "it should feel
     // like you're swimming when you're in deep water"). The numbers are starting points for the founder to tune by feel.
@@ -207,12 +211,17 @@ public partial class SmallPlayerController : CharacterBody3D
     [Export] public float FloatRiseMps { get; set; } = 0.30f;
     [Export] public float FloatSinkMps { get; set; } = 0.25f;
     public const float HoverSpringPerS = 8.0f;
-    /// <summary>How far under a floating body its ground or water is looked for; with none that near it holds its height, never lost.</summary>
+    /// <summary>
+    /// How far under a floating body its ground or water is looked for at least. Within playable bounds it is looked for down to
+    /// their floor (HoverSearchM): the garage island magnified ten times (13 October) has mesas 10 to 25 m over the land, and 3 m
+    /// found nothing past their edges, so the Gubble held its height high over the player and said it could not get there. Over
+    /// nothing even so, it settles toward FloatAltitudeFloorY (the height of where it is going), or else holds its height.
+    /// </summary>
     public const float HoverSupportSearchM = 3.0f;
     /// <summary>
     /// Set each tick by whoever steers a floating body. RiseOverObstacles: something in its way that it cannot duck under is
     /// risen over (up the face, never through it). FloatAltitudeFloorY: it floats no lower than this (up to a player on a cliff
-    /// top or in a tree); null for none.
+    /// top or in a tree), and over nothing at all it settles to this; null for none.
     /// </summary>
     public bool RiseOverObstacles { get; set; }
     public float? FloatAltitudeFloorY { get; set; }
@@ -226,29 +235,112 @@ public partial class SmallPlayerController : CharacterBody3D
     public int RiseTicks { get; private set; }
     public int DuckTicks { get; private set; }
 
-    // ---- The sea's edge (an island in an endless sea; the founder, 9 October: "My daughter hates the invisible wall"). No
-    // punishment at the edge: past the reef a gentle current turns a swimmer back toward the island; one who pushes on past
-    // the playable water washes up on the nearest beach, after a fade, standing on the sand and facing inland.
+    // ---- The open sea and the way home (the founder, 9 October: "the kids want to be able to swim forever"). The sea has no
+    // edge: no current, no wash ashore, no wall a child meets. Past the island the water answers from the room's sea where
+    // its meshes stop (RoomSea.OpenWater). Home is one key away from anywhere: B fades to the jetty (the founder: every room
+    // has one where its door was, and it may become a portal to other islands), else the nearest beach, else the spawn.
 
-    /// <summary>The room's sea (Room/RoomSea), set by the command host; null keeps the old behaviour (the bounds are the edge).</summary>
+    /// <summary>The room's sea (Room/RoomSea), set by the command host; null for a room without one (the bounds are its edge).</summary>
     public RoomSea? Sea { get; private set; }
-    /// <summary>The current at the edge of the playable water: 0.6 of the swim, so a swimmer still makes headway against it.</summary>
-    public const float SeaCurrentMaxMps = 0.115f;
-    /// <summary>The fade to the beach, then the fade back in.</summary>
-    public const float WashFadeS = 0.6f;
-    /// <summary>The current applied to the body on the last tick (metres a second, over the ground).</summary>
-    public Vector3 SeaCurrent { get; private set; }
-    public int WashAshores { get; private set; }
-    /// <summary>The beach the body last washed up on ("" before any).</summary>
-    public string LastBeachId { get; private set; } = "";
-    /// <summary>True from leaving the playable water until the fade back in ends: the body takes no input meanwhile.</summary>
-    public bool WashingAshore => _washTime >= 0;
-    /// <summary>How dark the wash-ashore fade is now: 0 to 1 and back (the HUD draws it).</summary>
-    public float WashAshoreFade => _washTime < 0 ? 0 : _washTime < WashFadeS ? _washTime / WashFadeS : Mathf.Clamp(2 - _washTime / WashFadeS, 0, 1);
-    /// <summary>Raised when the body has been put on a beach (the Gubble comes too).</summary>
-    public event System.Action<SmallPlayerController>? WashedAshore;
+    /// <summary>
+    /// The last safety net, this far (planar) from the island's middle: a swimmer who gets there is taken home as by B. Float
+    /// precision decides it (SmallAvatarPhysicsTest.MeasureFarOut). The body's own motion stays even out to 10 km (the steps
+    /// round the same way every tick, though at 10 km the 1 mm float spacing slows the fast swim by 8 %). What shakes is what
+    /// the eye sees: positions near the camera move by whole float steps, 0.06 mm at 1 km (about a pixel on the Gubble 16 cm
+    /// from the eye), 0.12 mm at 2 km, 1 mm at 10 km. At 1 km nothing shakes by more than a pixel, and it is 52 minutes of
+    /// fast swimming (0.32 m/s) without a break, an hour and a half at the plain swim (0.19 m/s).
+    /// </summary>
+    public const float DefaultFarNetM = 1000.0f;
+    public float FarNetM { get; set; } = DefaultFarNetM;
+
+    // ---- The sea wraps round to home (the founder, 9 October, late night): swim far enough out and you come back to your own
+    // island from the other side, through the mist. The horizon is only sea and sky; other islands come later by the jetty.
+
+    /// <summary>How far past the look's seam (OpenSea.SeamFor: from there out the mist wholly hides the island) the wrap is. The founder tunes it.</summary>
+    public const float WrapPastSeamM = 1.5f;
+    /// <summary>
+    /// The wrap's distance from the island's centre (RoomSea.OpenSeaCentreM): a swimmer going out past it comes in from the opposite
+    /// side at the same distance, heading the same way, so it swims back toward the island. The seam plus WrapPastSeamM, set with the
+    /// sea and the room's bounds (about 19 m on the garage, a minute and a few seconds' swim from the reef); infinite without a sea.
+    /// A test seam: the far-net suites set it infinite.
+    /// </summary>
+    public float WrapM { get; set; } = float.PositiveInfinity;
+    /// <summary>Times this body has wrapped round.</summary>
+    public int Wraps { get; private set; }
+    /// <summary>Raised when the body wraps round, with the move it made: what travels with it (the Gubble, the cameras) moves the same.</summary>
+    public event System.Action<SmallPlayerController, Vector3>? Wrapped;
+    /// <summary>The fade out on the way home, then the fade back in.</summary>
+    public const float HomeFadeS = 0.6f;
+    /// <summary>Trips home so far (B, the far net); the shore returns of an empty bar are ShoreReturns.</summary>
+    public int HomeTrips { get; private set; }
+    /// <summary>Where the body last went home to: "jetty", a beach's id, or "spawn" ("" before any).</summary>
+    public string LastHome { get; private set; } = "";
+    /// <summary>True from B (or an empty bar in deep water: ShoreReturns) until the fade back in ends: the body takes no input meanwhile.</summary>
+    public bool GoingHome => _homeTime >= 0;
+    /// <summary>How dark the fade home is now: 0 to 1 and back (the HUD draws it). The same fade takes a swimmer who ran out of stamina back to the shore.</summary>
+    public float HomeFade => _homeTime < 0 ? 0 : _homeTime < HomeFadeS ? _homeTime / HomeFadeS : Mathf.Clamp(2 - _homeTime / HomeFadeS, 0, 1);
+    /// <summary>Raised when the body has been put down at home, or back on the shore after an empty bar in deep water (LastHome says which: "shore"); the Gubble comes too.</summary>
+    public event System.Action<SmallPlayerController>? WentHome;
+    /// <summary>Where B goes, for the HUD: the jetty, else the beach, else the start.</summary>
+    public string HomeName => Sea?.JettyData != null ? "the jetty" : Sea != null && Sea.Beaches.Count > 0 ? "the beach" : "the start";
+    // ---- Diving (the founder's son, 9 October: "dive into the water and swim down under the surface"). Hold Ctrl to dive and
+    // Space to rise; under water W swims the way you look (F1 and F2). No breath limit and no harm (the island's rule: no
+    // punishment). Let go and the body drifts slowly up, so nobody gets stuck on the bottom. Nothing goes through the bed,
+    // the open-sea bed included, which has no collider. The founder tunes these by playing.
+
+    /// <summary>Under water, the swim's speed is this share of the swim at the surface (the plain swim 0.19 m/s, 0.32 with Shift).</summary>
+    [Export] public float DiveSpeedFactor { get; set; } = 1.0f;
+    /// <summary>How fast Ctrl takes a diver down, and Space up.</summary>
+    [Export] public float DiveSinkMps { get; set; } = 0.12f;
+    [Export] public float DiveRiseMps { get; set; } = 0.15f;
+    /// <summary>With no key held under water, the body drifts up this fast.</summary>
+    [Export] public float DriftUpMps { get; set; } = 0.03f;
+    /// <summary>A swimmer this far under its floating depth is diving; above it, the surface's own float takes over.</summary>
+    public const float DiveStartM = 0.01f;
+    /// <summary>True on a tick the body swam under the surface (Ctrl held, or still on its way back up from a dive).</summary>
+    public bool IsDiving { get; private set; }
+    /// <summary>Whether the eye is under the water's surface (a read for the look's view under water).</summary>
+    public bool EyeUnderWater => Water.Wet && GlobalPosition.Y + EyeHeightM < Water.SurfaceY;
+    /// <summary>Ticks spent diving, and dives begun.</summary>
+    public int DiveTicks { get; private set; }
+    public int DiveStarts { get; private set; }
+
+    /// <summary>Dive input from a caller other than the keyboard (Ctrl and Space); retained until replaced.</summary>
+    public void SetDiveInput(bool down, bool up)
+    {
+        _diveDown = down;
+        _diveUp = up;
+    }
+
+    /// <summary>Whether the body is out past the island's reef (the open sea).</summary>
+    public bool AtSea => Sea != null && Sea.PastReefM(new Vector2(GlobalPosition.X, GlobalPosition.Z)) > 0;
 
     public bool IsClimbing => _climbing;
+    /// <summary>Trusted host callbacks for mode consequences. Unbound fixture bodies retain Creative movement.</summary>
+    public System.Func<float, float, bool>? ClimbBudget { get; set; }
+    public System.Action<float, bool>? VitalsTick { get; set; }
+    /// <summary>Trusted body observation: downward speed in m/s just before landing, and whether deep water caught it.</summary>
+    public System.Action<float, bool>? FallObserved { get; set; }
+    public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
+    /// <summary>
+    /// The ledger seam (the mechanics round, game/scripts/native/Seams/StaminaLedger.cs): the kernel binds it (M1), and the body
+    /// reports its sprint, deep-water and dive seconds to it once a tick and obeys its gate (M5; SmallPlayerController.Exertion.cs).
+    /// Unbound, as today: nothing gated.
+    /// </summary>
+    public Seams.IStaminaLedger? StaminaLedger
+    {
+        get => _staminaLedger;
+        set
+        {
+            _staminaLedger = value;
+            if (value == null) _gate = Seams.StaminaGate.Free;
+        }
+    }
+    private Seams.IStaminaLedger? _staminaLedger;
+    private float _vitalsLandingSpeedMps;
+    /// <summary>The last on-foot tick's descent before the water caught it (m/s): a deep-water landing's speed.</summary>
+    private float _airDescentMps;
+    private Vector3? _vitalsClimbStart;
     public bool IsPullingOver => _climbing && _pullPhase > 0;
     public bool IsSwimming => _swimming;
     /// <summary>The face being climbed (outward, unit); meaningful while IsClimbing.</summary>
@@ -269,7 +361,102 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     public System.Func<bool>? HandsFull { get; set; }
 
+    // ---- The characters round (docs/runs/RUN-2-CHARACTERS.md, Wave 0): hooks for a drawn body. None of them moves the capsule.
+
+    /// <summary>The longest a tumble may hold control (a knockout's is about 2 s).</summary>
+    public const float MaxControlHoldS = 5.0f;
+    /// <summary>What draws the body now; null for the prototype figure.</summary>
+    public IBodyVisual? BodyVisual => _bodyVisual;
+    /// <summary>The state of the last physics tick (BodyState.Tick is 0 before the first).</summary>
+    public BodyState LastBodyState { get; private set; }
+    /// <summary>The drawn character the player chose (a token, its folder's id), or "" for the prototype figure.</summary>
+    public string CharacterId { get; private set; } = "";
+    /// <summary>Told when CharacterId changes; the composition root builds the new visual (RoomWorld).</summary>
+    public System.Action<string>? CharacterChanged { get; set; }
+    /// <summary>Control is held: movement, jumps, sprint and dives are ignored (a tumble). Looking round still works.</summary>
+    public bool ControlHeld => _controlHoldS > 0;
+    /// <summary>Seconds of control hold left.</summary>
+    public float ControlHoldS => _controlHoldS;
+    /// <summary>The movement asked for while control is held (zero otherwise): a tumble's early get-up reads it.</summary>
+    public Vector2 HeldInput { get; private set; }
+    /// <summary>
+    /// How long the command host waits after a fall knocks the player out before it recovers them at the spawn, so the knockout
+    /// tumble plays where they landed (0, the default: at once, as before the characters round). The tumble sets it.
+    /// </summary>
+    public float KnockoutRecoveryDelayS
+    {
+        get => _knockoutRecoveryDelayS;
+        set => _knockoutRecoveryDelayS = float.IsFinite(value) ? Mathf.Clamp(value, 0, MaxControlHoldS) : 0;
+    }
+
+    /// <summary>
+    /// Draw the body with a visual in place of the prototype figure, or with the prototype again (null). The prototype's parts
+    /// stay under the visual root, hidden, so the tests and the look still find them; the visual's root is added beside them and
+    /// marked for the eye views. The caller owns a visual it replaces and frees it. Before the body is ready it applies at _Ready.
+    /// </summary>
+    public void SetBodyVisual(IBodyVisual? visual)
+    {
+        if (ReferenceEquals(visual, _bodyVisual)) return;
+        if (_bodyVisual != null && GodotObject.IsInstanceValid(_bodyVisual.Root) && VisualRoot != null && _bodyVisual.Root.GetParent() == VisualRoot)
+            VisualRoot.RemoveChild(_bodyVisual.Root);
+        _bodyVisual = visual;
+        if (VisualRoot != null && _ready) ApplyBodyVisual();
+    }
+
+    /// <summary>
+    /// Choose the drawn character by its id (a lowercase token) or the prototype (""). Refuses anything else. Only records the
+    /// choice and tells CharacterChanged; the visual comes from the character library through the composition root.
+    /// </summary>
+    public bool SetCharacterId(string id)
+    {
+        if (id == null || (id.Length > 0 && !IsCharacterToken(id))) return false;
+        if (id == CharacterId) return true;
+        CharacterId = id;
+        CharacterChanged?.Invoke(id);
+        return true;
+    }
+
+    /// <summary>The room state's token: a lowercase letter, then up to 63 of a-z, 0-9, '_' and '-' (common.schema.json's token).</summary>
+    public static bool IsCharacterToken(string id)
+    {
+        if (string.IsNullOrEmpty(id) || id.Length > 64 || id[0] is < 'a' or > 'z') return false;
+        foreach (var c in id)
+            if (!(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-')) return false;
+        return true;
+    }
+
+    /// <summary>Hold control for a while (the longer of what is left and this, at most MaxControlHoldS): a tumble.</summary>
+    public void HoldControl(float seconds)
+    {
+        if (!float.IsFinite(seconds) || seconds <= 0) return;
+        _controlHoldS = Mathf.Max(_controlHoldS, Mathf.Min(seconds, MaxControlHoldS));
+    }
+
+    /// <summary>Give control back now (a tumble's get-up).</summary>
+    public void ReleaseControl()
+    {
+        _controlHoldS = 0;
+        HeldInput = Vector2.Zero;
+    }
+
+    private void ApplyBodyVisual()
+    {
+        foreach (var part in _prototypeParts)
+            if (GodotObject.IsInstanceValid(part)) part.Visible = _bodyVisual == null;
+        if (_bodyVisual == null || !GodotObject.IsInstanceValid(_bodyVisual.Root)) return;
+        var root = _bodyVisual.Root;
+        if (root.GetParent() is { } parent && parent != VisualRoot) parent.RemoveChild(root);
+        if (root.GetParent() == null) VisualRoot.AddChild(root);
+        EnFractal.Native.Look.EyeView.MarkBody(VisualRoot, OwnBodyLayer);
+    }
+
     protected virtual WorldScaleProfile Profile => WorldScaleProfile.SmallPlayer;
+    /// <summary>
+    /// The render layer of this body's drawn parts. The body's own eye camera leaves that layer out of its cull mask, so the
+    /// first-person view (F1) never shows the inside of the head, while every other camera, the Gubble's eye among them, still
+    /// draws the body: a per-camera choice (Look/EyeView.cs), never the body hidden for everyone.
+    /// </summary>
+    protected virtual uint OwnBodyLayer => EnFractal.Native.Look.EyeView.PlayerBodyLayer;
     protected Node3D VisualRoot = null!;
     protected StandardMaterial3D BodyMaterial = null!;
     protected bool HasSafePosition;
@@ -282,6 +469,24 @@ public partial class SmallPlayerController : CharacterBody3D
     private float _pitch;
     private Vector3 _spawnPoint;
     private bool _ready;
+    /// <summary>
+    /// This body alone, as a ray's or a shape's exclusions: made once (S12). A new Godot array for every query, and a new Variant for
+    /// every key read from its answer, were Godot values the .NET finalizer freed later, on its own thread, by the hundred a second.
+    /// Pass it to PhysicsRayQueryParameters3D.Create itself: left out there, Create makes an empty array of its own every call.
+    /// </summary>
+    protected Array<Rid> ExcludeSelf => _excludeSelf ??= new Array<Rid> { GetRid() };
+    private Array<Rid>? _excludeSelf;
+
+    /// <summary>A ray answer's keys, as Variants made once.</summary>
+    protected static readonly Variant HitPosition = "position", HitNormal = "normal";
+
+    /// <summary>The normal of a slide collision of the last move. Its KinematicCollision3D is disposed at once: the engine reuses it then.</summary>
+    protected Vector3 SlideNormal(int index)
+    {
+        using var collision = GetSlideCollision(index);
+        return collision.GetNormal();
+    }
+
     private readonly KinematicCollision3D _stepContact = new();
     private Vector3 _creationAcceleration;
     private Vector3 _creationVelocity;
@@ -304,8 +509,22 @@ public partial class SmallPlayerController : CharacterBody3D
     private float _tilt;
     private float _visualYaw;
     private float _hoverClock;
-    private float _washTime = -1;
-    private bool _washed;
+    private float _homeTime = -1;
+    private Vector3 _ownVelocity;
+    private Vector3 _creationPushed;
+    private float _swimSurfaceY = float.NaN;
+    private bool _openSeaWater;
+    private bool _diveDown;
+    private bool _diveUp;
+    private bool _wasDiving;
+    private bool _homeArrived;
+    private IBodyVisual? _bodyVisual;
+    private readonly System.Collections.Generic.List<Node3D> _prototypeParts = new();
+    private float _controlHoldS;
+    private float _knockoutRecoveryDelayS;
+    private ulong _bodyTick;
+    private double _distanceM;
+    private float _airTimeS;
 
     public override void _Ready()
     {
@@ -330,15 +549,20 @@ public partial class SmallPlayerController : CharacterBody3D
         EyeCamera = new Camera3D
         {
             Name = "EyeCamera", Position = Vector3.Up * (float)Profile.EyeHeightMeters,
-            Near = Mathf.Min(0.01f, BodyRadiusM * 0.25f), Far = 100.0f, Fov = 72.0f, Current = false
+            Near = Mathf.Min(0.01f, BodyRadiusM * 0.25f), Far = (GetParent() as RoomWorld)?.Look?.FarPlaneM ?? 100.0f, Fov = 72.0f, Current = false
         };
         AddChild(EyeCamera);
         BuildVisual();
+        foreach (var child in VisualRoot.GetChildren())
+            if (child is Node3D part) _prototypeParts.Add(part);
+        EnFractal.Native.Look.EyeView.MarkBody(VisualRoot, OwnBodyLayer);
+        EyeCamera.CullMask = EnFractal.Native.Look.EyeView.AllLayers & ~OwnBodyLayer;
         ReferenceGravityMps2 = (float)DefaultWorldPhysics()["gravity_mps2"].AsDouble();
         if (WorldPhysicsRevision < 0) ApplyWorldPhysics(DefaultWorldPhysics());
         _spawnPoint = GlobalPosition;
         LastSafePosition = _spawnPoint;
         _ready = true;
+        if (_bodyVisual != null) ApplyBodyVisual();
     }
 
     protected virtual void BuildVisual()
@@ -408,19 +632,57 @@ public partial class SmallPlayerController : CharacterBody3D
         var radius = (float)Profile.RadiusMeters;
         if (!bounds.Position.IsFinite() || !bounds.Size.IsFinite() || bounds.Size.X <= radius * 2 || bounds.Size.Z <= radius * 2 || bounds.Size.Y <= 0) return false;
         PlayableBounds = bounds;
+        PlaceWrap();
         return true;
     }
 
     /// <summary>Test seam for the body suites: no playable bounds again.</summary>
-    internal void ClearPlayableBounds() => PlayableBounds = null;
+    internal void ClearPlayableBounds()
+    {
+        PlayableBounds = null;
+        PlaceWrap();
+    }
 
     /// <summary>The trusted host's sea for this room (null for none).</summary>
-    public void SetSea(RoomSea? sea) => Sea = sea;
+    public void SetSea(RoomSea? sea)
+    {
+        Sea = sea;
+        PlaceWrap();
+    }
 
-    /// <summary>Whether feet here keep the whole capsule inside the playable bounds horizontally (always, without bounds).</summary>
+    /// <summary>The wrap from the sea and the bounds (OpenSea.SeamFor needs both): beyond the seam, or nowhere.</summary>
+    private void PlaceWrap() =>
+        WrapM = Sea != null && PlayableBounds is { } bounds ? EnFractal.Native.Look.OpenSea.SeamFor(Sea, bounds) + WrapPastSeamM : float.PositiveInfinity;
+
+    /// <summary>
+    /// The wrap, after the move: a swimmer (not a floating body: the Gubble travels with the player instead) out past WrapM and still
+    /// going out is put at the point opposite through the island's centre, at the same distance and height, keeping its heading and
+    /// speed, so it is now coming in. Going out is what decides it, so a swimmer just wrapped never wraps straight back.
+    /// </summary>
+    private void WrapRound()
+    {
+        if (Sea == null || Floats || GoingHome || !float.IsFinite(WrapM)) return;
+        var flat = new Vector2(GlobalPosition.X, GlobalPosition.Z) - Sea.OpenSeaCentreM;
+        var reach = flat.Length();
+        if (reach <= WrapM) return;
+        if (Velocity.X * flat.X + Velocity.Z * flat.Y <= 0) return;
+        var move = new Vector3(-2f * flat.X, 0, -2f * flat.Y);
+        GlobalPosition += move;
+        ResetPhysicsInterpolation();
+        Wraps++;
+        Wrapped?.Invoke(this, move);
+    }
+
+    /// <summary>
+    /// Whether the bounds hold the body at their sides. Not round an island: its land never reaches them and the sea has no
+    /// edge (the far net, FarNetM, is the last safety net out there). The top and the bottom hold either way.
+    /// </summary>
+    protected bool BoundsHoldSides => PlayableBounds != null && Sea == null;
+
+    /// <summary>Whether feet here keep the whole capsule inside the playable bounds horizontally (always, without bounds or round an island).</summary>
     public bool InsidePlayableBounds(Vector3 feetPosition)
     {
-        if (PlayableBounds is not { } bounds) return true;
+        if (PlayableBounds is not { } bounds || !BoundsHoldSides) return true;
         var radius = BodyRadiusM - 0.0005f;
         return feetPosition.X >= bounds.Position.X + radius && feetPosition.X <= bounds.End.X - radius &&
                feetPosition.Z >= bounds.Position.Z + radius && feetPosition.Z <= bounds.End.Z - radius;
@@ -429,7 +691,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>The horizontal velocity cut so this tick's motion ends inside the playable bounds: at the bound, the outward part stops.</summary>
     private Vector3 WithinBounds(Vector3 horizontal, float dt)
     {
-        if (PlayableBounds is not { } bounds || dt <= 0) return horizontal;
+        if (PlayableBounds is not { } bounds || !BoundsHoldSides || dt <= 0) return horizontal;
         var here = GlobalPosition;
         float Axis(float velocity, float position, float low, float high)
         {
@@ -454,13 +716,28 @@ public partial class SmallPlayerController : CharacterBody3D
         if (PlayableBounds is not { } bounds) return;
         var here = GlobalPosition;
         var top = bounds.End.Y - BodyHeightM;
+        var sides = BoundsHoldSides;
         var held = new Vector3(
-            Mathf.Clamp(here.X, bounds.Position.X + BodyRadiusM, bounds.End.X - BodyRadiusM), bounds.Size.Y > BodyHeightM ? Mathf.Min(here.Y, top) : here.Y,
-            Mathf.Clamp(here.Z, bounds.Position.Z + BodyRadiusM, bounds.End.Z - BodyRadiusM));
+            sides ? Mathf.Clamp(here.X, bounds.Position.X + BodyRadiusM, bounds.End.X - BodyRadiusM) : here.X, bounds.Size.Y > BodyHeightM ? Mathf.Min(here.Y, top) : here.Y,
+            sides ? Mathf.Clamp(here.Z, bounds.Position.Z + BodyRadiusM, bounds.End.Z - BodyRadiusM) : here.Z);
         if (held == here) return;
         GlobalPosition = held;
         Velocity = new Vector3(held.X != here.X ? 0 : Velocity.X, held.Y != here.Y ? Mathf.Min(0, Velocity.Y) : Velocity.Y, held.Z != here.Z ? 0 : Velocity.Z);
         _creationVelocity = new Vector3(held.X != here.X ? 0 : _creationVelocity.X, _creationVelocity.Y, held.Z != here.Z ? 0 : _creationVelocity.Z);
+        BoundsStops++;
+    }
+
+    /// <summary>A floating body out past the far net is put back on it, and its outward speed stops.</summary>
+    private void HoldInsideFarNet()
+    {
+        var flat = new Vector2(GlobalPosition.X, GlobalPosition.Z) - Sea!.MiddleM;
+        var reach = flat.Length();
+        if (reach <= FarNetM || reach <= 0) return;
+        var outward = flat / reach;
+        var held = Sea.MiddleM + outward * FarNetM;
+        GlobalPosition = new Vector3(held.X, GlobalPosition.Y, held.Y);
+        var along = Velocity.X * outward.X + Velocity.Z * outward.Y;
+        if (along > 0) Velocity -= new Vector3(outward.X, 0, outward.Y) * along;
         BoundsStops++;
     }
 
@@ -509,8 +786,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public Dictionary WorldPhysicsProfile => _worldPhysics.Duplicate(true);
 
     /// <summary>
-    /// Free-camera movement (F3): movement input is relative to <paramref name="yaw"/> and the body turns to face
-    /// its motion. Null returns to body-relative movement and mouse look (F1, F2).
+    /// Free-camera movement (F2 zoomed out): movement input is relative to <paramref name="yaw"/> and the body turns to face
+    /// its motion. Null returns to body-relative movement and mouse look (F1, F2 near the shoulder).
     /// </summary>
     public void SetMovementFrame(float? yaw) =>
         MovementFrameYaw = yaw is { } value && float.IsFinite(value) ? value : null;
@@ -584,10 +861,27 @@ public partial class SmallPlayerController : CharacterBody3D
         // With physics interpolation on, a teleport must not be drawn as a glide from the old place to the new one.
         ResetPhysicsInterpolation();
         StopClimbingAndSwimming();
+        ResetVitalsObservation();
         Velocity = Vector3.Zero;
         _jumpBuffer = 0;
         LastSafePosition = position;
         HasSafePosition = true;
+        // Put down somewhere else, the body has not walked in from anywhere: it stands again before it has a shore to go back to.
+        ShoreEntry = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Put a floating body here, held in the air, if the whole capsule fits (the Gubble beside a player on a crowded jetty).
+    /// Only for a body that floats: anything else would fall.
+    /// </summary>
+    protected bool TryPlaceFloating(Vector3 feetPosition)
+    {
+        if (!_ready || !Floats || !feetPosition.IsFinite() || !CapsuleFits(feetPosition)) return false;
+        GlobalPosition = feetPosition;
+        ResetPhysicsInterpolation();
+        StopClimbingAndSwimming();
+        Velocity = Vector3.Zero;
         return true;
     }
 
@@ -611,22 +905,66 @@ public partial class SmallPlayerController : CharacterBody3D
         return recovered;
     }
 
+    /// <summary>Injury recovery returns to the room spawn, rather than the last high ledge. Never teleports into solid geometry.</summary>
+    public bool RecoverAtSpawn()
+    {
+        SetControlInput(Vector2.Zero);
+        ClearCreationMotion();
+        if (TryTeleportTo(_spawnPoint)) { Recoveries++; return true; }
+        foreach (var offset in new[] { Vector3.Right, Vector3.Left, Vector3.Forward, Vector3.Back })
+            if (TryTeleportTo(_spawnPoint + offset * BodyHeightM)) { Recoveries++; return true; }
+        return false;
+    }
+
+    /// <summary>Teleports and a change of mode start a new observation; they never manufacture a completed climb or a fall.</summary>
+    public void ResetVitalsObservation()
+    {
+        _vitalsLandingSpeedMps = 0;
+        _vitalsClimbStart = null;
+    }
+
+    /// <summary>How far a pixel of mouse motion turns the view (the feel the captured mouse had).</summary>
+    public const float LookRadiansPerPixel = 0.0025f;
+
+    /// <summary>
+    /// Turn the body and tilt the eye by a mouse motion in pixels: the HUD's look drag in F1 and in F2 near the shoulder (the cursor
+    /// is free otherwise, the Glow playtest). Nothing while input is off or a view frame steers movement (F2 zoomed out to orbit).
+    /// </summary>
+    public void TurnView(Vector2 relative)
+    {
+        if (!InputEnabled || MovementFrameYaw != null || !relative.IsFinite()) return;
+        RotateY(-relative.X * LookRadiansPerPixel);
+        _pitch = Mathf.Clamp(_pitch - relative.Y * LookRadiansPerPixel, -1.35f, 1.35f);
+        EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
+    }
+
+    /// <summary>
+    /// Face a heading and tilt the eye in one go, with no swing between the old view and the new: the HUD's F2 wheel, zooming in from
+    /// the orbit view, hands the camera's heading and pitch to the body, so the shoulder camera ends up looking where the orbit
+    /// camera looked (a free camera and a body turned to face its motion would otherwise jump when the shoulder view takes over).
+    /// </summary>
+    public void SetView(float yaw, float eyePitch)
+    {
+        if (!float.IsFinite(yaw) || !float.IsFinite(eyePitch)) return;
+        Rotation = new Vector3(Rotation.X, yaw, Rotation.Z);
+        _pitch = Mathf.Clamp(eyePitch, -1.35f, 1.35f);
+        EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
+        ResetPhysicsInterpolation();
+    }
+
     public override void _UnhandledInput(InputEvent input)
     {
         if (!InputEnabled || !ReadKeyboard) return;
-        if (input is InputEventMouseMotion mouse && Input.MouseMode == Input.MouseModeEnum.Captured && MovementFrameYaw == null)
+        // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
+        var press = PlayerControls.Normalise(input);
+        if (PlayerControls.Fresh(press))
         {
-            RotateY(-mouse.Relative.X * 0.0025f);
-            _pitch = Mathf.Clamp(_pitch - mouse.Relative.Y * 0.0025f, -1.35f, 1.35f);
-            EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
-        }
-        if (input is InputEventKey key && key.Pressed && !key.Echo)
-        {
-            var code = key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode;
-            if (code == Key.Space) _jumpBuffer = JumpBufferS;
-            if (code == Key.R) Recover();
-            // World physics is a world change: G sends world.set_physics through the command host as the player.
-            if (code == Key.G) RequestNextWorldPhysics();
+            if (PlayerControls.Hit(press, Act.Jump)) _jumpBuffer = JumpBufferS;
+            if (PlayerControls.Hit(press, Act.BodyRecover)) Recover();
+            // Home, from anywhere (the founder, 9 October): to the jetty, else the nearest beach, else the spawn.
+            if (PlayerControls.Hit(press, Act.BodyHome)) RequestHome();
+            // World physics is a world change: it sends world.set_physics through the command host as the player.
+            if (PlayerControls.Hit(press, Act.PhysicsNext)) RequestNextWorldPhysics();
         }
     }
 
@@ -634,21 +972,42 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (!_ready) return;
         var dt = Mathf.Clamp((float)delta, 0, 0.05f);
+        _vitalsLandingSpeedMps = 0;
         // Separate last tick's creation contribution from the body's own motion.
         Velocity -= _creationApplied;
         _creationApplied = Vector3.Zero;
-        UpdateWashAshore(dt);
-        var control = InputEnabled && !WashingAshore ? _control : Vector2.Zero;
+        UpdateHomeTrip(dt);
+        var control = InputEnabled && !GoingHome ? _control : Vector2.Zero;
         var sprint = _sprint;
-        if (WashingAshore) _jumpBuffer = 0;
-        if (InputEnabled && ReadKeyboard && !WashingAshore)
+        var diveDown = InputEnabled && !GoingHome && _diveDown;
+        var diveUp = InputEnabled && !GoingHome && _diveUp;
+        if (GoingHome) _jumpBuffer = 0;
+        if (InputEnabled && ReadKeyboard && !GoingHome)
         {
             control = new Vector2(
-                (Input.IsPhysicalKeyPressed(Key.D) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.A) ? 1 : 0),
-                (Input.IsPhysicalKeyPressed(Key.W) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.S) ? 1 : 0)).LimitLength();
-            sprint = Input.IsPhysicalKeyPressed(Key.Shift);
+                (PlayerControls.Held(Act.MoveRight) ? 1 : 0) - (PlayerControls.Held(Act.MoveLeft) ? 1 : 0),
+                (PlayerControls.Held(Act.MoveForward) ? 1 : 0) - (PlayerControls.Held(Act.MoveBack) ? 1 : 0)).LimitLength();
+            sprint = PlayerControls.Held(Act.MoveSprint);
+            diveDown = PlayerControls.Held(Act.MoveDive);
+            diveUp = PlayerControls.Held(Act.Jump);
         }
+        // A tumble holds control: the body still falls, slides and is caught by water, but takes no input (the movement asked
+        // for is kept for the tumble's early get-up).
+        if (_controlHoldS > 0)
+        {
+            _controlHoldS = Mathf.Max(0, _controlHoldS - dt);
+            HeldInput = control;
+            control = Vector2.Zero;
+            sprint = false;
+            diveDown = false;
+            diveUp = false;
+            _jumpBuffer = 0;
+        }
+        else HeldInput = Vector2.Zero;
+        // An empty bar takes the run away until the first bar is full again (the stamina ledger's gate); the walk keeps its pace.
+        if (_gate.NoRun && !Floats) sprint = false;
         var onFloor = IsOnFloor();
+        var wasSwimming = _swimming;
         _coyote = onFloor ? CoyoteTimeS : Mathf.Max(0, _coyote - dt);
         _regrabBlock = Mathf.Max(0, _regrabBlock - dt);
         var local = new Vector3(control.X, 0, -control.Y);
@@ -666,33 +1025,67 @@ public partial class SmallPlayerController : CharacterBody3D
         else wish = GlobalBasis * local;
         wish.Y = 0;
         var before = GlobalPosition;
+        _ownVelocity = Vector3.Zero;
+        _creationPushed = Vector3.Zero;
         SampleWater(dt);
-        SeaCurrent = CurrentHere();
-        if (_climbing) Climb(dt, control);
+        // Where the body stands now, with the water read at the very same place (so it is dry there by the water's own account).
+        RememberShoreEntry();
+        _wasDiving = IsDiving;
+        IsDiving = false;
+        // What the bar pays for beyond a climb (the ledger): which way the body moved this tick, and in the water whether a key moved it.
+        var onFoot = false;
+        var swam = false;
+        _stroked = false;
+        // A bubble that holds the body moves it, and the body's own exit and deflate come first (SmallPlayerController.Bubble.cs).
+        if (RideBubble(dt, wish)) { }
+        else if (_climbing) Climb(dt, control);
         else if (Floats) Hover(dt, wish, sprint);
-        else if (UpdateSwimming()) Swim(dt, wish, sprint);
-        else Walk(dt, wish, sprint, onFloor);
+        else if (UpdateSwimming())
+        {
+            swam = true;
+            Swim(dt, wish, sprint, control, diveDown, diveUp);
+        }
+        else
+        {
+            onFoot = true;
+            Walk(dt, wish, sprint, onFloor);
+        }
         HoldInsideBounds();
-        // Past the playable water: wash ashore (a floating body never does; it hovers over the sea and the bounds hold it).
-        if (Sea != null && !Floats && !WashingAshore && !Sea.InPlayArea(new Vector2(GlobalPosition.X, GlobalPosition.Z))) BeginWashAshore();
+        WrapRound();
+        // The far net, hours of swimming out: home as by B. A floating body (the Gubble, sent off on its own) is held at the
+        // net instead, as at a wall (Codex Astra's review), and says blocked through its goal.
+        if (Sea != null && !Floats && !GoingHome && new Vector2(GlobalPosition.X, GlobalPosition.Z).DistanceTo(Sea.MiddleM) > FarNetM) BeginHome();
+        if (Sea != null && Floats) HoldInsideFarNet();
         // Project the creation contribution along contacts the same way MoveAndSlide projects motion.
         for (var index = 0; index < GetSlideCollisionCount(); index++)
         {
-            var normal = GetSlideCollision(index).GetNormal();
+            var normal = SlideNormal(index);
             if (_creationApplied.Dot(normal) < 0) _creationApplied = _creationApplied.Slide(normal);
             if (_creationVelocity.Dot(normal) < 0) _creationVelocity = _creationVelocity.Slide(normal);
         }
-        if (HasCreationGuard && !GuardAllows(GlobalPosition))
+        if (HasCreationGuard && _creationPushed != Vector3.Zero && !GuardAllows(GlobalPosition))
         {
-            // Creation motion may not carry the body into space it is not allowed to be pushed into.
+            // Creation motion may not carry the body into space it is not allowed to be pushed into; the body's own walking,
+            // swimming and climbing may, as they may with no creation about (Codex Sol's review of the open sea: a worn
+            // glider's guard took back every whole move past the room's old bounds, a wall again). The tick is moved again
+            // from where it began with the body's own motion alone, and the creation's motion stops. (Taking back only the
+            // creation's share after the move missed a push that ended against a wall: the slide had already cut it away.)
             GlobalPosition = before;
-            Velocity = Vector3.Zero;
+            Velocity = _ownVelocity;
+            _vitalsLandingSpeedMps = Mathf.Max(0, -Velocity.Y);
+            if (_ownVelocity.LengthSquared() > 0) MoveAndSlide();
+            Velocity = _ownVelocity;
             _creationApplied = Vector3.Zero;
             _creationVelocity = Vector3.Zero;
+            CreationGuardStops++;
         }
         var actual = GlobalPosition - before;
         if (!_climbing) actual.Y = 0;
         IsBlocked = control.LengthSquared() > 0.1f && actual.LengthSquared() < 0.0000001f;
+        // The distance a gait phases by: what the body really moved this tick. A wrap or a jump home is not a step.
+        var moved = actual.Length();
+        if (moved > MaxTickTravelM || !float.IsFinite(moved)) moved = 0;
+        _distanceM += moved;
         if ((IsOnFloor() || (Floats && HoverSupportY != null)) && Mathf.Abs(Velocity.Y) < 0.1f && (!HasCreationGuard || GuardAllows(GlobalPosition)))
         {
             LastSafePosition = GlobalPosition;
@@ -700,18 +1093,97 @@ public partial class SmallPlayerController : CharacterBody3D
             _waterLeap = false;
         }
         if (!GlobalPosition.IsFinite() || GlobalPosition.Y < _spawnPoint.Y - 12.0f ||
-            (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM)) Recover();
+            (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM))
+        {
+            // The out-of-room safety net is still a fall in consequence modes; report it before teleport resets the observation.
+            if (GlobalPosition.IsFinite() && !Floats)
+                FallObserved?.Invoke(_vitalsLandingSpeedMps, false);
+            Recover();
+        }
+        ObserveBodyVitals(dt, TakeExertion(dt, moved, onFoot, swam && _stroked, sprint, control));
+        // Out of stamina in deep water (the ledger's gate): the scene fades and the body is back on the shore where it went in.
+        if (_swimming && _gate.Empty) BeginShoreReturn();
+        TakeBodyState(dt, moved, onFloor, wasSwimming, sprint);
         UpdateVisual(dt);
-        VisualRoot.Visible = !EyeCamera.Current;
+        _bodyVisual?.BodyTicked(LastBodyState, dt);
+    }
+
+    /// <summary>More than this in one tick is a jump (a wrap, a trip home, a recovery), not travel.</summary>
+    private const float MaxTickTravelM = 0.25f;
+
+    /// <summary>The tick's BodyState, for the drawn body (IBodyVisual) and anything else that reads it.</summary>
+    private void TakeBodyState(float dt, float moved, bool wasOnFloor, bool wasSwimming, bool sprinting)
+    {
+        var grounded = IsOnFloor();
+        var caught = _swimming && !wasSwimming && !wasOnFloor && !_climbing;
+        var landed = !Floats && !_climbing && ((grounded && !wasOnFloor) || caught);
+        _airTimeS = grounded || _climbing || _swimming || Floats ? 0 : _airTimeS + dt;
+        _bodyTick++;
+        LastBodyState = new BodyState
+        {
+            Tick = _bodyTick,
+            Position = GlobalPosition,
+            Yaw = GlobalRotation.Y,
+            Velocity = Velocity,
+            SpeedMps = dt > 0 ? moved / dt : 0,
+            DistanceM = _distanceM,
+            Grounded = grounded,
+            FloorNormal = grounded ? GetFloorNormal() : Vector3.Up,
+            AirTimeS = _airTimeS,
+            Landed = landed,
+            LandingSpeedMps = !landed ? 0 : caught ? Mathf.Max(_vitalsLandingSpeedMps, _airDescentMps) : _vitalsLandingSpeedMps,
+            LandedInDeepWater = landed && caught,
+            Climbing = _climbing,
+            ClimbNormal = _climbNormal,
+            Swimming = _swimming,
+            SwimTilt = _tilt,
+            Diving = IsDiving,
+            Floating = Floats,
+            InBubble = Ride == BubbleRide.Enveloped,
+            Carrying = HandsFull?.Invoke() ?? false,
+            Sprinting = sprinting,
+            WalkSpeedMps = WalkSpeedNowMps,
+            RunSpeedMps = RunSpeedNowMps,
+            Blocked = IsBlocked,
+            WindMps = WindMps,
+            ControlHeld = _controlHoldS > 0,
+            HeldInput = HeldInput,
+            WaterSurfaceY = Water.Wet ? Water.SurfaceY : float.NaN,
+            WaterDepthM = Water.Wet ? Water.DepthM : 0,
+            BodyHeightM = BodyHeightM,
+            GravityMps2 = GravityMps2,
+        };
+    }
+
+    /// <summary>
+    /// The trusted body's report to the kernel, once a physics tick: what it exerted (the ledger's Report, before VitalsTick, which
+    /// charges it and refills the bar on standable ground), a landing, then the tick. The gate the ledger then holds is what the
+    /// body obeys from the next tick on.
+    /// </summary>
+    private void ObserveBodyVitals(float dt, Seams.BodyExertion exertion)
+    {
+        if (Floats || (VitalsTick == null && FallObserved == null && _staminaLedger == null)) return;
+        var safelyGrounded = IsOnFloor() && !_climbing && !_swimming && !GoingHome;
+        var caughtByWater = Water.Wet && Water.DepthM >= SwimDepthM && Water.Under(GlobalPosition) >= 0;
+        if (_staminaLedger != null)
+        {
+            _staminaLedger.Report(exertion);
+            ExertionReports++;
+        }
+        if (safelyGrounded || caughtByWater)
+            FallObserved?.Invoke(_vitalsLandingSpeedMps, caughtByWater);
+        VitalsTick?.Invoke(dt, safelyGrounded);
+        TakeGate();
     }
 
     /// <summary>On foot or in the air: the walk, the run, steps, jumps and creation forces, slowed by the water it wades in.</summary>
     private void Walk(float dt, Vector3 wish, bool sprint, bool onFloor)
     {
         var start = GlobalPosition;
-        var desired = wish * (sprint ? RunSpeedMps : WalkSpeedMps) * WadeFactor() + SeaCurrent;
+        // On land the pace is the base times the team's Quick feet and the empty bar's slow (WalkSpeedNowMps, RunSpeedNowMps).
+        var desired = wish * (sprint ? RunSpeedNowMps : WalkSpeedNowMps) * WadeFactor();
         if (!onFloor && WindMps != Vector2.Zero)
-            desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedMps + WindMps.Length());
+            desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedNowMps + WindMps.Length());
         var acceleration = onFloor ? GroundAccelerationMps2 : AirAccelerationMps2 * AirControl;
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, acceleration * dt), dt);
         var vertical = onFloor ? Mathf.Min(0, Velocity.Y) : Mathf.Max(Velocity.Y - GravityMps2 * dt, -EffectiveTerminalFallMps);
@@ -729,7 +1201,9 @@ public partial class SmallPlayerController : CharacterBody3D
         if (_creationAcceleration.Y > 0) vertical = Mathf.Max(vertical, 0);
         if (_creationGlideLimit > 0) vertical = Mathf.Max(vertical, -_creationGlideLimit);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
-        // Falling into deep water: the water catches the body this tick, before the eye goes under.
+        // Falling into deep water: the water catches the body this tick, before the eye goes under. The descent it had in the air
+        // is the landing's speed (BodyState.LandingSpeedMps) on the tick the body starts to swim, not what is left after the catch.
+        _airDescentMps = onFloor ? 0 : Mathf.Max(0, -total.Y);
         total.Y = CatchInWater(total.Y, dt);
         Velocity = total;
         if (onFloor && !jumped && vertical <= 0 && _creationApplied == Vector3.Zero &&
@@ -740,77 +1214,116 @@ public partial class SmallPlayerController : CharacterBody3D
             MoveAndSlide();
             Velocity = new Vector3(horizontal.X, Velocity.Y, horizontal.Z);
         }
-        else MoveAndSlide();
+        else
+        {
+            // Capture the final descent after creation forces and the water catch, before the floor stops it.
+            _vitalsLandingSpeedMps = Mathf.Max(0, -Velocity.Y);
+            MoveAndSlide();
+        }
         // A face too steep to stand on, pushed into: grab it (at once in the air, after a deliberate push on the ground).
         var grounded = IsOnFloor();
-        TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedMps, dt));
-    }
-
-    /// <summary>The sea's current where the body is in the water (wading or swimming) past the reef; none on land or for a floating body.</summary>
-    private Vector3 CurrentHere()
-    {
-        if (Sea == null || Floats || !Water.Wet || Water.Under(GlobalPosition) <= 0) return Vector3.Zero;
-        var current = Sea.Current(new Vector2(GlobalPosition.X, GlobalPosition.Z), SeaCurrentMaxMps);
-        return new Vector3(current.X, 0, current.Y);
-    }
-
-    private void BeginWashAshore()
-    {
-        _washTime = 0;
-        _washed = false;
-        _jumpBuffer = 0;
-    }
-
-    /// <summary>The wash-ashore: the fade out (the sea carries the body on meanwhile), the beach, then the fade back in.</summary>
-    private void UpdateWashAshore(float dt)
-    {
-        if (_washTime < 0) return;
-        _washTime += dt;
-        if (!_washed && _washTime >= WashFadeS)
-        {
-            _washed = true;
-            WashAshore();
-        }
-        if (_washTime >= 2 * WashFadeS) _washTime = -1;
+        TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedNowMps, dt));
     }
 
     /// <summary>
-    /// Onto the nearest beach, standing on the sand and facing inland; a beach with no room there tries a few spots round it,
-    /// and with none at all the body recovers to its last safe footing (it never falls off the world).
+    /// Home (B): the fade out, home, the fade back in. Refused while already on the way, or while the body takes no input.
+    /// Mid-climb the hands keep hold through the fade and let go at home; mid-leap the body flies on and lands at home; a
+    /// carried thing stays in hand and comes home too (the command host places it with its holder every tick).
     /// </summary>
-    private void WashAshore()
+    public bool RequestHome()
+    {
+        if (!_ready || GoingHome || !InputEnabled) return false;
+        BeginHome();
+        return true;
+    }
+
+    private void BeginHome()
+    {
+        _homeTime = 0;
+        _homeArrived = false;
+        _shoreTrip = false;
+        _jumpBuffer = 0;
+    }
+
+    private void UpdateHomeTrip(float dt)
+    {
+        if (_homeTime < 0) return;
+        _homeTime += dt;
+        if (!_homeArrived && _homeTime >= HomeFadeS)
+        {
+            _homeArrived = true;
+            if (_shoreTrip) ArriveAtShore();
+            else ArriveHome();
+        }
+        if (_homeTime >= 2 * HomeFadeS)
+        {
+            _homeTime = -1;
+            _shoreTrip = false;
+        }
+    }
+
+    /// <summary>
+    /// Home: the jetty's landward end, standing and facing inland; a room with a sea but no jetty, the nearest beach; a room
+    /// without a sea, the spawn. A spot with no room for the body tries a few round it, then the next home along; with none at
+    /// all the body recovers to its last safe footing (it never falls off the world).
+    /// </summary>
+    private void ArriveHome()
     {
         var here = new Vector2(GlobalPosition.X, GlobalPosition.Z);
         var landed = false;
-        if (Sea?.NearestBeach(here) is { } beach)
+        LastHome = "";
+        if (Sea?.JettyData is { } jetty)
         {
-            var inland = new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward;
-            var side = inland.Cross(Vector3.Up);
-            foreach (var offset in new[] { Vector3.Zero, side * 0.06f, -side * 0.06f, inland * 0.06f, side * 0.12f, -side * 0.12f, inland * 0.12f })
-                if (TryTeleportTo(beach.WashAshoreM + offset))
-                {
-                    landed = true;
-                    break;
-                }
-            if (landed)
-            {
-                Rotation = new Vector3(0, Mathf.DegToRad(beach.YawDeg), 0);
-                LastBeachId = beach.Id;
-            }
+            var inland = Flat(jetty.RootM - jetty.EndM);
+            if (inland == Vector3.Zero) inland = new Basis(Vector3.Up, Mathf.DegToRad(jetty.YawDeg)) * Vector3.Back;
+            landed = LandAt(jetty.RootM, inland, "jetty");
         }
+        if (!landed && LandAtBeachOrStart(here) != "") landed = true;
         if (!landed) Recover();
         Velocity = Vector3.Zero;
         ClearCreationMotion();
-        WashAshores++;
-        WashedAshore?.Invoke(this);
+        HomeTrips++;
+        WentHome?.Invoke(this);
+    }
+
+    /// <summary>The nearest beach, else the spawn: "beach", "start", or "" when neither has room (LastHome says which).</summary>
+    private string LandAtBeachOrStart(Vector2 here)
+    {
+        if (Sea?.NearestBeach(here) is { } beach && LandAt(beach.WashAshoreM, new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward, beach.Id)) return "beach";
+        if (!TryTeleportTo(_spawnPoint)) return "";
+        LastHome = "spawn";
+        return "start";
+    }
+
+    /// <summary>How far under a home's spot (the jetty's deck, a beach's sand) its landing may be found.</summary>
+    public const float HomeDropM = 0.06f;
+
+    /// <summary>
+    /// Stand at a spot, or the nearest of a few beside it (inland first), facing inland. A landing must be dry ground within
+    /// HomeDropM under the spot (Codex Astra's review: the seabed under a jetty's root was taken as home, under water), and
+    /// not out past half the far net (Codex Sol's review: room data put there would start trip after trip).
+    /// </summary>
+    private bool LandAt(Vector3 spot, Vector3 inland, string name)
+    {
+        bool Near(Vector3 at) => Sea == null || new Vector2(at.X, at.Z).DistanceTo(Sea.MiddleM) <= FarNetM * 0.5f;
+        if (!spot.IsFinite() || !Near(spot)) return false;
+        var side = inland.Cross(Vector3.Up);
+        foreach (var offset in new[] { Vector3.Zero, inland * 0.06f, side * 0.06f, -side * 0.06f, inland * 0.12f, side * 0.12f, -side * 0.12f, inland * 0.2f })
+            if (Near(spot + offset) && FindSupportedPosition(spot + offset, out var feet) && feet.Y >= spot.Y - HomeDropM && DryAt(feet) && TryTeleportTo(feet))
+            {
+                Rotation = new Vector3(0, Mathf.Atan2(-inland.X, -inland.Z), 0);
+                LastHome = name;
+                return true;
+            }
+        return false;
     }
 
     /// <summary>
     /// Floating (Floats): the body hovers HoverHeightM over the ground or the water under it, with a gentle bob, and moves at
     /// the walk or the run. Nothing pulls it down: over a ledge or the sea it sinks gently to its height over what is below,
-    /// and over nothing within HoverSupportSearchM it holds its height. Something in its way is ducked under when lowering
-    /// the body to the ground clears it, and otherwise, while RiseOverObstacles is set, risen over: the body slides up the
-    /// face and over the top, never through it. A ceiling holds it down.
+    /// and over nothing within HoverSearchM it settles toward FloatAltitudeFloorY, or holds its height. Something in its way is
+    /// ducked under when lowering the body to the ground clears it, and otherwise, while RiseOverObstacles is set, risen over:
+    /// the body slides up the face and over the top, never through it. A ceiling holds it down.
     /// </summary>
     private void Hover(float dt, Vector3 wish, bool sprint)
     {
@@ -830,8 +1343,10 @@ public partial class SmallPlayerController : CharacterBody3D
         HoverSupportY = support;
         HoversOverWater = overWater;
         var bob = HoverBobM * Mathf.Sin(_hoverClock * Mathf.Tau / HoverBobPeriodS);
-        var target = support is { } top ? top + HoverHeightM + bob : here.Y;
-        if (FloatAltitudeFloorY is { } floor && float.IsFinite(floor) && floor + bob > target) target = floor + bob;
+        var floor = FloatAltitudeFloorY is { } wanted && float.IsFinite(wanted) ? wanted : (float?)null;
+        // Over nothing within reach: toward the height of where it is going (it used to hold its height there whatever it was).
+        var target = support is { } top ? top + HoverHeightM + bob : floor is { } settle ? settle + bob : here.Y;
+        if (floor is { } lowest && lowest + bob > target) target = lowest + bob;
         // Under a low ceiling, here or just ahead: hover lower (a passage just taller than the body).
         foreach (var column in heading == Vector3.Zero ? new[] { here } : new[] { here, here + ahead })
             if (Ceiling(column) is { } ceiling) target = Mathf.Min(target, ceiling - BodyHeightM - SafeMarginM * 2);
@@ -854,35 +1369,51 @@ public partial class SmallPlayerController : CharacterBody3D
                 RiseTicks++;
             }
         }
-        var vertical = RisingOver ? FloatRiseMps : Mathf.Clamp((target - here.Y) * HoverSpringPerS, -FloatSinkMps, FloatRiseMps);
+        var rise = FarGapMps(target - here.Y, FloatRiseMps);
+        var vertical = RisingOver ? rise : Mathf.Clamp((target - here.Y) * HoverSpringPerS, -FarGapMps(here.Y - target, FloatSinkMps), rise);
         Velocity = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
         MoveAndSlide();
     }
+
+    /// <summary>
+    /// How deep under a floating body its ground or water is looked for: HoverSupportSearchM, or within playable bounds down to
+    /// their floor, whichever is deeper.
+    /// </summary>
+    public float HoverSearchM => PlayableBounds is { } bounds && float.IsFinite(GlobalPosition.Y)
+        ? Mathf.Max(HoverSupportSearchM, GlobalPosition.Y - bounds.Position.Y + 0.05f) : HoverSupportSearchM;
+
+    /// <summary>
+    /// The rise or the sink toward the height a floating body settles to: FloatRiseMps or FloatSinkMps, and further than
+    /// HoverSupportSearchM from it (the magnified island's mesas; never on today's islands, whose land stands under 3 m) that
+    /// many times faster for each HoverSupportSearchM of the gap, up to the run: 25 m off a mesa took 100 s, and takes about 40.
+    /// </summary>
+    private float FarGapMps(float gapM, float baseMps) =>
+        gapM <= HoverSupportSearchM ? baseMps : Mathf.Min(baseMps * gapM / HoverSupportSearchM, Mathf.Max(baseMps, RunSpeedMps));
 
     /// <summary>How far ahead a floating body feels for something in its way.</summary>
     private float HoverProbeM => BodyRadiusM * 0.5f + 0.005f;
 
     /// <summary>
     /// The highest ground or water surface under the body or just ahead of it, looked for from the body's middle (so a table
-    /// top overhead is a ceiling, not a floor) down HoverSupportSearchM. Null over nothing.
+    /// top overhead is a ceiling, not a floor) down HoverSearchM. Null over nothing.
     /// </summary>
     private float? HoverSupport(Vector3 feet, Vector3 ahead, out bool overWater)
     {
         overWater = false;
         float? best = null;
         var space = GetWorld3D().DirectSpaceState;
+        var depth = HoverSearchM;
         foreach (var column in ahead == Vector3.Zero ? new[] { feet } : new[] { feet, feet + ahead })
         {
             var from = column + Vector3.Up * (BodyHeightM * 0.5f);
             // Disposed at once: these run every tick, and wrappers left to the finalizer pile up (and trip Godot's exit).
-            using var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * HoverSupportSearchM, RoomBuilder.BodyMask);
-            var exclude = new Array<Rid> { GetRid() };
-            query.Exclude = exclude;
+            using var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * depth, RoomBuilder.BodyMask, ExcludeSelf);
             query.HitBackFaces = false;
             using var hit = space.IntersectRay(query);
-            if (hit.Count > 0 && (best == null || hit["position"].AsVector3().Y > best)) best = hit["position"].AsVector3().Y;
+            if (hit.Count > 0 && (best == null || hit[HitPosition].AsVector3().Y > best)) best = hit[HitPosition].AsVector3().Y;
             // Water is a sheet on its own layer (RoomWater): the highest one under the middle, or over the feet if the body has sunk in.
-            var water = RoomWater.At(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, HoverSupportSearchM, GetRid());
+            var water = RoomWater.At(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, depth, GetRid());
+            if (!water.Wet && Sea != null) water = Sea.OpenWater(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, depth, GetRid());
             if (water.Wet && (best == null || water.SurfaceY > best))
             {
                 best = water.SurfaceY;
@@ -896,12 +1427,10 @@ public partial class SmallPlayerController : CharacterBody3D
     private float? Ceiling(Vector3 feet)
     {
         var from = feet + Vector3.Up * (BodyHeightM * 0.5f);
-        using var query = PhysicsRayQueryParameters3D.Create(from, feet + Vector3.Up * (BodyHeightM + HoverHeightM + HoverBobM + 0.01f), RoomBuilder.BodyMask);
-        var exclude = new Array<Rid> { GetRid() };
-        query.Exclude = exclude;
+        using var query = PhysicsRayQueryParameters3D.Create(from, feet + Vector3.Up * (BodyHeightM + HoverHeightM + HoverBobM + 0.01f), RoomBuilder.BodyMask, ExcludeSelf);
         query.HitBackFaces = false;
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        return hit.Count > 0 ? hit["position"].AsVector3().Y : null;
+        return hit.Count > 0 ? hit[HitPosition].AsVector3().Y : null;
     }
 
     /// <summary>
@@ -914,6 +1443,8 @@ public partial class SmallPlayerController : CharacterBody3D
         var total = own + _creationVelocity;
         if (_creationGlideLimit > 0) total.Y = Mathf.Max(total.Y, -_creationGlideLimit);
         _creationApplied = total - own;
+        _ownVelocity = own;
+        _creationPushed = _creationApplied;
         return total;
     }
 
@@ -924,9 +1455,32 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>The water at the feet, looking down as far as this tick's fall will carry them, so a fast fall meets the surface it crosses.</summary>
     private void SampleWater(float dt)
     {
-        Water = CanSwim && IsInsideTree()
-            ? RoomWater.At(GetWorld3D().DirectSpaceState, GlobalPosition, BodyHeightM * 4, Mathf.Max(0.02f, -Velocity.Y * dt + 0.02f), GetRid())
-            : RoomWater.Column.Dry;
+        if (!CanSwim || !IsInsideTree())
+        {
+            Water = RoomWater.Column.Dry;
+            return;
+        }
+        var space = GetWorld3D().DirectSpaceState;
+        var below = Mathf.Max(0.02f, -Velocity.Y * dt + 0.02f);
+        // A diver looks up as far as the surface it went down from, and under a roof (a shelf it dives beneath) the water is
+        // still its water, with the bed under it (Codex's reviews: the shelf's top was taken for the bed, above the diver).
+        var above = BodyHeightM * 4;
+        if (_swimming && float.IsFinite(_swimSurfaceY)) above = Mathf.Max(above, _swimSurfaceY - GlobalPosition.Y + 0.05f);
+        Water = RoomWater.At(space, GlobalPosition, above, below, GetRid(), throughRoof: _swimming);
+        // Where the water meshes stop, out past the island, the sea itself answers.
+        _openSeaWater = false;
+        if (!Water.Wet && Sea != null)
+        {
+            Water = Sea.OpenWater(space, GlobalPosition, above, below, GetRid(), throughRoof: _swimming);
+            _openSeaWater = Water.Wet;
+        }
+        // Where a sea mesh runs on past the generated floor (no bed within RoomWater.BedSearchM), the open sea's bed.
+        else if (Water.Wet && Sea != null && Water.BedY <= Water.SurfaceY - RoomWater.BedSearchM + 1e-4f)
+        {
+            Water = Water with { BedY = Mathf.Max(Water.BedY, Sea.OpenSeaBedAt(new Vector2(GlobalPosition.X, GlobalPosition.Z))) };
+            _openSeaWater = true;
+        }
+        _swimSurfaceY = Water.Wet ? Water.SurfaceY : _swimming ? _swimSurfaceY : float.NaN;
     }
 
     /// <summary>
@@ -991,8 +1545,18 @@ public partial class SmallPlayerController : CharacterBody3D
     /// body rises back to the surface. A jump at the surface leaps out with the land jump's take-off. A steep bank pushed
     /// into is grabbed and climbed out of; a shelving shore is walked out of (UpdateSwimming).
     /// </summary>
-    private void Swim(float dt, Vector3 wish, bool sprint)
+    private void Swim(float dt, Vector3 wish, bool sprint, Vector2 control, bool diveDown, bool diveUp)
     {
+        // An empty bar (the ledger's gate): a diver is not held down and a swimmer does not swim or leap out. The tick the bar ran
+        // empty the fade to the shore began (BeginShoreReturn), so the controls are already held; nothing refills in the water.
+        var spent = _gate.Empty;
+        // Only a dive takes the body under: a fall or a plunge is still caught at the surface (CatchInWater).
+        if ((diveDown && !spent) || (_wasDiving && GlobalPosition.Y < Water.SurfaceY - SwimFloatDepthM - DiveStartM))
+        {
+            if (spent) Dive(dt, Vector2.Zero, sprint, false, diveUp);
+            else Dive(dt, control, sprint, diveDown, diveUp);
+            return;
+        }
         _coyote = 0;
         _swimClock += dt;
         var feet = GlobalPosition;
@@ -1001,23 +1565,78 @@ public partial class SmallPlayerController : CharacterBody3D
         var excess = Velocity.Y - spring;
         excess = excess / (1 + WaterDragQuadraticPerM * Mathf.Abs(excess) * dt) * Mathf.Exp(-WaterDragLinearPerS * dt);
         var vertical = spring + excess;
-        if (_jumpBuffer > 0 && InputEnabled && Mathf.Abs(feet.Y - target) < 0.015f)
+        if (!spent && _jumpBuffer > 0 && InputEnabled && Mathf.Abs(feet.Y - target) < 0.015f)
         {
             vertical = JumpSpeedMps;
             _jumpBuffer = 0;
             _waterLeap = true;
             JumpsStarted++;
             EndSwim();
+            _stroked = true;
         }
         else _jumpBuffer = Mathf.Max(0, _jumpBuffer - dt);
-        var desired = wish * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor) + SeaCurrent;
+        // A stroke (the ledger's deep-water seconds, decision 64): a movement key moving the swimmer. Floating still costs nothing.
+        if (!spent && control.LengthSquared() > StrokeControlSquared) _stroked = true;
+        var desired = spent ? Vector3.Zero : wish * SwimPaceMps(sprint);
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, SwimAccelerationMps2 * dt), dt);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
         if (_swimming) total.Y = CatchInWater(total.Y, dt);
         Velocity = total;
         MoveAndSlide();
-        if (_swimming) TryGrab(dt, wish, deliberate: true, heldBack: HeldBack(feet, wish, WalkSpeedMps * SwimSpeedFactor, dt));
+        if (_swimming) TryGrab(dt, wish, deliberate: true, heldBack: HeldBack(feet, wish, SwimPaceMps(false), dt));
     }
+
+    /// <summary>
+    /// Under water: W swims the way you look (the view's pitch, the eye's in F1 and the shoulder camera's, which follows it,
+    /// in F2 near the shoulder; in F2 zoomed out to orbit, and in the shelved F3 and F4, across the view's heading, level), A and
+    /// D across; Ctrl down, Space up; no key, a slow drift up. The water's
+    /// drag eases every change. The bed holds the body: the room's ground by collision, the open-sea bed by this clamp.
+    /// </summary>
+    private void Dive(float dt, Vector2 control, bool sprint, bool down, bool up)
+    {
+        _coyote = 0;
+        _jumpBuffer = 0;
+        if (!_wasDiving) DiveStarts++;
+        IsDiving = true;
+        DiveTicks++;
+        // Under water a stroke is a key's own motion: Ctrl down, Space up, or a movement key. A diver let go drifts up for nothing.
+        if (down || up || control.LengthSquared() > StrokeControlSquared) _stroked = true;
+        Vector3 wish;
+        if (MovementFrameYaw is { } frameYaw) wish = new Basis(Vector3.Up, frameYaw) * new Vector3(control.X, 0, -control.Y);
+        else wish = ViewForward() * control.Y + GlobalBasis.X * control.X;
+        var desired = wish.LimitLength() * SwimPaceMps(sprint) * DiveSpeedFactor;
+        if (down) desired.Y -= DiveSinkMps;
+        if (up) desired.Y += DiveRiseMps;
+        if (!down && !up && control.LengthSquared() < 0.01f) desired.Y = DriftUpMps;
+        var velocity = Velocity.MoveToward(desired, SwimAccelerationMps2 * dt);
+        Velocity = WithCreation(velocity, dt);
+        MoveAndSlide();
+        // Nothing goes through the bed (the open-sea bed has no collider). Out in the open sea, the bed is the one where the
+        // body is now: swimming off a deep ledge, the open-sea bed beyond stands higher (Codex Sol's review).
+        var bedY = Water.BedY;
+        if (_openSeaWater && Sea != null && Sea.OpenWater(GetWorld3D().DirectSpaceState, GlobalPosition, Water.SurfaceY - GlobalPosition.Y + 0.05f, 0.05f, GetRid(), throughRoof: true) is { Wet: true } there)
+            bedY = there.BedY;
+        var bed = bedY + SafeMarginM * 2;
+        if (Water.Wet && GlobalPosition.Y < bed)
+        {
+            GlobalPosition = new Vector3(GlobalPosition.X, bed, GlobalPosition.Z);
+            if (Velocity.Y < 0) Velocity = new Vector3(Velocity.X, 0, Velocity.Z);
+        }
+    }
+
+    /// <summary>
+    /// The way W swims under water: the active view's forward when it is this body's own camera (the eye in F1, the shoulder
+    /// camera in F2, which looks a little lower than the eye: Codex's review found F2's W swimming upward), else the eye's.
+    /// </summary>
+    private Vector3 ViewForward()
+    {
+        var camera = IsInsideTree() ? GetViewport().GetCamera3D() : null;
+        if (camera != null && IsAncestorOf(camera)) return -camera.GlobalBasis.Z.Normalized();
+        return GlobalBasis * (new Basis(Vector3.Right, EyeCamera.Rotation.X) * Vector3.Forward);
+    }
+
+    /// <summary>Where the body started (its spawn): the companion's last place to come home to.</summary>
+    protected Vector3 SpawnPoint => _spawnPoint;
 
     // ---- climbing ----
 
@@ -1051,7 +1670,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     private void TryGrab(float dt, Vector3 wish, bool deliberate, bool heldBack)
     {
-        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull())
+        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull() || _gate.Empty || (ClimbBudget != null && !ClimbBudget(0, 0)))
         {
             _grabPush = 0;
             return;
@@ -1074,7 +1693,7 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         for (var index = 0; index < GetSlideCollisionCount() && face == null; index++)
         {
-            var collision = GetSlideCollision(index);
+            using var collision = GetSlideCollision(index);
             var normal = collision.GetNormal();
             if (Climbable(normal) && into.Dot(-Flat(normal)) >= cos && (RisesAboveStep(normal, collision.GetPosition()) || (heldBack && FeelAhead() != null))) face = normal;
         }
@@ -1092,6 +1711,7 @@ public partial class SmallPlayerController : CharacterBody3D
         _grabPush += dt;
         if (deliberate && _grabPush < ClimbGrabDelayS) return;
         _climbing = true;
+        _vitalsClimbStart = GlobalPosition;
         _climbNormal = found.Normalized();
         _grabPush = 0;
         _pullPhase = 0;
@@ -1113,11 +1733,10 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (contact.Y > GlobalPosition.Y + StepHeightM + SafeMarginM) return true;
         var from = GlobalPosition + Vector3.Up * (StepHeightM + 0.004f);
-        var query = PhysicsRayQueryParameters3D.Create(from, from - Flat(normal) * (BodyRadiusM + 0.02f), CollisionMask);
-        query.Exclude = new Array<Rid> { GetRid() };
+        using var query = PhysicsRayQueryParameters3D.Create(from, from - Flat(normal) * (BodyRadiusM + 0.02f), CollisionMask, ExcludeSelf);
         query.HitBackFaces = false;
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        return hit.Count > 0 && !Standable(hit["normal"].AsVector3()) && hit["normal"].AsVector3().Y >= ClimbOverhangNormalY;
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        return hit.Count > 0 && !Standable(hit[HitNormal].AsVector3()) && hit[HitNormal].AsVector3().Y >= ClimbOverhangNormalY;
     }
 
     /// <summary>
@@ -1141,6 +1760,14 @@ public partial class SmallPlayerController : CharacterBody3D
         {
             _jumpBuffer = 0;
             LetGo(kick: true);
+            return;
+        }
+        // The grip fails when the bar is empty (the ledger's gate) or the climb cannot be paid for: the body falls from where it is.
+        var budgetRise = (_pullPhase > 0 ? PullOverSpeedMps : Mathf.Max(0, control.Y) * ClimbSpeedMps) * dt;
+        if (_gate.Empty || (ClimbBudget != null && !ClimbBudget(dt, budgetRise)))
+        {
+            GripFailures++;
+            LetGo(kick: false);
             return;
         }
         if (_pullPhase > 0)
@@ -1187,12 +1814,14 @@ public partial class SmallPlayerController : CharacterBody3D
         alongSide = alongSide.LengthSquared() > 1e-4f ? alongSide.Normalized() : right;
         var velocity = (alongUp * up + alongSide * side).LimitLength(1) * ClimbSpeedMps - normal * ClimbStickMps + along;
         _creationApplied = along;
+        _ownVelocity = velocity - along;
+        _creationPushed = along;
         var horizontal = WithinBounds(new Vector3(velocity.X, 0, velocity.Z), dt);
         Velocity = new Vector3(horizontal.X, velocity.Y, horizontal.Z);
         MoveAndSlide();
         if (up < -0.1f)
             for (var index = 0; index < GetSlideCollisionCount(); index++)
-                if (Standable(GetSlideCollision(index).GetNormal()))
+                if (Standable(SlideNormal(index)))
                 {
                     // Down at the foot of the face: step off into walking.
                     StopClimbing(Vector3.Zero);
@@ -1223,14 +1852,13 @@ public partial class SmallPlayerController : CharacterBody3D
         foreach (var ahead in new[] { BodyRadiusM * 1.5f, BodyRadiusM * 2.5f })
         {
             var column = GlobalPosition - outward * ahead;
-            var query = PhysicsRayQueryParameters3D.Create(column + Vector3.Up * (PullOverReachM + 0.005f), column + Vector3.Up * 0.002f, CollisionMask);
-            query.Exclude = new Array<Rid> { GetRid() };
+            using var query = PhysicsRayQueryParameters3D.Create(column + Vector3.Up * (PullOverReachM + 0.005f), column + Vector3.Up * 0.002f, CollisionMask, ExcludeSelf);
             query.HitBackFaces = false;
-            var hit = space.IntersectRay(query);
+            using var hit = space.IntersectRay(query);
             if (hit.Count == 0) continue;
-            var normal = hit["normal"].AsVector3();
+            var normal = hit[HitNormal].AsVector3();
             if (!Standable(normal)) continue;
-            var spot = hit["position"].AsVector3() + Vector3.Up * (BodyRadiusM * (1.0f / normal.Y - 1.0f) + SafeMarginM * 2 + 0.001f);
+            var spot = hit[HitPosition].AsVector3() + Vector3.Up * (BodyRadiusM * (1.0f / normal.Y - 1.0f) + SafeMarginM * 2 + 0.001f);
             if (!InsidePlayableBounds(spot) || !CapsuleFits(spot)) continue;
             // The whole body must stand under the bounds' top there (a pull-over never lifts the head out of the room).
             if (PlayableBounds is { } bounds && bounds.Size.Y > BodyHeightM && spot.Y + BodyHeightM > bounds.End.Y) continue;
@@ -1272,6 +1900,7 @@ public partial class SmallPlayerController : CharacterBody3D
             if (over.Length() <= 0.001f)
             {
                 PullOvers++;
+                CompleteObservedClimb();
                 StopClimbing(Vector3.Zero);
                 return;
             }
@@ -1285,10 +1914,17 @@ public partial class SmallPlayerController : CharacterBody3D
             if (HasSupportNear(GlobalPosition, 0.01f))
             {
                 PullOvers++;
+                CompleteObservedClimb();
                 StopClimbing(Vector3.Zero);
             }
             else _pullPhase = 0;
         }
+    }
+
+    private void CompleteObservedClimb()
+    {
+        if (_vitalsClimbStart is { } start) ClimbCompleted?.Invoke(start, GlobalPosition);
+        _vitalsClimbStart = null;
     }
 
     /// <summary>Jump lets go with a small kick away and up; a lost face just drops the body. Either way the same push does not grab again at once.</summary>
@@ -1303,6 +1939,7 @@ public partial class SmallPlayerController : CharacterBody3D
     private void StopClimbing(Vector3 velocity)
     {
         _climbing = false;
+        _vitalsClimbStart = null;
         _pullPhase = 0;
         _faceLost = 0;
         MotionMode = MotionModeEnum.Grounded;
@@ -1314,6 +1951,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (_climbing || _swimming) MotionMode = MotionModeEnum.Grounded;
         _climbing = false;
+        _vitalsClimbStart = null;
         _swimming = false;
         _pullPhase = 0;
         _faceLost = 0;
@@ -1363,12 +2001,11 @@ public partial class SmallPlayerController : CharacterBody3D
             // The capsule's nearest point to its support plane: the bottom sphere's centre, less a radius along the
             // floor normal. A ray from just above it along the normal measures the gap exactly on flat ground.
             var nearest = GlobalPosition + Vector3.Up * BodyRadiusM - normal * BodyRadiusM;
-            var query = PhysicsRayQueryParameters3D.Create(nearest + normal * 0.001f, nearest - normal * (MaxSeatGapM + 0.0005f), CollisionMask);
-            query.Exclude = new Array<Rid> { GetRid() };
-            var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+            using var query = PhysicsRayQueryParameters3D.Create(nearest + normal * 0.001f, nearest - normal * (MaxSeatGapM + 0.0005f), CollisionMask, ExcludeSelf);
+            using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
             if (hit.Count > 0)
             {
-                var along = (nearest - hit["position"].AsVector3()).Dot(normal);
+                var along = (nearest - hit[HitPosition].AsVector3()).Dot(normal);
                 // Farther than the largest resting gap is not a resting gap (an edge, a step): leave the visual alone.
                 if (along <= MaxSeatGapM) gap = Mathf.Clamp(along / normal.Y, 0.0f, MaxSeatGapM);
             }
@@ -1379,40 +2016,41 @@ public partial class SmallPlayerController : CharacterBody3D
     protected bool HasSupportNear(Vector3 position, float maximumDrop = -1)
     {
         if (maximumDrop < 0) maximumDrop = BodyHeightM * 0.5f;
-        var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
-            position - Vector3.Up * maximumDrop, RoomBuilder.BodyMask);
-        query.Exclude = new Array<Rid> { GetRid() };
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        return hit.Count > 0 && hit["normal"].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
+        using var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
+            position - Vector3.Up * maximumDrop, RoomBuilder.BodyMask, ExcludeSelf);
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        return hit.Count > 0 && hit[HitNormal].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
     }
 
     private bool FindSupportedPosition(Vector3 requested, out Vector3 result)
     {
         result = requested;
-        var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
-            requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), RoomBuilder.BodyMask);
-        ray.Exclude = new Array<Rid> { GetRid() };
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
-        if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;
+        using var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
+            requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), RoomBuilder.BodyMask, ExcludeSelf);
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
+        if (hit.Count == 0 || hit[HitNormal].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;
         // A vertical capsule touches a slope off its centre ray. Raise its lower
         // hemisphere enough to clear the support plane, then check the entire
         // body against nearby geometry (including roofs and uneven terrain).
-        var supportNormal = hit["normal"].AsVector3();
+        var supportNormal = hit[HitNormal].AsVector3();
         var slopeClearance = BodyRadiusM * (1.0f / supportNormal.Y - 1.0f);
-        result = hit["position"].AsVector3() + Vector3.Up * (slopeClearance + SafeMarginM * 2 + 0.001f);
+        result = hit[HitPosition].AsVector3() + Vector3.Up * (slopeClearance + SafeMarginM * 2 + 0.001f);
         return CapsuleFits(result);
     }
 
     /// <summary>Whether the whole body fits with its feet here (nothing on its mask inside the capsule).</summary>
     private bool CapsuleFits(Vector3 feet)
     {
-        var query = new PhysicsShapeQueryParameters3D
+        using var query = new PhysicsShapeQueryParameters3D
         {
             Shape = _capsule, CollisionMask = CollisionMask,
             Transform = new Transform3D(Basis.Identity, feet + Vector3.Up * (BodyHeightM * 0.5f)),
-            Margin = SafeMarginM * 0.5f, Exclude = new Array<Rid> { GetRid() }
+            Margin = SafeMarginM * 0.5f, Exclude = ExcludeSelf
         };
-        return GetWorld3D().DirectSpaceState.IntersectShape(query, 1).Count == 0;
+        // Disposed at once: the Gubble's way home tries dozens of spots in one tick, and wrappers left to the finalizer trip Godot's exit.
+        var hits = GetWorld3D().DirectSpaceState.IntersectShape(query, 1);
+        using var answer = (Godot.Collections.Array)hits;
+        return hits.Count == 0;
     }
 
     private bool TryStep(Vector3 horizontalMotion)

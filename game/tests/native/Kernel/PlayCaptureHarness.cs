@@ -18,7 +18,7 @@ namespace EnFractal.Tests.Kernel;
 ///
 /// User arguments (after "--"): --out=DIR [--tag=TEXT] [--scenarios=label_f2,label_f3_orbit,run_f3,run_f2,timing]
 /// [--taa=true|false] [--msaa=0|2|4|8] [--saa=fxaa] [--fsr2=true] [--dof-jitter=true|false] [--interp=true|false] [--fps=0|60|144] [--vsync=true|false]
-/// [--hour=17.5] [--date=2026-10-06] [--frames=N]
+/// [--hour=17.5] [--date=2026-10-06] [--frames=N] [--probe] [--seam-z=-29.8,...] [--seam-pitch=0] (seam_f2: PlayCaptureHarness.Seam.cs)
 ///   taa, msaa  the window's anti-aliasing (the project default is TAA on, MSAA off)
 ///   interp     physics interpolation in the scene tree (the project default is off)
 ///   fps        the frame-rate cap (0 is uncapped); with --vsync=false it stands in for a monitor's refresh rate
@@ -46,7 +46,8 @@ public partial class PlayCaptureHarness : Node
                 var split = text.IndexOf('=');
                 _args[split < 0 ? text : text[..split]] = split < 0 ? "true" : text[(split + 1)..];
             }
-            if (DisplayServer.GetName() == "headless")
+            // --probe: a scenario that measures without pictures (seam_f2) may run headless.
+            if (DisplayServer.GetName() == "headless" && Arg("probe", "false") != "true")
             {
                 GD.Print("PLAY_CAPTURE: needs a real window on the GPU; --headless renders nothing. Run tools/kernel/capture-play.ps1.");
                 GetTree().Quit(2);
@@ -74,7 +75,7 @@ public partial class PlayCaptureHarness : Node
             // --room=ID|DIR: a captured or exported room (a landscape) instead of the test room.
             if (Arg("room", "").Length > 0) _world.RoomDirectory = RoomWorld.ResolveRoom(Arg("room", "").Replace('\\', '/'));
             AddChild(_world);
-            for (var i = 0; i < 900 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
             _hud = _world.GetNode<RoomHud>("RoomHud");
             _label = _world.Companion.GetNode<Label3D>("CompanionLabel");
@@ -114,6 +115,7 @@ public partial class PlayCaptureHarness : Node
                     case "steady_f2": await Steady(1, "steady_f2"); break;
                     case "timing": await Timing(); break;
                     case "landscape": await Landscape(); break;
+                    case "seam_f2": await SeamF2(); break;
                     default: throw new ArgumentException("unknown scenario " + scenario);
                 }
             }

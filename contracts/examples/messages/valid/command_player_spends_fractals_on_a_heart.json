@@ -1,0 +1,11 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "spend-0001",
+  "room_id": "garage_example",
+  "op": "fractal.spend",
+  "args": {
+    "grow": "heart"
+  },
+  "note": "Player-only, at the camp: five Fractals make a heart."
+}

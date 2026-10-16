@@ -5,6 +5,9 @@ const TEXTURE_ROOT := "res://assets/art/painterly/textures/"
 const TREE_ROOT := "res://assets/art/painterly/trees/"
 const STYLE_VERSION := "painterly_v1"
 static var _materials: Dictionary = {}
+## The live oak's leaf saturation for the season (L10): the look sets it once per moment (LandSeason.Apply) and new oak leaves
+## take it too. The Ashe juniper keeps its own all year: an evergreen that turned would be wrong in a Texas garage.
+static var _oak_season_saturation := 1.0
 
 
 static func foliage_material(species := "oak") -> ShaderMaterial:
@@ -18,8 +21,17 @@ static func foliage_material(species := "oak") -> ShaderMaterial:
 	material.set_shader_parameter("leaf_paint", load(TEXTURE_ROOT + texture_name))
 	material.set_shader_parameter("leaf_tint", Color(0.82, 0.94, 0.93) if species == "juniper" else Color(0.95, 1.0, 0.89))
 	material.set_shader_parameter("paint_mid", Color(0.28, 0.42, 0.33) if species == "juniper" else Color(0.39, 0.48, 0.25))
+	material.set_shader_parameter("season_saturation", 1.0 if species == "juniper" else _oak_season_saturation)
 	_materials[key] = material
 	return material
+
+
+## The season on the room's trees, from the look (LandSeason.Apply): the live oak's leaves at this saturation (1 as painted).
+static func apply_season(oak_saturation: float) -> void:
+	_oak_season_saturation = oak_saturation
+	for key in _materials:
+		if str(key).begins_with("foliage_") and key != "foliage_juniper":
+			(_materials[key] as ShaderMaterial).set_shader_parameter("season_saturation", oak_saturation)
 
 
 static func bark_material() -> ShaderMaterial:

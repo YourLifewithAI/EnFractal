@@ -14,7 +14,8 @@ import test_host_boundary as base
 import test_host_review_fixes as fixes
 import test_perception as perception_tests
 import test_perception_memory as memory_tests
-from support import COMPANION, NO_HOLDS, PLAYER, HostPolicy, command, example, new_host, query, retarget, GARAGE_TO_TEST_ROOM
+from support import (COMPANION, IN_THE_OPEN, NO_HOLDS, PLAYER, HostPolicy, command, example, glow, new_host, query, retarget,
+                     GARAGE_TO_TEST_ROOM)
 
 
 class NoHoldsCase(base.HostCase):
@@ -71,10 +72,12 @@ class NothingHeld(NoHoldsCase):
         self.assertNotIn("approved_by", result)
         self.assertTrue(self.host.entities["obj:box"].removed)
 
+    # room.undo takes back nature changes only (contracts/README.md "Revisions"): no undo can unlock, relock or move
+    # anything, the companion's least of all.
     def test_companion_undo_cannot_unlock_the_players_lock(self):
         self.lock_as_player("obj:box")
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertRefused(result, "target_protected", "$.args.to_revision")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertTrue(self.host.entities["obj:box"].protected)
         self.assertEqual(self.host.entities["obj:box"].protected_by, PLAYER)
 
@@ -84,7 +87,7 @@ class NothingHeld(NoHoldsCase):
                                                     expected_entities={"obj:box": 1}))
         self.assertTrue(unlocked["ok"])
         result = self.send(command("room.undo", {"to_revision": 1}, "undo-1", expected_revision=2))
-        self.assertRefused(result, "target_protected")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertFalse(self.host.entities["obj:box"].protected)
 
     def test_companion_undo_cannot_move_a_protected_entity_back(self):
@@ -92,16 +95,15 @@ class NothingHeld(NoHoldsCase):
                                          "p-move"))
         self.lock_as_player("obj:box")
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=2))
-        self.assertRefused(result, "target_protected")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertEqual(self.host.entities["obj:box"].position, [1.2, 0, 0.3])
 
-    def test_companion_undo_of_unprotected_changes_still_works(self):
+    def test_companion_undo_of_its_own_move_is_not_an_undo_either(self):
         self.lock_as_player("obj:box")
         self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
         result = self.send(command("room.undo", {"to_revision": 1}, "undo-1", expected_revision=2))
-        self.assertTrue(result["ok"], result)
-        self.assertEqual(result["affected"], ["obj:book"])
-        self.assertEqual(self.host.entities["obj:book"].position, [0.45, 0.0, 0.1])
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
+        self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
         self.assertTrue(self.host.entities["obj:box"].protected)
 
     def test_locks_resist_every_changing_command(self):
@@ -117,43 +119,41 @@ class NothingHeld(NoHoldsCase):
         self.assertTrue(self.host.entities["obj:box"].protected)
 
     def test_the_players_stop_stops_the_companions_goals_and_effects(self):
-        self.send(command("effect.start", {"capability": "wind_field", "params": {"speed_mps": 5},
-                                           "area": {"center_m": [0, 0.3, 0], "radius_m": 3}, "duration_s": 600}, "wind-1"))
+        light = self.send(glow("glow-1", radius=1.5, duration=600))["created"][0]
         self.send(command("goal.set", {"actor": "avatar:companion", "goal": "wander"}, "g-1"))
         stop = self.host.player_command(command("goal.stop", {}, "p-stop"))
         self.assertTrue(stop["ok"])
-        self.assertIn("effect:0001", stop["affected"])
+        self.assertIn(light, stop["affected"])
+        self.assertEqual(stop["data"]["effects_stopped"], 1)
         self.assertNotIn("avatar:companion", self.host.goals)
-        self.assertTrue(self.host.entities["effect:0001"].removed)
+        self.assertEqual(self.host.active_effect_ids(), [])
 
     def test_the_players_effect_stop_stops_companion_effects_all_or_by_id(self):
-        for i in range(2):
-            self.send(command("effect.start", {"capability": "glow", "params": {"intensity": 1},
-                                               "area": {"center_m": [0, 0.3, 0], "radius_m": 1}, "duration_s": 60}, f"glow-{i}"))
-        by_id = self.host.player_command(command("effect.stop", {"effect": "effect:0001"}, "p-stop-1"))
-        self.assertEqual(by_id["affected"], ["effect:0001"])
+        first, second = (self.send(glow(f"glow-{i}", at=IN_THE_OPEN))["created"][0] for i in range(2))
+        by_id = self.host.player_command(command("effect.stop", {"effect": first}, "p-stop-1"))
+        self.assertEqual((by_id["affected"], by_id["data"]), ([first], {"effects_stopped": 1}))
         all_of_them = self.host.player_command(command("effect.stop", {"effect": "all"}, "p-stop-2"))
-        self.assertEqual(all_of_them["affected"], ["effect:0002"])
-        self.assertTrue(all(e.removed for e in self.host.entities.values() if e.kind == "effect"))
+        self.assertEqual(all_of_them["affected"], [second])
+        self.assertEqual(self.host.active_effect_ids(), [])
 
     def test_the_companion_cannot_stop_the_players_effects(self):
-        self.host.player_command(command("effect.start", {"capability": "glow", "params": {"intensity": 1},
-                                                          "area": {"center_m": [0, 0.3, 0], "radius_m": 1}, "duration_s": 60},
-                                         "p-glow"))
-        result = self.send(command("effect.stop", {"effect": "all"}, "stop-1"))
-        self.assertEqual(result["affected"], [])
-        self.assertFalse(self.host.entities["effect:0001"].removed)
+        players = self.host.player_command(glow("p-glow", at=IN_THE_OPEN))["created"][0]
+        for which in ("all", players):
+            with self.subTest(which=which):
+                result = self.send(command("effect.stop", {"effect": which}, f"stop-{which[-4:]}"))
+                self.assertTrue(result["ok"], result)  # a stop always applies, and stops nothing it may not
+                self.assertNotIn("affected", result)
+                self.assertEqual(result["data"], {"effects_stopped": 0})
+        stop = self.send(command("goal.stop", {}, "stop-goal"))
+        self.assertNotIn(players, stop["affected"])
+        self.assertEqual(self.host.active_effect_ids(), [players])
 
     def test_effect_and_creation_budgets_hold(self):
         self.host.policy = dataclasses.replace(self.host.policy, max_creations=1)
-        for i in range(4):
-            self.assertTrue(self.send(command("effect.start", {"capability": "glow", "params": {"intensity": 1},
-                                                              "area": {"center_m": [0, 0.3, 0], "radius_m": 1},
-                                                              "duration_s": 60}, f"glow-{i}"))["ok"])
-        self.assertRefused(self.send(command("effect.start", {"capability": "glow", "params": {"intensity": 1},
-                                                              "area": {"center_m": [0, 0.3, 0], "radius_m": 1},
-                                                              "duration_s": 60}, "glow-4")), "budget_exceeded")
-        source = example("command_creation_place_spinner")["args"]["source"]
+        for i in range(3):  # the pack's max_active for glow
+            self.assertTrue(self.send(glow(f"glow-{i}", params={"intensity": 1}, radius=1))["ok"])
+        self.assertRefused(self.send(glow("glow-3", params={"intensity": 1}, radius=1)), "budget_exceeded")
+        source = example("command_creation_place_trigger_light")["args"]["source"]
         first = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1"))
         self.assertTrue(first["ok"], first)
         self.assertRefused(self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.6, 0, 0.5]}},
@@ -166,9 +166,10 @@ class NothingHeld(NoHoldsCase):
             self.assertRefused(result, "invalid_args", "$.args.preset_version")
 
 
-class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):
-    """Review finding 1 and LIVE-VOICE's "never exposed" list: with nothing held, a companion's room.undo
-    may neither touch protection nor step back over the player's changes."""
+class UndoIsOnlyForNatureChanges(NoHoldsCase):
+    """Review finding 1 and LIVE-VOICE's "never exposed" list, with nothing held: a companion's room.undo may neither
+    touch protection nor step back over the player's changes. Since 13 October room.undo takes back nature changes only
+    (the kernel's NatureUndo; the mock simulates no nature), so every undo of these changes is refused, and nothing moves."""
 
     def place_as_player(self, target, position, action_id):
         result = self.host.player_command(command("entity.place", {"target": target, "placement": {"position_m": position}},
@@ -179,43 +180,45 @@ class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):
         self.place_as_player("obj:book", [0.3, 0, 0.3], "p-move")
         before = self.world()
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertRefused(result, "permission_denied", "$.args.to_revision")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertEqual(self.world(), before)
         self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
 
     def test_companion_undo_cannot_take_away_the_players_creation(self):
-        spinner = example("command_creation_place_spinner")["args"]["source"]
-        placed = self.host.player_command(command("creation.place", {"source": spinner,
+        sample = example("command_creation_place_trigger_light")["args"]["source"]
+        placed = self.host.player_command(command("creation.place", {"source": sample,
                                                                      "placement": {"position_m": [0.5, 0, 0.5]}}, "p-place"))
         self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=2))
-        self.assertRefused(result, "permission_denied")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertFalse(self.host.entities[placed["created"][0]].removed)
 
-    def test_companion_undo_steps_back_over_its_own_changes_only(self):
+    def test_companion_undo_does_not_step_back_over_its_own_moves_either(self):
         self.place_as_player("obj:rug", [0.1, 0, 0.6], "p-move")
         self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
         self.send(command("entity.place", {"target": "obj:box", "placement": {"position_m": [1.2, 0, 0.3]}}, "move-2"))
-        self.assertRefused(self.send(command("room.undo", {"to_revision": 0}, "undo-0", expected_revision=3)),
-                           "permission_denied")
-        result = self.send(command("room.undo", {"to_revision": 1}, "undo-1", expected_revision=3))
-        self.assertTrue(result["ok"], result)
-        self.assertEqual(result["affected"], ["obj:book", "obj:box"])
-        self.assertEqual(self.host.entities["obj:rug"].position, [0.1, 0, 0.6])
+        before = self.world()
+        for to_revision, action_id in ((0, "undo-0"), (1, "undo-1"), (2, "undo-2")):
+            with self.subTest(to_revision=to_revision):
+                self.assertRefused(self.send(command("room.undo", {"to_revision": to_revision}, action_id, expected_revision=3)),
+                                   "unsupported_capability", "$.args.to_revision")
+        self.assertRefused(self.send(command("room.undo", {"to_revision": 3}, "undo-3", expected_revision=3)),
+                           "invalid_args", "$.args.to_revision")
+        self.assertEqual(self.world(), before)
 
     def test_companion_undo_cannot_remove_even_its_own_lock(self):
         locked = self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
         self.assertTrue(locked["ok"])
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertRefused(result, "target_protected")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertTrue(self.host.entities["obj:box"].protected)
 
-    def test_the_players_own_undo_is_unrestricted(self):
+    def test_the_players_own_undo_takes_back_nature_changes_only_too(self):
         self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
         self.place_as_player("obj:book", [0.3, 0, 0.3], "p-move")
         result = self.host.player_command(command("room.undo", {"to_revision": 0}, "p-undo", expected_revision=2))
-        self.assertTrue(result["ok"], result)
-        self.assertFalse(self.host.entities["obj:box"].protected)
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
+        self.assertTrue(self.host.entities["obj:box"].protected)
 
 
 class StopsAndTheLedgerWithNothingHeld(NoHoldsCase):
@@ -228,10 +231,10 @@ class StopsAndTheLedgerWithNothingHeld(NoHoldsCase):
         return self.host.handle(principal, command("protect.lock", {"targets": [target]}, action_id,
                                                    expected_entities={target: self.host.entities[target].revision}))
 
-    def wind(self, action_id):
-        return self.send(command("effect.start", {"capability": "wind_field", "params": {"speed_mps": 5},
-                                                  "area": {"center_m": [0, 0.3, 0], "radius_m": 3}, "duration_s": 600},
-                                 action_id))
+    def light(self, action_id):
+        result = self.send(glow(action_id, params={"intensity": 1}, radius=1.5, duration=600))
+        self.assertTrue(result["ok"], result)
+        return result["created"][0]
 
     def test_the_companion_cannot_spend_the_players_share_of_the_ledger(self):
         self.assertTrue(self.lock("obj:box", "lock-1")["ok"])
@@ -242,7 +245,7 @@ class StopsAndTheLedgerWithNothingHeld(NoHoldsCase):
         self.assertRefused(self.lock("obj:table", "p-lock-3", PLAYER), "receipt_limit")
 
     def test_stops_apply_with_the_ledger_full_and_the_rate_budget_spent(self):
-        self.assertTrue(self.wind("wind-1")["ok"])
+        light = self.light("glow-1")
         self.send(command("goal.set", {"actor": "avatar:companion", "goal": "wander"}, "g-1"))
         self.lock("obj:box", "lock-1")
         self.lock("obj:book", "lock-2")
@@ -257,25 +260,25 @@ class StopsAndTheLedgerWithNothingHeld(NoHoldsCase):
         stop = self.host.player_command(command("goal.stop", {}, "p-stop"))
         self.assertTrue(stop["ok"], stop)
         self.assertNotIn("avatar:companion", self.host.goals)
-        self.assertTrue(self.host.entities["effect:0001"].removed)
+        self.assertNotIn(light, self.host.active_effect_ids())
         for message in (command("goal.stop", {}, "stop-1"), command("effect.stop", {"effect": "all"}, "stop-2"),
                         command("goal.stop", {}, "lock-1"), command("effect.stop", {"effect": "all"}, "stop-2")):
             with self.subTest(action_id=message["action_id"]):
                 self.assertTrue(self.send(message)["ok"])
 
     def test_the_players_stop_naming_the_companion_stops_its_goals_and_effects(self):
-        self.wind("wind-1")
+        light = self.light("glow-1")
         self.send(command("goal.set", {"actor": "avatar:companion", "goal": "wander"}, "g-1"))
         stop = self.host.player_command(command("goal.stop", {"actor": "avatar:companion"}, "p-stop"))
-        self.assertEqual(stop["affected"], ["avatar:companion", "effect:0001"])
-        self.assertTrue(self.host.entities["effect:0001"].removed)
+        self.assertEqual(stop["affected"], ["avatar:companion", light])
+        self.assertEqual(self.host.active_effect_ids(), [])
         self.assertNotIn("avatar:companion", self.host.goals)
 
     def test_the_players_stop_of_their_own_avatar_leaves_the_companion_alone(self):
-        self.wind("wind-1")
+        light = self.light("glow-1")
         stop = self.host.player_command(command("goal.stop", {"actor": "avatar:player"}, "p-stop"))
-        self.assertEqual(stop["affected"], ["avatar:player"])
-        self.assertFalse(self.host.entities["effect:0001"].removed)
+        self.assertEqual((stop["affected"], stop["data"]), (["avatar:player"], {"effects_stopped": 0}))
+        self.assertEqual(self.host.active_effect_ids(), [light])
 
 
 # Every other host suite whose protections do not depend on holding, again with nothing held. (The

@@ -29,6 +29,8 @@ namespace EnFractal.Native.Companion;
 ///   team's map and journal belong to the room and are saved with it, so a session no longer clears them.
 /// - Shows the companion's state on its avatar (<see cref="CompanionStatusCue"/>): listening, planning, acting, or
 ///   waiting for the player's yes; nothing when no AI is linked.
+/// - Keeps Trust's clock (M8): the host settles the Gubble's windows of clean initiative and checks the free early warning
+///   a few times a second (<see cref="CommandHost.SettleTrust"/>), and the Gubble's cue shows the warning's words.
 /// The goals themselves (follow, come, look_at, point_at) run in the host, which watches the body for their arrival.
 /// The integrator's one-line wiring: RoomWorld calls <c>Companion.CompanionBridge.Attach(this)</c> after the command host.
 /// </summary>
@@ -49,12 +51,18 @@ public partial class CompanionBridge : Node
     public const int MaxWorkPerFrame = 32;
     /// <summary>Requests waiting for the main thread at once. The link sends one at a time, so this is never reached by the real companion.</summary>
     public const int MaxQueuedRequests = 64;
+    /// <summary>How often Trust's clock runs (M8): settling is exact whenever it runs, so this only sets how soon the warning shows.</summary>
+    public const double TrustTickS = 0.25;
 
     public CommandHost Host { get; private set; } = null!;
     public CompanionAvatar? Companion { get; private set; }
     /// <summary>user:// or an absolute path.</summary>
     public string SessionPath { get; private set; } = DefaultSessionPath;
     public CompanionLinkServer? Link { get; private set; }
+    /// <summary>A separate token and listener grant only wish claim/update access, never world commands.</summary>
+    public CompanionLinkServer? RunnerLink { get; private set; }
+    public string RunnerSessionPath => Path.Combine(Path.GetDirectoryName(Globalize(SessionPath))!, "wish-runner.json");
+    public string RunnerNotice { get; private set; } = "";
     /// <summary>Why the link is not running, for the player; empty while it runs.</summary>
     public string LinkNotice { get; private set; } = "";
     /// <summary>offline (no AI linked), listening, planning, acting or waiting.</summary>
@@ -73,6 +81,7 @@ public partial class CompanionBridge : Node
     private int _sessions;
     private double _lastRequestS = double.NegativeInfinity;
     private bool _closed;
+    private double _trustClockS;
 
     public static CompanionBridge Attach(RoomWorld world) =>
         Create(world, CommandHost.Of(world) ?? throw new InvalidOperationException("Attach the command host before the companion bridge."), world.Companion);
@@ -97,6 +106,8 @@ public partial class CompanionBridge : Node
             // Under the name tag, so the cue keeps its billboard size and hides with it when the camera is close.
             (Companion.GetNodeOrNull<Label3D>("CompanionLabel") as Node ?? Companion).AddChild(Cue);
         }
+        // The free early warning of Trust's bands (M8): the Gubble's cue says it, linked AI or not.
+        Host.EarlyWarning += ShowWarning;
         if (OS.GetCmdlineUserArgs().Contains(DisableArgument))
         {
             LinkNotice = "The companion link is off for this run.";
@@ -130,6 +141,21 @@ public partial class CompanionBridge : Node
         }
         // Never the token: the session file is the only place it is written.
         GD.Print($"COMPANION_LINK listening room={Host.Room.RoomId} host={Link.Host} port={Link.Port}");
+        // This starts a local listener only. The player explicitly launches their chosen runner program.
+        RunnerLink = new CompanionLinkServer(Host.Room.RoomId, DispatchRunner,
+            name => _work.Enqueue(() => { if (!_closed && IsInstanceValid(Host)) Host.WishRunnerSession(name == "start"); }),
+            principal: CommandHost.RunnerPrincipal, avatar: "");
+        RunnerLink.Note += Noted;
+        try
+        {
+            RunnerLink.Start();
+            WriteSessionFile(RunnerSessionPath, RunnerLink.Host, RunnerLink.Port, RunnerLink.Token, RunnerLink.RoomId);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Net.Sockets.SocketException)
+        {
+            RunnerLink.Stop(); RunnerLink = null;
+            RunnerNotice = "The local wish runner link could not start.";
+        }
     }
 
     public override void _Process(double delta)
@@ -138,16 +164,36 @@ public partial class CompanionBridge : Node
         for (var done = 0; done < MaxWorkPerFrame && _work.TryDequeue(out var work); done++) work();
         PrintNotes();
         UpdateState();
+        _trustClockS += delta;
+        if (_trustClockS >= TrustTickS && IsInstanceValid(Host))
+        {
+            _trustClockS = 0;
+            Host.SettleTrust();
+        }
+    }
+
+    private void ShowWarning(string words)
+    {
+        if (Cue != null && IsInstanceValid(Cue)) Cue.Warn(words);
     }
 
     public override void _ExitTree()
     {
         _closed = true;
+        if (IsInstanceValid(Host))
+        {
+            Host.EarlyWarning -= ShowWarning;
+            // The last windows settle before the room goes: a gain already earned is written to the team file now.
+            Host.SettleTrust();
+        }
         Link?.Stop();
+        RunnerLink?.Stop();
+        if (IsInstanceValid(Host)) Host.WishRunnerSession(false);
         // Anything still queued is refused, so no connection waits on a host that is gone.
         while (_work.TryDequeue(out var work)) work();
         // Still holding the lock: no other game can write a session file between the check and the delete.
         if (Link != null) DeleteSessionFileIfOurs(Globalize(SessionPath), Link.Token);
+        if (RunnerLink != null) DeleteSessionFileIfOurs(RunnerSessionPath, RunnerLink.Token);
         ReleaseOwnership();
     }
 
@@ -208,7 +254,9 @@ public partial class CompanionBridge : Node
 
     // ---- requests, on the main thread ----
 
-    private Task<string> Dispatch(string message)
+    private Task<string> Dispatch(string message) => Dispatch(message, runner: false);
+    private Task<string> DispatchRunner(string message) => Dispatch(message, runner: true);
+    private Task<string> Dispatch(string message, bool runner)
     {
         // Only an authenticated companion reaches here, one request at a time; a backlog means something is wrong,
         // and that connection is closed rather than queued.
@@ -226,18 +274,25 @@ public partial class CompanionBridge : Node
                 answer.TrySetException(new ObjectDisposedException(nameof(CompanionBridge)));
                 return;
             }
-            try
-            {
-                var result = Host.HandleObject(message, CommandHost.CompanionPrincipal);
-                Answered++;
-                var op = result["op"]?.GetValue<string>() ?? "invalid";
-                // A stop is not planning: the avatar shows the stop at once.
-                _lastRequestS = op is "goal.stop" or "effect.stop" ? double.NegativeInfinity : Seconds();
-                answer.TrySetResult(CanonicalJson.Text(result));
-            }
-            catch (Exception error) { answer.TrySetException(error); }
+            // The authenticated endpoint assigns the role. No message can promote a runner to a companion. A look (view.look)
+            // waits a frame or two for its picture on the main thread; everything else answers at once.
+            _ = Answer(runner, message, answer);
         });
         return answer.Task;
+    }
+
+    private async Task Answer(bool runner, string message, TaskCompletionSource<string> answer)
+    {
+        try
+        {
+            var result = runner ? Host.HandleWishRunner(message) : await Host.HandleObjectAsync(message, CommandHost.CompanionPrincipal);
+            Answered++;
+            var op = result["op"]?.GetValue<string>() ?? "invalid";
+            // A stop is not planning: the avatar shows the stop at once.
+            if (!runner) _lastRequestS = op is "goal.stop" or "effect.stop" ? double.NegativeInfinity : Seconds();
+            answer.TrySetResult(CanonicalJson.Text(result));
+        }
+        catch (Exception error) { answer.TrySetException(error); }
     }
 
     private void OnSession(string name)

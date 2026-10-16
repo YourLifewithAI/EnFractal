@@ -56,7 +56,26 @@ public partial class LookDirector : Node3D
     /// land: the sun needs no opening, the sky's own light fills the shade, and there is no closed interior to bake.
     /// </summary>
     public bool OpenLand { get; private set; }
+    /// <summary>
+    /// The far plane of the room's play cameras (ViewDistances.FarPlaneM: 100 m in a room and on the 1x island, 250 m on the 10x
+    /// island). The look keeps the game's current camera at it every frame; cameras the review harness frames keep their own.
+    /// </summary>
+    public float FarPlaneM { get; private set; } = ViewDistances.MinFarM;
+    /// <summary>The sun's shadows on open land (ViewDistances.OpenLandShadows); unused indoors.</summary>
+    public LandShadows LandShadows { get; private set; }
     public VoxelGI? Gi { get; private set; }
+    /// <summary>
+    /// The focus highlight (Run 2): the one thing the next key press would act on wears a soft rim and line (FocusLook). The play
+    /// lane says which thing with SetFocusHighlight; things that can't be used stay plain.
+    /// </summary>
+    public FocusHighlight Highlight => _highlight ??= new FocusHighlight();
+    private FocusHighlight? _highlight;
+
+    /// <summary>Put the focus highlight on one thing (its every mesh), or on nothing (null). One thing at a time: the last one is cleared.</summary>
+    public void SetFocusHighlight(Node3D? target) => Highlight.Set(target);
+
+    /// <summary>The endless sea past the room's own meshes (OpenSea), once a room with a sea is dressed; null in a room without one.</summary>
+    public OpenSea? OpenSea { get; private set; }
     public Godot.Environment Environment { get; private set; } = null!;
     /// <summary>The sun by day and the moon by night. Hidden in a room without a sun light hint (no window lets the sun in).</summary>
     public DirectionalLight3D Key { get; private set; } = null!;
@@ -92,8 +111,21 @@ public partial class LookDirector : Node3D
     /// Observe tracks depth immediately; ordinary focus eases. Off by default; the HUD supplies its key.
     /// </summary>
     public bool Observe { get; set; }
-    /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
+    /// <summary>
+    /// Which play view the camera stands for, so each blurs its own way (x_look_views): set by whoever frames a camera the look
+    /// does not otherwise know (the review harness, a preview). Unset, the game's camera follows the HUD's view keys
+    /// (RoomHud.ViewMode: F1 eye, F2 shoulder, F3 diorama, F4 isometric), the player's own eye camera is the eye view, and any
+    /// other camera keeps the preset's miniature blur.
+    /// </summary>
+    public LookView? View { get; set; }
+    /// <summary>Where the clock comes from: the real clock and calendar, the island's world clock, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
     public string ClockNote { get; private set; } = "";
+    /// <summary>
+    /// The island's clock record (the room state's extensions.x_clock), or null for the machine's own clock. Null, or a record with
+    /// day_scale 1 and no phase, leaves the look exactly as it was; the preset's follow_clock and follow_calendar still decide whether
+    /// the look follows a clock at all, and a pin still wins over it.
+    /// </summary>
+    public WorldClock? WorldClock { get; private set; }
     /// <summary>Empty when the room declared its own site; otherwise why the sun uses the look's fallback site.</summary>
     public string SiteNote { get; private set; } = "";
     /// <summary>Things that went wrong with the look but did not stop the room: shown in reports and the review harness.</summary>
@@ -152,6 +184,8 @@ public partial class LookDirector : Node3D
         preset = Preset;
         _room = room;
         OpenLand = LandscapeLook.IsOpenLand(room);
+        FarPlaneM = ViewDistances.FarPlaneM(room);
+        LandShadows = ViewDistances.OpenLandShadows(ViewDistances.SpanM(room));
         SiteNote = siteNote;
         if (siteNote.Length > 0) GD.Print("LOOK: " + siteNote);
         MaterialLibrary.Configure(preset);
@@ -301,21 +335,27 @@ public partial class LookDirector : Node3D
             ShadowEnabled = preset.KeyCastsShadows && preset.ShadowsEnabled,
             LightAngularDistance = s.KeyAngularBaseDeg + s.KeyAngularPerSoftnessDeg * softness,
             ShadowBlur = s.BlurBase + s.BlurPerSoftness * softness,
-            DirectionalShadowMode = s.KeySplits switch
+            DirectionalShadowMode = (OpenLand ? LandShadows.Splits : s.KeySplits) switch
             {
                 1 => DirectionalLight3D.ShadowMode.Orthogonal,
                 4 => DirectionalLight3D.ShadowMode.Parallel4Splits,
                 _ => DirectionalLight3D.ShadowMode.Parallel2Splits,
             },
-            // Open land casts its shadows as far as the eye sees them (the hills and trees of the backdrop), not just over a room.
-            DirectionalShadowMaxDistance = OpenLand ? OpenLandLight.ShadowDistanceM : Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
-            DirectionalShadowSplit1 = OpenLand ? OpenLandLight.ShadowSplit1 : s.KeySplit1,
+            // Open land casts its shadows as far as the eye judges them (the hills and trees around), not just over a room: 30 m in
+            // two splits on the 1x island, up to 60 m in four on a big one (ViewDistances.OpenLandShadows).
+            DirectionalShadowMaxDistance = OpenLand ? LandShadows.DistanceM : Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
+            DirectionalShadowSplit1 = OpenLand ? LandShadows.Split1 : s.KeySplit1,
             DirectionalShadowBlendSplits = true,
             ShadowBias = s.KeyBias,
             ShadowNormalBias = s.KeyNormalBias,
             LightBakeMode = Light3D.BakeMode.Dynamic,
             Visible = SunScale > 0f,
         };
+        if (OpenLand && LandShadows.Splits == 4)
+        {
+            Key.DirectionalShadowSplit2 = LandShadows.Split2;
+            Key.DirectionalShadowSplit3 = LandShadows.Split3;
+        }
         AddChild(Key);
         // The moon stands outside the room's brightest window, so moonlight falls in through it.
         var window = room.LightHints
@@ -478,27 +518,59 @@ public partial class LookDirector : Node3D
         ApplyMoment(synchronous: true);
     }
 
+    /// <summary>
+    /// The hour and the day the world's clock reads now, before any pin: the machine's clock with no island clock record, the island's
+    /// clock with one. The HUD's time and season steps use it for the part they leave unpinned.
+    /// </summary>
+    public (float Hour, int DayOfYear) RealNow() => LookClock.Now(Preset, WorldClock);
+
+    /// <summary>Set the island's clock record (null: the machine's own clock) and redraw the sky for it. Reapplied when a new room state is read.</summary>
+    public void SetWorldClock(WorldClock? clock)
+    {
+        WorldClock = clock;
+        if (Preset != null) ApplyMoment(synchronous: true);
+    }
+
+    /// <summary>
+    /// Reads the room state's extensions.x_clock (null when it has none) and sets it. A record that does not pass the schema's checks, or names a
+    /// zone this machine does not know, is warned about and the look keeps the machine's clock. Returns the warning, or empty.
+    /// </summary>
+    public string SetWorldClockFrom(System.Text.Json.Nodes.JsonNode? record)
+    {
+        var clock = WorldClock.FromNode(record, out var error);
+        if (error.Length > 0) Warn(error + "; following the machine's clock instead");
+        SetWorldClock(clock);
+        return error;
+    }
+
     /// <summary>Whether the grade for the current moment is the one on screen (false while an off-thread LUT is building).</summary>
     public bool GradeCurrent => _wantedGrade != null && _luts.TryGetValue(_wantedGrade, out var lut) && Environment.AdjustmentColorCorrection == lut;
 
     private void ApplyMoment(bool synchronous)
     {
-        var now = LookClock.Now(Preset);
+        var now = RealNow();
         var hour = _pinnedHour ?? (Preset.FollowClock ? now.Hour : Preset.DefaultHour);
         var day = _pinnedDay ?? (Preset.FollowCalendar ? now.DayOfYear : Preset.Tuning.Seasons.FixedDayOfYear);
         var realClock = (_pinnedHour == null && Preset.FollowClock) || (_pinnedDay == null && Preset.FollowCalendar);
-        ClockNote = (_pinnedHour != null ? "hour pinned" : Preset.FollowClock ? "real clock" : "preset hour")
+        var world = WorldClock is { IsRealClock: false } clock ? clock : null;
+        ClockNote = (_pinnedHour != null ? "hour pinned" : Preset.FollowClock ? (world != null ? $"world clock x{world.DayScale} ({world.ZoneId})" : "real clock") : "preset hour")
             + (_pinnedDay != null ? ", day pinned" : Preset.FollowCalendar ? ", real calendar" : ", preset day")
             + (_clockSource.Length > 0 ? " (" + _clockSource + ")" : "")
-            + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving ? "; read as standard time" : "");
+            + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving && world is not { DayScale: > 1 } ? "; read as standard time" : "");
         Moment = LookClock.At(Preset, hour, day, _moonYaw);
+        // The season on the land (leaves, meadow, ground): albedo only, through the land shader's globals; nothing below reads it.
+        LandSeason.Apply(Moment);
         Key.LightColor = Moment.KeyColor;
         // On open land the whole ground stands in the sun, where indoors only a patch of floor does: the sun that is bright enough
         // for that patch would blow out every lit surface, so the open land's sun is a fraction of it (OpenLandLight.SunStrength).
         Key.LightEnergy = Moment.KeyEnergy * SunScale * (OpenLand ? OpenLandLight.SunStrength : 1f);
         // A summer sun casts a harder shadow than a winter one: the season sets how soft the shadow edge is.
         Key.ShadowBlur = (Preset.Tuning.Shadows.BlurBase + Preset.Tuning.Shadows.BlurPerSoftness * Preset.ShadowSoftness) * Mathf.Lerp(Moment.Look.SunBlur, 1f, Moment.MoonWeight);
-        if (_skyMaterial != null) LookSky.Apply(_skyMaterial, LookSky.At(Preset, Moment, _moonYaw));
+        var skyLook = LookSky.At(Preset, Moment, _moonYaw);
+        if (_skyMaterial != null) LookSky.Apply(_skyMaterial, skyLook);
+        OpenSea?.SetHorizon(skyLook.Horizon, skyLook.Brightness);
+        // Open land without a sea has the haze alone (with a sea, OpenSea draws it and closes the mist in from it).
+        if (OpenLand && OpenSea == null) ViewDistances.Apply(Environment, ViewDistances.Fog(0f, FarPlaneM, haze: true), skyLook.Horizon, skyLook.Brightness);
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
         var sky = SkyLevel(Preset, Moment);
         foreach (var fill in _skyFills)
@@ -570,6 +642,7 @@ public partial class LookDirector : Node3D
     public override void _ExitTree()
     {
         GetTree().NodeAdded -= OnNodeAdded;
+        ReleaseGlowAudio();
         Post?.Release();
     }
 
@@ -590,12 +663,19 @@ public partial class LookDirector : Node3D
     private void FlushPending()
     {
         _flushQueued = false;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var meshes = _pending.Where(m => IsInstanceValid(m) && m.IsInsideTree()).Distinct().ToArray();
         _pending.Clear();
         Node3D? bakeRoot = null;
         foreach (var mesh in meshes)
             if (DressMesh(mesh)) bakeRoot ??= SubtreeRoot(mesh);
+        var dressed = clock.Elapsed.TotalMilliseconds;
         if (bakeRoot != null) Bake(bakeRoot);
+        var baked = clock.Elapsed.TotalMilliseconds;
+        if (bakeRoot != null) BuildOpenSea(bakeRoot);
+        // The first recorded play's first frames: where the load's last frame went (a room's dressing, its bake, its sea).
+        if (clock.Elapsed.TotalMilliseconds > 30)
+            GD.Print(FormattableString.Invariant($"LOOK: dressed {meshes.Length} meshes in {dressed:0} ms, baked in {baked - dressed:0} ms, built the sea in {clock.Elapsed.TotalMilliseconds - baked:0} ms"));
     }
 
     /// <summary>
@@ -609,6 +689,31 @@ public partial class LookDirector : Node3D
         foreach (var mesh in root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Append(root as MeshInstance3D).OfType<MeshInstance3D>())
             bake |= DressMesh(mesh);
         if (bake) Bake(root);
+        if (bake) BuildOpenSea(root);
+    }
+
+    /// <summary>
+    /// A room with a sea gets the open sea once its shell is dressed: the surface and bed that follow the camera past the room's own
+    /// meshes, the backdrop's distant islands laid flat on the bed, and the sea mist that hides the island from the seam out.
+    /// </summary>
+    private void BuildOpenSea(Node3D root)
+    {
+        if (OpenSea != null || _room?.Sea is not { } sea || !root.IsInsideTree()) return;
+        var meshes = root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => m.HasMeta(DressedMeta)).ToArray();
+        OpenSea = OpenSea.Build(sea, _room.Bounds, meshes.Where(m => m.HasMeta(WaterMeta)),
+            meshes.Where(m => !m.HasMeta(WaterMeta) && m.HasMeta(LandscapeLook.LandscapePaintedMeta)));
+        OpenSea.Atmosphere = Environment;
+        OpenSea.Haze = OpenLand;
+        AddChild(OpenSea);
+        // The sea's fish follow the player's body, as depth of field does; never the Gubble.
+        OpenSea.SetSwimmer(() => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar));
+        if (Moment != null)
+        {
+            var skyLook = LookSky.At(Preset, Moment, _moonYaw);
+            OpenSea.SetHorizon(skyLook.Horizon, skyLook.Brightness);
+        }
+        if (OpenSea.Note.Length > 0) Warn(OpenSea.Note);
+        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, one sea floor at RoomSea.OpenSeaBedAt, no distant islands, the mist hiding the island from {OpenSea.SeamM:0.#} m (the seam)");
     }
 
     /// <summary>Dress one mesh; returns true when it is shell geometry that belongs in the GI bake.</summary>
@@ -646,6 +751,8 @@ public partial class LookDirector : Node3D
             mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
             mesh.GIMode = GeometryInstance3D.GIModeEnum.Disabled;
         }
+        // Ground that arrives once the sea is built (a tile, a part) wears the shore like the ground that was there.
+        if (OpenSea != null && mesh.HasMeta(LandscapeLook.LandscapePaintedMeta)) OpenSea.AdoptLand(mesh);
         return isShell;
     }
 
@@ -825,8 +932,10 @@ public partial class LookDirector : Node3D
     /// Tilt-shift also shortens the blur ramps, so the crisp band ends sooner and the frame's top and bottom melt.
     /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye), and
     /// alsoM is a second distance the band stretches to keep crisp (the companion beside the player).
+    /// view is how the view blurs (x_look_views): null or "miniature" is all of the above; "far" keeps everything from the
+    /// lens to crisp_beyond_focus_m past the subject crisp, with no near blur and no tilt-shift, and softens only what lies beyond.
     /// </summary>
-    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false)
+    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false, ViewBlur? view = null)
     {
         var t = preset.Tuning.Dof;
         var d = Mathf.Max(focusDistance, 0.05f);
@@ -839,6 +948,15 @@ public partial class LookDirector : Node3D
         }
         var nearest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Min(d, alsoM) : d;
         var farthest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Max(d, alsoM) : d;
+        if (view is { Far: true } far)
+        {
+            // Nothing near is soft (Godot's near blur smears well past its set distance: in F2 the ground under the camera, in F3
+            // the cliff beside it); the land stays crisp to the far start, and the far shore, the distant islands and the
+            // horizon soften over the transition.
+            var lens = Mathf.Min(preset.NearBlurDistanceM, 0.5f * nearest);
+            return new DepthOfField(preset.DofEnabled, farthest + far.CrispBeyondFocusM, far.FarTransitionM,
+                false, lens, Mathf.Max(lens * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur), 0.01f), far.FarAmount);
+        }
         var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * t.TiltPitchGain, 0f, 1f) : 0f;
         var halfBand = 0.5f * preset.FocusBandM * (1f - t.TiltBandNarrowing * tilt);
         var shorten = 1f - t.TiltTransitionShortening * tilt;
@@ -855,6 +973,7 @@ public partial class LookDirector : Node3D
     public void FrameCamera(Camera3D camera, Vector3 focusPoint)
     {
         _framed.Add(camera.GetInstanceId());
+        if (OpenSea != null) OpenSea.Camera = camera;
         Focus(camera, focusPoint);
     }
 
@@ -883,7 +1002,7 @@ public partial class LookDirector : Node3D
         var forward = -camera.GlobalBasis.Z;
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
         var also = alsoPoint is { } point ? (point - camera.GlobalPosition).Dot(forward) : float.NaN;
-        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe);
+        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe, ViewFor(camera) is { } view ? Preset.Tuning.BlurFor(view) : null);
         // Ordinary focus eases. Observe follows the current body/camera depth immediately,
         // including a mode change on the shared F3/F4 camera; the rig already eases its motion.
         var ease = Preset.Tuning.Dof.FocusEaseS;
@@ -908,7 +1027,30 @@ public partial class LookDirector : Node3D
         _ => null,
     };
 
-    private Node3D? CompanionBody() => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault();
+    private Node3D? CompanionBody()
+    {
+        if (FocusCompanion != null) return FocusCompanion;
+        // Found once and kept (asked every frame: a list of the parent's children each time was garbage for the collector).
+        if (_companion == null || !IsInstanceValid(_companion)) _companion = GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault();
+        return _companion;
+    }
+
+    private CompanionAvatar? _companion;
+
+    private RoomHud? _hud;
+
+    /// <summary>
+    /// The view a camera stands for: View when it is set; else the player's own eye camera is the eye view, a camera framed with
+    /// FrameCamera keeps the miniature blur (null), and the game's camera is the view the HUD's keys chose.
+    /// </summary>
+    public LookView? ViewFor(Camera3D camera)
+    {
+        if (View is { } chosen) return chosen;
+        if (FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera) return LookView.Eye;
+        if (_framed.Contains(camera.GetInstanceId())) return null;
+        if (_hud == null || !IsInstanceValid(_hud)) _hud = GetParent()?.GetChildren().OfType<RoomHud>().FirstOrDefault();
+        return _hud?.ViewMode switch { 0 => LookView.Eye, 1 => LookView.Shoulder, 2 => LookView.Diorama, 3 => LookView.Isometric, _ => null };
+    }
 
     /// <summary>
     /// A second point to keep crisp: with "player" focus, the companion's body while it is within
@@ -961,7 +1103,12 @@ public partial class LookDirector : Node3D
 
     public override void _Process(double delta)
     {
+        UpdateGlows(delta);
+        UpdateEffects(delta);
+        UpdateBubbles(delta);
         if (Preset == null) return;
+        KeepFarPlane();
+        _highlight?.Prune();
         CollectLut();
         if (_framesSinceApply++ == 2 && !Dressed)
             Warn("no room geometry with a shell was dressed after the first frames; the look has no GI bake and no shell layer");
@@ -974,6 +1121,17 @@ public partial class LookDirector : Node3D
         var camera = GetViewport()?.GetCamera3D();
         if (camera == null || _framed.Contains(camera.GetInstanceId())) return;
         Focus(camera, FocusPointFor(camera), CrispFromFor(camera), AlsoInFocusFor(camera), delta);
+    }
+
+    /// <summary>
+    /// The game's current camera sees to the room's far plane (FarPlaneM): the HUD's views and the player's eye are made at 100 m, so
+    /// the look sets the rule's distance whenever one of them is current. A camera the review harness framed keeps its own.
+    /// </summary>
+    private void KeepFarPlane()
+    {
+        var camera = GetViewport()?.GetCamera3D();
+        if (camera == null || _framed.Contains(camera.GetInstanceId()) || Mathf.IsEqualApprox(camera.Far, FarPlaneM)) return;
+        camera.Far = FarPlaneM;
     }
 
     /// <summary>

@@ -11,12 +11,41 @@ namespace EnFractal.Native.Look;
 /// reference day this moment maps to. SunElevationDeg and SunBearingDeg are where the real sun is (bearing clockwise
 /// from north), up or not. The key's own direction (KeyElevationDeg, and KeyAzimuthDeg as Godot's yaw in the room)
 /// is the sun's while the sun is up, the moon's at night, and a cross-fade in twilight (MoonWeight). Look is what the
-/// season does to the sun and sky beyond its colour grade (a harder summer sun, a paler winter sky).
+/// season does to the sun and sky beyond its colour grade (a harder summer sun, a paler winter sky). Weights is how much of
+/// each season the day holds, the very cross-fade the grade and the look use (the land's seasons read it, LandSeason).
 /// </summary>
 public sealed record LookMoment(
     float Hour, int DayOfYear, string Season, Color KeyColor, float KeyEnergy, Color AmbientColor, float AmbientEnergy,
     float KeyElevationDeg, float KeyAzimuthDeg, float Daylight, float MoonWeight, float SeasonSaturation, float SeasonWarmth, Color SeasonTint,
-    float KeyHour, float SunElevationDeg, float SunBearingDeg, SeasonLook Look);
+    float KeyHour, float SunElevationDeg, float SunBearingDeg, SeasonLook Look, SeasonWeights Weights);
+
+/// <summary>
+/// How much of each season a day holds: one of them alone around its middle (the preset's hold), two cross-faded between, always
+/// summing to one. The same blend the grade's saturation, warmth and tint and the season's sun and sky follow (LookClock.Cross).
+/// A preset without seasons is summer alone, the land as it was drawn.
+/// </summary>
+public readonly record struct SeasonWeights(float Winter, float Spring, float Summer, float Autumn)
+{
+    public static readonly SeasonWeights SummerOnly = new(0f, 0f, 1f, 0f);
+
+    /// <summary>One season alone.</summary>
+    public static SeasonWeights Only(string season) => Between(season, season, 0f);
+
+    /// <summary>The first season at 1 - s, the second at s (the same season twice is that season alone).</summary>
+    public static SeasonWeights Between(string from, string to, float s)
+    {
+        float W(string name) => (from == name ? 1f - s : 0f) + (to == name ? s : 0f);
+        return new SeasonWeights(W("winter"), W("spring"), W("summer"), W("autumn"));
+    }
+
+    public float Of(string season) => season switch
+    {
+        "winter" => Winter, "spring" => Spring, "summer" => Summer, "autumn" => Autumn,
+        _ => throw new ArgumentException($"'{season}' is not winter, spring, summer or autumn", nameof(season)),
+    };
+
+    public float Sum => Winter + Spring + Summer + Autumn;
+}
 
 /// <summary>
 /// Time of day and season for a preset. Pure functions, so the review harness can pin a moment and tests can
@@ -63,6 +92,7 @@ public static class LookClock
             ? Grade(preset, dayOfYear)
             : ("none", 1f, 0f, new Color(0.5f, 0.5f, 0.5f));
         var seasonLook = preset.SeasonsEnabled ? SeasonLookAt(preset, dayOfYear) : SeasonLook.Neutral;
+        var weights = preset.SeasonsEnabled ? WeightsAt(preset, dayOfYear) : SeasonWeights.SummerOnly;
         // The preset's key energy is the reference; time-of-day keys scale it relative to the brightest key. The season
         // sets the sun's strength (summer harder, winter weaker), not the moon's.
         var scaled = preset.TimeOfDayEnabled && maxEnergy > 0 ? preset.KeyEnergy * key.KeyEnergy / maxEnergy : preset.KeyEnergy;
@@ -73,7 +103,7 @@ public static class LookClock
         // The season colours the sunlight: paler in winter, golden in summer. The grade itself stays nearly neutral.
         var keyColor = preset.SeasonsEnabled ? key.KeyColor * SeasonLight(tint, preset.Tuning.Seasons.LightStrength) : key.KeyColor;
         return new LookMoment(hour, dayOfYear, season, keyColor, keyEnergy, key.AmbientColor, key.AmbientEnergy,
-            elevation, azimuth, daylight, moonWeight, saturation, warmth, tint, keyHour, sunElevation, sunBearing, seasonLook);
+            elevation, azimuth, daylight, moonWeight, saturation, warmth, tint, keyHour, sunElevation, sunBearing, seasonLook, weights);
     }
 
     // ---------- the solar model ----------
@@ -224,11 +254,40 @@ public static class LookClock
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    /// <summary>Where "now" comes from: the machine's clock. Tests replace it to prove the look follows real time, and put it back.</summary>
-    public static Func<DateTime> Clock { get; set; } = () => DateTime.Now;
+    /// <summary>
+    /// Where "now" comes from: the machine's clock, as a UTC instant, read nowhere else in the look. Tests replace it to prove the
+    /// look follows real time, and put it back. WorldTime takes the instant it is given and never calls this.
+    /// </summary>
+    public static Func<DateTime> UtcClock { get; set; } = () => DateTime.UtcNow;
 
-    /// <summary>The real clock now, read as the preset asks: local standard time when it removes daylight saving.</summary>
-    public static (float Hour, int DayOfYear) Now(StylePreset preset) => StandardClock(Clock(), TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving);
+    /// <summary>The real clock now, read as the preset asks: local standard time when it removes daylight saving. The machine's own clock, today's look.</summary>
+    public static (float Hour, int DayOfYear) Now(StylePreset preset) => Now(preset, null);
+
+    /// <summary>
+    /// The world's hour and day now. With no clock record, or one with day_scale 1 and no phase, this is the machine's clock exactly
+    /// as it has always been read; otherwise it is the island's clock (WorldTime), whose day is the one the sun and the seasons read.
+    /// </summary>
+    public static (float Hour, int DayOfYear) Now(StylePreset preset, WorldClock? clock)
+    {
+        var moment = WorldTime.At(UtcClock(), clock, BasisFor(preset, WorldTime.DefaultDawnH));
+        return (moment.Hour, moment.SeasonDay);
+    }
+
+    /// <summary>
+    /// The whole reading of the world's clock now, with the game day rolling over at the sun's own dawn on the day it is (the sunrise of
+    /// the solar model, in world hours), so a game day is dawn to dawn.
+    /// </summary>
+    public static WorldMoment WorldNow(StylePreset preset, WorldClock? clock)
+    {
+        var utc = UtcClock();
+        var first = WorldTime.At(utc, clock, BasisFor(preset, WorldTime.DefaultDawnH));
+        var (sunrise, _) = SunTimes(preset.Tuning.Sun, first.SeasonDay);
+        return WorldTime.At(utc, clock, BasisFor(preset, sunrise));
+    }
+
+    /// <summary>What reading the clock needs from the room and the preset: the machine's zone, the preset's standard-time rule, the room's hemisphere.</summary>
+    public static WorldBasis BasisFor(StylePreset preset, float dawnH) =>
+        new(TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving, preset.Hemisphere, dawnH);
 
     /// <summary>
     /// A local clock reading as the solar model wants it: with removeDaylightSaving, an hour (the zone's saving) earlier
@@ -236,9 +295,7 @@ public static class LookClock
     /// </summary>
     public static (float Hour, int DayOfYear) StandardClock(DateTime local, TimeZoneInfo zone, bool removeDaylightSaving)
     {
-        var reading = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
-        if (removeDaylightSaving && zone.IsDaylightSavingTime(reading))
-            reading -= zone.GetUtcOffset(reading) - zone.BaseUtcOffset;
+        var reading = WorldTime.StandardTime(local, zone, removeDaylightSaving);
         return ((float)reading.TimeOfDay.TotalHours, reading.DayOfYear);
     }
 
@@ -371,12 +428,28 @@ public static class LookClock
         return ("winter", "winter", 0f);
     }
 
-    private static (string Season, float Saturation, float Warmth, Color Tint) Grade(StylePreset preset, int dayOfYear)
+    /// <summary>
+    /// The seasons a day sits between and how far the cross-fade has gone from the first to the second: each season held around its
+    /// middle (the preset's hold) and faded smoothly in between. The grade, the season's look and the weights all read this one blend.
+    /// </summary>
+    public static (string From, string To, float T, float S) Cross(StylePreset preset, int dayOfYear)
     {
         var seasons = preset.Tuning.Seasons;
         var (from, to, t) = Blend(dayOfYear, preset.Hemisphere, seasons);
+        return (from, to, t, Mathf.SmoothStep(seasons.Hold, 1f - seasons.Hold, t));
+    }
+
+    /// <summary>How much of each season a day holds (the cross-fade the grade uses), summing to one.</summary>
+    public static SeasonWeights WeightsAt(StylePreset preset, int dayOfYear)
+    {
+        var (from, to, _, s) = Cross(preset, dayOfYear);
+        return SeasonWeights.Between(from, to, s);
+    }
+
+    private static (string Season, float Saturation, float Warmth, Color Tint) Grade(StylePreset preset, int dayOfYear)
+    {
         // Hold each season's grade around its middle and cross-fade in between.
-        var s = Mathf.SmoothStep(seasons.Hold, 1f - seasons.Hold, t);
+        var (from, to, t, s) = Cross(preset, dayOfYear);
         var a = preset.SeasonGrades[from];
         var b = preset.SeasonGrades[to];
         return (t < 0.5f ? from : to, Mathf.Lerp(a.Saturation, b.Saturation, s), Mathf.Lerp(a.Warmth, b.Warmth, s), a.Tint.Lerp(b.Tint, s));
@@ -386,8 +459,7 @@ public static class LookClock
     public static SeasonLook SeasonLookAt(StylePreset preset, int dayOfYear)
     {
         var seasons = preset.Tuning.Seasons;
-        var (from, to, t) = Blend(dayOfYear, preset.Hemisphere, seasons);
-        var s = Mathf.SmoothStep(seasons.Hold, 1f - seasons.Hold, t);
+        var (from, to, _, s) = Cross(preset, dayOfYear);
         var a = seasons.Looks[from];
         var b = seasons.Looks[to];
         return new SeasonLook(Mathf.Lerp(a.SunEnergy, b.SunEnergy, s), Mathf.Lerp(a.SunBlur, b.SunBlur, s), Mathf.Lerp(a.SkySaturation, b.SkySaturation, s),

@@ -36,6 +36,14 @@ public partial class LookPresetTest : Node3D
             var preset = StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, FileAccess.GetSha256(RoomWorld.DefaultStyle));
             _presetText = Encoding.UTF8.GetString(FileAccess.GetFileAsBytes(RoomWorld.DefaultStyle));
             var room = RoomData.Load(RoomWorld.DefaultRoom);
+            if (OS.GetCmdlineUserArgs().Contains("--worldclock-only"))
+            {
+                CheckWorldClock(preset);
+                await CheckWorldClockInTheLook(preset, room);
+                GD.Print($"NATIVE_LOOK_WORLDCLOCK: {_checks - _failures}/{_checks} checks passed");
+                GetTree().Quit(_failures == 0 ? 0 : 1);
+                return;
+            }
             CheckPreset(preset, room);
             CheckLookNumbersLiveInThePreset(preset);
             CheckFailClosed();
@@ -46,6 +54,8 @@ public partial class LookPresetTest : Node3D
             CheckClock(preset);
             CheckClockAtEveryMinute(preset);
             CheckRealClockAndSwings(preset);
+            CheckWorldClock(preset);
+            await CheckWorldClockInTheLook(preset, room);
             CheckSolarModel(preset);
             CheckReducedGlobalTint(preset, room);
             CheckReviewCameras(preset, room);
@@ -68,16 +78,32 @@ public partial class LookPresetTest : Node3D
             await CheckFocusEasing(preset, room);
             await CheckObserve(preset, room);
             var observeV2 = StylePreset.Resolve(RoomWorld.DefaultStyleId, 2);
+            var v1 = StylePreset.Resolve(RoomWorld.DefaultStyleId, 1);
             CheckObservePlayerEnvelope(observeV2);
-            CheckObserveFrameBudget(preset, observeV2);
+            CheckObserveFrameBudget(v1, observeV2);
             await CheckObservePlayerTracking(observeV2, room);
+            CheckViewBlur(v1, observeV2);
+            await CheckViewChoice(observeV2, room);
+            CheckSeaMist();
+            await CheckFocusHighlight(preset, room);
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
             await CheckLightProtections(preset, room);
             await CheckLandscape(preset, room);
+            await CheckTenTimes(preset, room);
             await CheckPondLife(preset);
+            await CheckOpenSeaSynthetic(preset);
+            await CheckRealOpenSea(preset);
+            await CheckShore(preset);
+            CheckLandUpClose(preset);
+            await CheckGlow(preset, room);
+            await CheckEffects(preset, room);
+            await CheckIntro(preset);
+            await CheckSeasons(preset, room);
+            await CheckFractals(preset);
+            await CheckCharm(preset);
             MaterialLibrary.Configure(preset);
-            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it");
+            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, the island's world clock (today's reading unchanged, day_scale 4 midnights, dawn rollover, phase, zone, seasons and hemisphere), solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea, its mist and the seam (no distant islands), how far an island of any size is seen (far plane, haze, shadows) and its look-suite cameras, the living shore (the wash's clock, its calm, the damp band within the named reach of the coast, nothing past the beaches), the focus highlight, the Gubble's glow and the light-level estimate, its bubbles and fireworks, the room-to-island intro, the seasons on the land, the Fractals and the hamlet's charm");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception exception)
@@ -112,7 +138,11 @@ public partial class LookPresetTest : Node3D
     /// <summary>Review finding: look constants lived in C#. The shipped preset now states every look number itself.</summary>
     private void CheckLookNumbersLiveInThePreset(StylePreset preset)
     {
-        Check(preset.Tuning.Defaulted.Count == 0, "the preset states every look number; none is left to the code's defaults: " + string.Join(", ", preset.Tuning.Defaulted.Take(12)));
+        // A block added after the preset's version was written is left to the code's defaults, which reproduce that version's look.
+        var unstated = preset.Tuning.Defaulted.Where(d => !(LookTuning.BlocksSince.TryGetValue(d.Split('.')[0], out var since) && since > preset.PresetVersion)).ToArray();
+        Check(unstated.Length == 0, "the preset states every look number its version knows; none is left to the code's defaults: " + string.Join(", ", unstated.Take(12)));
+        var newest = StylePreset.Resolve(RoomWorld.DefaultStyleId, LookTuning.BlocksSince.Values.Max());
+        Check(newest.Tuning.Defaulted.Count == 0, $"v{newest.PresetVersion} states every look number, the newer blocks too: " + string.Join(", ", newest.Tuning.Defaulted.Take(12)));
         Check(LookTuning.Blocks.All(StylePreset.KnownLookExtensions.Contains), "every tuning block is a known look extension");
         // The numbers really come from the file: change a few and the parsed look follows.
         var edited = PresetWith(Field("sky_fill_energy", "3.25"), Field("lut_size", "17"), Field("vignette_start", "0.3"), Field("tilt_pitch_gain", "0.75"),
@@ -979,7 +1009,7 @@ public partial class LookPresetTest : Node3D
         look.SetClock(preset.DefaultHour, 279);
         Check(Mathf.IsEqualApprox(look.Key.LightEnergy, afternoonEnergy) && look.Moment.Season == "autumn", "pinning back to the default hour restores the afternoon");
         Check(look.RendererNote.Length == 0 && look.PlayerNotice.Length == 0, "no renderer mismatch is reported under Forward+");
-        Check(look.DescribeLook().Contains("storybook_painterly@1") && look.DescribeLook().Contains("season autumn"), "the look describes itself for review reports");
+        Check(look.DescribeLook().Contains($"{preset.PresetId}@{preset.PresetVersion}") && look.DescribeLook().Contains("season autumn"), "the look describes itself for review reports");
         Check(look.SelfCheck().All(p => p.Contains("VoxelGI") || p.Contains("grain")) && !look.SelfCheck().Any(p => p.Contains("stand-in")), "the self-check finds nothing wrong but the missing GPU");
         objects[0].MaterialOverride = new StandardMaterial3D();
         objects[0].MaterialOverride.SetMeta(LookDirector.BakeStandInMeta, true);

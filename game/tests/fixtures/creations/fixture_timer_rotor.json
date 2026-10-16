@@ -1,0 +1,14 @@
+{
+  "schema": "enfractal.creation", "version": 1, "name": "Fixture timer rotor", "seed": 9, "mount": "ground",
+  "parts": [
+    {"id":"base","shape":"cylinder","position_m":[0,0.1,0],"rotation_deg":[0,0,0],"size_m":[0.8,0.2,0.8],"material":"stone"},
+    {"id":"post","shape":"cylinder","position_m":[0,0.6,0],"rotation_deg":[0,0,0],"size_m":[0.15,0.8,0.15],"material":"wood"},
+    {"id":"rotor","shape":"rotor","position_m":[0,1.1,0],"rotation_deg":[0,0,0],"size_m":[1.4,0.12,1.4],"material":"copper"}
+  ],
+  "nodes": [
+    {"id":"beat","op":"timer","part_id":"post","params":{"interval_s":3}},
+    {"id":"turn","op":"spin","part_id":"rotor","params":{"speed_rpm":30,"duration_s":2.5}},
+    {"id":"glow","op":"light","part_id":"post","params":{"intensity":0.4,"duration_s":2.5}}
+  ],
+  "edges": [{"from":"beat","to":"turn"},{"from":"beat","to":"glow"}]
+}

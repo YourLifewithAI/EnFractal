@@ -2,7 +2,7 @@
   "schema": "enfractal.look_review_cameras",
   "version": 1,
   "room_id": "landscape_garage_nominal",
-  "description": "Review cameras for the garage landscape (Run 2, Lane L: the landscape in the game), in world metres, +Y up, -Z forward. They need a landscape export passed with --room (tools/test-room.ps1 builds one under .cache/landscape-fixture). The player's spawn is (0, 0.088, -3.0); the apple crate and three cottages stand about 5 m on, at z 1.6 to 2.4. The clock is the landscape's own setup answer (summer, day 172, 09:00 apparent solar time, noon at 12 on the clock), so the pictures can be set beside the harness's reference renders; the landscape has no lamps.",
+  "description": "Review cameras for the garage landscape (Run 2, Lane L: the landscape in the game), in world metres, +Y up, -Z forward. They need a landscape export passed with --room (tools/test-room.ps1 builds one under .cache/landscape-fixture). The player's spawn is (0, 0.088, -3.0); the apple crate and three cottages stand about 5 m on, at z 1.6 to 2.4. The clock is the landscape's own setup answer (summer, day 172, 09:00 apparent solar time, noon at 12 on the clock), so the pictures can be set beside the harness's reference renders; the landscape has no lamps. Run 2's open sea round adds the HUD's four views across the island (F1 to F4, staged on the north shore facing south), a swimmer 40 m out looking further out and looking home (the endless sea, the distant islands holding their place), and the focus highlight on the apple crate set on grass, the beach, rock and the jetty's planks.",
   "resolution": [1920, 1080],
   "clock": {
     "hour": 9.0,
@@ -69,6 +69,242 @@
       "focus_m": [0.0, 0.15, 1.9],
       "hide_player_body": false,
       "stage": { "player_m": [0.31, 0.115, 1.62], "yaw_deg": 172, "companion_m": [0.46, 0.115, 1.66] }
+    },
+    {
+      "id": "land_f1_eye",
+      "label": "F1, the eye, across the island",
+      "purpose": "Run 2, the open sea round: the HUD's F1 view (the player's own eye) from the north shore looking south across the island to the far shore and the sea. The founder: blur only what is far; the island stays crisp.",
+      "hud_view": 0,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_f2_shoulder",
+      "label": "F2, over the shoulder, across the island",
+      "purpose": "Run 2, the open sea round: the HUD's F2 view as the founder played it, the same spot and heading. Before, the island a metre or two away was already soft; after, it stays crisp and only the far shore, the distant islands and the horizon soften.",
+      "hud_view": 1,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_f3_diorama",
+      "label": "F3, the diorama, tilted up to the horizon",
+      "purpose": "Run 2, the open sea round: the HUD's F3 orbit at its lowest pitch, so the island and the sea out to the horizon are in frame. The island stays crisp; no tilt-shift.",
+      "hud_view": 2,
+      "hud_pitch_deg": 22,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_f4_iso",
+      "label": "F4, isometric",
+      "purpose": "Run 2, the open sea round: the HUD's F4 view keeps its tilt-shift miniature (the founder: 'that's where we're trying to see the charming/macro-scene view').",
+      "hud_view": 3,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_sea_out",
+      "label": "Out at sea, looking out",
+      "purpose": "Run 2, the endless sea: a swimmer's-height camera 40 m off the north shore, looking further out. The room's own sea mesh ends 20 m ahead (60 m from the island) and its floor at about 50 m; the open sea must carry on to the horizon with no edge.",
+      "position_m": [4.0, 0.1, -40.0],
+      "look_at_m": [4.0, 0.07, -90.0],
+      "fov_deg": 68,
+      "focus_m": [4.0, 0.0, -40.4],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [4.0, -0.05, -39.7], "yaw_deg": 0, "companion_m": [4.3, 0.1, -39.5] }
+    },
+    {
+      "id": "land_sea_home",
+      "label": "Out at sea, looking home",
+      "purpose": "Run 2, the endless sea: the same swimmer (the player staged where the camera swims, since the islands keep off the swimmer) looking back at the home island. The distant islands hold their place on the horizon (never reached), each its own silhouette.",
+      "position_m": [4.0, 0.12, -40.0],
+      "look_at_m": [0.0, 0.25, 0.0],
+      "fov_deg": 68,
+      "focus_m": [3.96, 0.1, -39.6],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [4.0, -0.05, -39.7], "yaw_deg": 180, "companion_m": [4.3, 0.1, -39.5] }
+    },
+    {
+      "id": "land_focus_grass",
+      "label": "The focus on grass",
+      "purpose": "Run 2: the focus highlight (one thing at a time, a soft rim and line) on the apple crate set on the meadow, seen as from F2.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [0.6, -2.45], "camera_offset_m": [0.16, 0.12, -0.22] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_focus_sand",
+      "label": "The focus on the beach",
+      "purpose": "Run 2: the focus highlight on the apple crate on the north beach's pale shore.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [1.9, -3.32], "camera_offset_m": [0.16, 0.12, -0.22] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_focus_rock",
+      "label": "The focus on rock",
+      "purpose": "Run 2: the focus highlight on the apple crate on a rock outcrop.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [0.28, -0.85], "camera_offset_m": [0.16, 0.12, -0.22] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_focus_wood",
+      "label": "The focus on wood",
+      "purpose": "Run 2: the focus highlight on the apple crate on the jetty's planks.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [1.4725, -3.62], "camera_offset_m": [0.2, 0.12, 0.18] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_reef",
+      "label": "The reef from the open sea",
+      "purpose": "Run 2, the sea's look: a swimmer just outside the north reef looking back over it at the island: breakers and foam where the reef's crest lies 2 cm under the surface, the lagoon's lighter water inside it, the open sea's deeper colour outside.",
+      "position_m": [1.0, 0.12, -5.3],
+      "look_at_m": [1.0, 0.0, -3.9],
+      "fov_deg": 60,
+      "focus_m": [1.0, -0.02, -4.25],
+      "view": "shoulder",
+      "hide_player_body": false
+    },
+    {
+      "id": "land_beach",
+      "label": "Waves at the north beach",
+      "purpose": "Run 2, the sea's look: the north beach's shore from a little offshore and above, where gentle waves run up the shelving sand.",
+      "position_m": [2.35, 0.14, -3.95],
+      "look_at_m": [1.8, 0.0, -3.35],
+      "fov_deg": 55,
+      "focus_m": [1.85, 0.0, -3.45],
+      "view": "shoulder",
+      "hide_player_body": false
+    },
+    {
+      "id": "land_sea_near",
+      "label": "Off the island, looking home",
+      "purpose": "Run 2, the sea's look: 14 m off the north shore at swimmer height, looking home: the island under a little haze, the distant islands holding their place, and the thin grey arcs Lane L found near the horizon.",
+      "position_m": [3.0, 0.15, -14.0],
+      "look_at_m": [0.0, 0.3, 0.0],
+      "fov_deg": 68,
+      "focus_m": [2.94, 0.1, -13.7],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [3.0, -0.05, -13.7], "yaw_deg": 180, "companion_m": [3.3, 0.1, -13.5] }
+    },
+    {
+      "id": "land_under_sea",
+      "label": "Under the open sea",
+      "purpose": "Run 2, the view under water: a diver 18 cm under the open sea off the north shore, looking along it: the water's tint and haze, the bed fading into it, and fish near the swimmer.",
+      "position_m": [6.0, -0.2, -12.0],
+      "look_at_m": [6.0, -0.24, -14.0],
+      "fov_deg": 72,
+      "focus_m": [6.0, -0.22, -12.4],
+      "view": "eye",
+      "hide_player_body": true,
+      "stage": { "player_m": [6.0, -0.06, -11.8], "yaw_deg": 180, "companion_m": [6.3, 0.1, -11.6] }
+    },
+    {
+      "id": "land_under_up",
+      "label": "The surface from below",
+      "purpose": "Run 2, the view under water: the same diver looking up toward the surface: the surface seen from below, the light from above, and the fish.",
+      "position_m": [6.0, -0.22, -12.0],
+      "look_at_m": [6.15, 0.0, -12.5],
+      "fov_deg": 72,
+      "focus_m": [6.08, -0.12, -12.25],
+      "view": "eye",
+      "hide_player_body": true,
+      "stage": { "player_m": [6.0, -0.06, -11.8], "yaw_deg": 180, "companion_m": [6.3, 0.1, -11.6] }
+    },
+    {
+      "id": "land_glow_wisp",
+      "label": "The Gubble's glow at a spot, at night (F2)",
+      "purpose": "Run 2, the Glow playtest round: a wisp cast half a metre ahead on the meadow at 23:00, seen over the shoulder. The founder saw a black orb in its middle; it must read as light with no object, in the Gubble's colour, lighting the ground around it.",
+      "hud_view": 1,
+      "hour": 23.0,
+      "glows": [{ "id": "wisp", "at_xz_m": [0.12, -2.4] }],
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_glow_halo",
+      "label": "The glow on the Gubble, at night (F3)",
+      "purpose": "Run 2, the Glow playtest round: the halo on the Gubble at 23:00 from the diorama: a soft painterly halo and a pool of light on the ground under it.",
+      "hud_view": 2,
+      "hud_pitch_deg": 32,
+      "hour": 23.0,
+      "glows": [{ "id": "halo", "on": "companion" }],
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_glow_spark",
+      "label": "The spark from the Gubble, in flight (F2)",
+      "purpose": "Run 2, the Glow playtest round: a glow cast about a metre ahead, caught 0.2 s after the cast: a spark in the glow's colour arcing from the Gubble to the spot (before this round there was no spark: the wisp was simply there).",
+      "hud_view": 1,
+      "hour": 23.0,
+      "glows": [{ "id": "spark", "at_xz_m": [-0.35, -1.85] }],
+      "spark_s": 0.2,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_sea_seam",
+      "label": "At the seam, looking home",
+      "purpose": "Run 2, the Glow playtest round: the sea wraps round to home, so from the seam (17.6 m from the island's centre on this island) the mist must hide the island wholly in every view; the horizon is only sea and sky. Before this round the island and the distant islands stood clear here.",
+      "position_m": [0.5, 0.12, -18.2],
+      "look_at_m": [0.0, 0.25, 0.0],
+      "fov_deg": 68,
+      "focus_m": [0.5, 0.1, -17.9],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.5, -0.05, -17.9], "yaw_deg": 180, "companion_m": [0.8, 0.1, -17.7] }
+    },
+    {
+      "id": "land_fireworks_rocket",
+      "label": "The rocket leaving the Gubble, at night",
+      "purpose": "Run 2, Bubbles and Fireworks: 0.35 s after the cast, a rocket with a trail of embers climbing from the Gubble toward the spot.",
+      "hour": 23.0,
+      "position_m": [0.5, 0.25, -3.8],
+      "look_at_m": [0.1, 0.55, -2.1],
+      "fov_deg": 64,
+      "focus_m": [0.14, 0.15, -2.85],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "glows": [{ "id": "fireworks", "kind": "fireworks", "at_xz_m": [0.1, -2.0], "radius_m": 0.6, "intensity": 0.8 }],
+      "spark_s": 0.35,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_fireworks_night",
+      "label": "The burst and its flash, at night",
+      "purpose": "Run 2, Bubbles and Fireworks: 0.8 s after the cast, the burst 0.8 m above the spot in the Gubble's colour, its flash lighting the land below for a moment.",
+      "hour": 23.0,
+      "position_m": [0.5, 0.25, -3.8],
+      "look_at_m": [0.1, 0.55, -2.1],
+      "fov_deg": 64,
+      "focus_m": [0.14, 0.15, -2.85],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "glows": [{ "id": "fireworks", "kind": "fireworks", "at_xz_m": [0.1, -2.0], "radius_m": 0.6, "intensity": 0.8 }],
+      "spark_s": 0.8,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_fireworks_day",
+      "label": "The burst by day",
+      "purpose": "Run 2, Bubbles and Fireworks: the same burst at 09:00. Best at night; by day it must still read against the sky.",
+      "position_m": [0.5, 0.25, -3.8],
+      "look_at_m": [0.1, 0.55, -2.1],
+      "fov_deg": 64,
+      "focus_m": [0.14, 0.15, -2.85],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "glows": [{ "id": "fireworks", "kind": "fireworks", "at_xz_m": [0.1, -2.0], "radius_m": 0.6, "intensity": 0.8 }],
+      "spark_s": 0.8,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
     }
   ]
 }

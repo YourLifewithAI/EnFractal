@@ -1,0 +1,32 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "effect.adjust",
+  "action_id": "adjust-0001",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "transient": true,
+  "affected": [
+    "effect:lqxpprqkqnjfo6o6p4jz4vchca"
+  ],
+  "data": {
+    "effect": "effect:lqxpprqkqnjfo6o6p4jz4vchca",
+    "center_m": [
+      0.5,
+      0.0,
+      0.3
+    ],
+    "connections": [
+      "effect:6wn2h6ltuehnotsoqhtuniysya",
+      "effect:7w4ge2xz4nipzwers5y2236llm",
+      "effect:mzyhjv7pn3gc3iqjjveok4awjq",
+      "effect:szetggdw5dgawtnhzaa77gwgj4",
+      "effect:f7zbvecu7pnipeo777molarrqu"
+    ]
+  }
+}

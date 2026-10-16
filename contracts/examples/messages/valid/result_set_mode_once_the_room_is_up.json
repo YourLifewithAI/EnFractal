@@ -1,0 +1,19 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": false,
+  "op": "world.set_mode",
+  "action_id": "mode-0003",
+  "principal": "player:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "error": {
+    "code": "unsupported_capability",
+    "message": "The mode is chosen at the menu; this save keeps its mode.",
+    "field_path": "$.op",
+    "retryable": false
+  }
+}

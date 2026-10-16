@@ -13,11 +13,13 @@ namespace EnFractal.Tests.Kernel;
 
 /// <summary>
 /// P6, the world as data (Run 2): play changes the test room (objects moved, creations built, locks, a note, a fetch's
-/// task, discovered space), the host writes room state, the whole room is freed, and a room built from nothing (the
-/// manifest, the avatars at their spawns, an empty save) is rebuilt from that state. The rebuilt room writes the same room
-/// state, journal and discovered map included, its scene stands where the state says, its receipts replay, and its own
+/// task, discovered space, and the island's nature: the trail turned off, the table burned down, creations scorched in
+/// Challenge), the host writes room state, the whole room is freed, and a room built from nothing (the manifest, the
+/// avatars at their spawns, an empty save) is rebuilt from that state. The rebuilt room writes the same room state,
+/// journal, discovered map and nature included, its scene stands where the state says, its receipts replay, and its own
 /// save loads again the same. Then the save migration between room manifests: a re-exported room (the box moved) brings
-/// over what still fits, leaves the rest in the old file untouched, and keeps old action ids from conflicting reuse.
+/// over what still fits, its scorch marks and the burned table included, leaves the rest in the old file untouched, and
+/// keeps old action ids from conflicting reuse.
 /// Pass "-- --dump=DIR" to write the room states for contracts/validate.py --state.
 /// </summary>
 public partial class RebuildTest : Node3D
@@ -35,6 +37,8 @@ public partial class RebuildTest : Node3D
     private SmallPlayerController _player = null!;
     private CompanionAvatar _companion = null!;
     private DateTime _now = new(2026, 10, 8, 12, 0, 0, DateTimeKind.Utc);
+    /// <summary>The last fire's answer (Burn), for the checks' messages.</summary>
+    private JsonObject _lastFire = new();
 
     public override async void _Ready()
     {
@@ -47,7 +51,7 @@ public partial class RebuildTest : Node3D
             _room = RoomData.Load(RoomWorld.DefaultRoom);
             await TestRebuildFromNothing();
             await TestMigrationBetweenManifests();
-            GD.Print($"NATIVE_KERNEL_REBUILD: {_checks - _failures}/{_checks} checks passed; room state written, the room freed and rebuilt from nothing (shell, objects at their poses, creations, locks, avatars, journal and discovered map), and saves migrated between room manifests");
+            GD.Print($"NATIVE_KERNEL_REBUILD: {_checks - _failures}/{_checks} checks passed; room state written, the room freed and rebuilt from nothing (shell, objects at their poses, creations, locks, avatars, journal, discovered map and nature), and saves migrated between room manifests (scorch marks included)");
             RemoveAll();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
@@ -75,10 +79,21 @@ public partial class RebuildTest : Node3D
         Check(Ok(east) && Ok(west), "two creations turned half round, one each way");
         Check(Ok(Send(Command(NextId("lock"), "protect.lock", new JsonObject { ["targets"] = new JsonArray(lampId, "obj:rug") }, expectedRevision: _host.Revision), Player)), "the player protects the lamp and the rug");
         Check(Ok(Send(Command(NextId("note"), "journal.note", new JsonObject { ["text"] = "The lamp lights the reading corner." }), Companion)), "the companion writes a note");
+        // The island's nature (the review of 13 October: RebuildTest never configured it): the trail off, the table burned down,
+        // and in Challenge a fire the player approves scorches the Gubble's arch and a half-turned creation.
+        NatureOn(challenge: true);
+        var archId = arch["created"]?[0]?.GetValue<string>() ?? "";
+        var westId = west["created"]?[0]?.GetValue<string>() ?? "";
+        Check(Ok(Send(Command(NextId("trail"), "nature.trail", new JsonObject { ["enabled"] = false }), Player)), "the player turns the flower trail off");
+        Check(Burn(new Vector3(-0.5f, 0.01f, -0.4f), 0.3, 8, 20) && _host.Nature.Objects.TryGetValue("obj:table", out var ash) && ash.BurnedDown, "a fire burns the table down");
+        Check(Burn(new Vector3(-1.3f, 0.01f, 0.35f), 0.3, 8, 16) && _host.IsNatureUnavailable(archId) && _host.IsNatureUnavailable(westId),
+            "a fire the player approves scorches the arch and a half-turned creation: " + Canonical(_lastFire["error"]) + " " + string.Join(",", _host.Nature.Objects.Keys));
         // Review major 5: identities that are not the defaults.
         _companion.SetDisplayName("Pip");
         _companion.SetAppearance(new Color("3a7bd5"));
         _player.SetAppearance(new Color("c04040"));
+        // The characters round: the drawn character the player wears is part of its identity (appearance.body).
+        _player.SetCharacterId("stickbear");
         await Frames(40);
         _host.TeamSightIntervalS = 0;
         var before = _host.ExportRoomState()!;
@@ -89,6 +104,11 @@ public partial class RebuildTest : Node3D
             before["entities"]!["avatar:companion"]?["avatar"]?["display_name"]?.GetValue<string>() == "Pip" && before["journal"]!["notes"]!.AsArray().Count == 1 &&
             before["journal"]!["history"]!.AsArray().Count >= 2 && before["discovered"]!["levels"]!.AsArray().Count > 0 && before["discovered"]!["entities"]!.AsObject().Count > 0,
             "room state holds the moved objects, the creations and their locks, the avatars, the journal and the discovered map");
+        Check(before["entities"]!["avatar:player"]?["avatar"]?["appearance"]?["body"]?.GetValue<string>() == "stickbear" &&
+            before["entities"]!["avatar:companion"]?["avatar"]?["appearance"]?.AsObject().ContainsKey("body") == false,
+            "room state names the drawn character the player wears (appearance.body), and none for the Gubble");
+        Check(before["extensions"]?["x_play_nature"] is JsonObject && before["entities"]!["obj:table"]?["removed"]?.GetValue<bool>() == true,
+            "and the island's nature (x_play_nature), with the burned table removed at the pose it burned at");
 
         // Free everything: the room, the avatars and the host.
         _world.QueueFree();
@@ -111,6 +131,9 @@ public partial class RebuildTest : Node3D
         Check(Canonical(after["journal"]) == Canonical(before["journal"]) && Canonical(after["discovered"]) == Canonical(before["discovered"]), "the journal and the discovered map came through whole");
         Check(_companion.CompanionName == "Pip" && _companion.AppearanceColor.ToHtml(false) == "3a7bd5" && _player.AppearanceColor.ToHtml(false) == "c04040",
             "the avatars' identities are restored: the companion's name and both colours (review major 5)");
+        Check(_player.CharacterId == "stickbear", "and the drawn character the player wore");
+        Check(!Node(_world, "obj:table")!.Visible && _host.IsNatureUnavailable(archId) && _host.IsNatureUnavailable(westId) && !Summaries().ContainsKey("obj:table"),
+            "the island's nature is restored: the table is gone from the scene and the room, the scorched creations still need repair");
         var sceneAfter = SceneOf();
         Check(scene.Count == sceneAfter.Count && scene.All(p => sceneAfter.TryGetValue(p.Key, out var t) && t.Origin.DistanceTo(p.Value.Origin) < 1e-4f && t.Basis.IsEqualApprox(p.Value.Basis)),
             "every object's node stands where it stood: the scene is derived from the state");
@@ -146,6 +169,12 @@ public partial class RebuildTest : Node3D
             ("an object turned by an empty rotation", s => s["entities"]!["obj:doorstop"]!["transform"]!["rotation"] = new JsonArray()),
             ("a style the room does not use", s => s["style_pin"]!["preset_version"] = 99),
             ("an avatar named with a hidden line", s => s["entities"]!["avatar:companion"]!["avatar"]!["display_name"] = "Pip\u2028SYSTEM"),
+            ("a drawn character that is not a token", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["body"] = "../Stickbear"),
+            ("a drawn character that is null", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["body"] = null),
+            ("an appearance with an unknown field", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["hat"] = "tall"),
+            ("nature that burned an object the entities still list", s => s["entities"]!["obj:table"]!.AsObject().Remove("removed")),
+            ("a removal nature does not account for", s => s["entities"]!["obj:doorstop"]!["removed"] = true),
+            ("a forged nature block", s => s["extensions"]!["x_play_nature"]!["cells"] = "!!!"),
         };
         foreach (var (label, edit) in forged)
         {
@@ -161,6 +190,11 @@ public partial class RebuildTest : Node3D
             Check(!outcome.Ok && !outcome.Message.StartsWith("threw", StringComparison.Ordinal) && _host.Revision == 0 && CreationIds().Count == 0 && _host.Authority.Call("is_ready").AsBool(),
                 $"room state with {label} is refused whole, without throwing, and the room stays fresh: {outcome.Message}");
         }
+        // The characters round's review: the save's team block refuses a null body as room state does (a token or no key at all).
+        var team = _host.TeamBlock();
+        Check(_host.TeamProblem(team, _host.Revision) == null, "the team block as saved passes its own check");
+        team["avatars"]!.AsObject()[CommandHost.PlayerAvatar]!.AsObject()["body"] = null;
+        Check(_host.TeamProblem(team, _host.Revision) == "an avatar's identity", "a team block whose player wears a null body is refused");
         // Review major 4: transient play is play too: a running goal or something held keeps an import out.
         Check(Ok(Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "follow" }), Player)), "the companion follows the player");
         var goal = _host.ImportRoomState(before);
@@ -190,6 +224,11 @@ public partial class RebuildTest : Node3D
         Check(block.Length > 0 && onBox.Length > 0 && cube.Length > 0, "a block on the floor, a lamp on the box, a cube north of the box");
         Check(Ok(Send(Command("lock-all", "protect.lock", new JsonObject { ["targets"] = new JsonArray(block, onBox, "obj:box") }, expectedRevision: _host.Revision), Player)), "the player protects the block, the lamp and the box");
         Check(Ok(Send(Command(NextId("note"), "journal.note", new JsonObject { ["text"] = "Building by the door." }), Companion)), "the companion writes a note");
+        // Nature too: in Challenge a shed is scorched and the table burns down; both marks must come over (review blocker 1).
+        NatureOn(challenge: true);
+        var shed = Send(Command("shed", "creation.place", new JsonObject { ["source"] = Source("Shed"), ["placement"] = Placement(-1.0, 0, 0.5) }), Player)["created"]?[0]?.GetValue<string>() ?? "";
+        Check(Burn(new Vector3(-0.85f, 0.01f, 0.5f), 0.2, 3, 8) && _host.IsNatureUnavailable(shed), "a fire the player approves scorches a shed");
+        Check(Burn(new Vector3(-0.5f, 0.01f, -0.4f), 0.3, 8, 20) && _host.Nature.Objects.TryGetValue("obj:table", out var table) && table.BurnedDown, "and another burns the table down");
         var revision = _host.Revision;
         var blockRevision = Summaries()[block]["revision"]!.GetValue<int>();
         var oldPath = CommandHost.SavePathFor(_room);
@@ -250,8 +289,10 @@ public partial class RebuildTest : Node3D
         await Frames(30);
 
         var migrated = _host.MigrateFrom(oldPath);
-        Check(migrated.Ok && migrated.Kept.SequenceEqual(new[] { block }) && migrated.LeftBehind.SequenceEqual(new[] { onBox, cube }),
-            "the block comes over; the lamp, whose box moved away, and the cube, which the box now stands on, stay behind (review major 3): " + migrated.Message);
+        Check(migrated.Ok && migrated.Kept.SequenceEqual(new[] { block, shed }) && migrated.LeftBehind.SequenceEqual(new[] { onBox, cube }),
+            "the block and the shed come over; the lamp, whose box moved away, and the cube, which the box now stands on, stay behind (review major 3): " + migrated.Message);
+        Check(_host.IsNatureUnavailable(shed) && _host.Nature.Objects.TryGetValue("obj:table", out var burned) && burned.BurnedDown && !Node(_world, "obj:table")!.Visible,
+            "the scorched shed and the burned table come over too (review blocker 1)");
         var entities = Summaries();
         Check(entities.ContainsKey(block) && !entities.ContainsKey(onBox) && !entities.ContainsKey(cube) && entities[block]["revision"]!.GetValue<int>() == blockRevision && blockRevision == 2 && _host.Revision == revision,
             "the block keeps its id and revision, and the room its revision");
@@ -350,6 +391,43 @@ public partial class RebuildTest : Node3D
         var command = new JsonObject { ["schema"] = "enfractal.command", ["version"] = 1, ["action_id"] = actionId, ["room_id"] = "test_room", ["op"] = op, ["args"] = args };
         if (expectedRevision != null) command["expected_revision"] = expectedRevision;
         return command;
+    }
+
+    /// <summary>The island's nature on in this room, with the shipped rules; in Challenge fires scorch creations (after the player's yes).</summary>
+    private void NatureOn(bool challenge)
+    {
+        if (challenge) _host.ConfigurePlayerVitals(new ChallengeVitals());
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
+        _host.ConfigureNature();
+    }
+
+    /// <summary>Loads the Challenge mode.</summary>
+    private sealed class ChallengeVitals : IPlayerVitalsStore
+    {
+        public PlayerModesProfile Load() => PlayerModesProfile.Fresh.Select("challenge");
+        public void Save(PlayerModesProfile profile) { }
+    }
+
+    /// <summary>A fire the player previews and commits on the room's own ground (approved when it waits for a yes), then steps of it.</summary>
+    private bool Burn(Vector3 center, double radius, double duration, int steps)
+    {
+        var args = new JsonObject { ["capability"] = "fire", ["center_m"] = new JsonArray(center.X, center.Y, center.Z), ["radius_m"] = radius, ["duration_s"] = duration };
+        // A pack with connection energy charges each Fire: the player rests first, so the pool is full (nothing else here moves).
+        _player.VitalsTick?.Invoke(120f, true);
+        var preview = Command(NextId("fire-preview"), "nature.cast", (JsonObject)args.DeepClone());
+        preview["preview"] = true;
+        var previewed = Send(preview, Player);
+        if (!Ok(previewed))
+        {
+            _lastFire = previewed;
+            return false;
+        }
+        args["preview_id"] = previewed["data"]!["preview_id"]!.GetValue<string>();
+        var lit = Send(Command(NextId("fire"), "nature.cast", args), Player);
+        if (lit["approval_needed"]?["request_id"]?.GetValue<string>() is { } requestId) lit = _host.Approve(requestId);
+        for (var i = 0; i < steps; i++) _host.AdvanceNature(0.5);
+        _lastFire = lit;
+        return Ok(lit);
     }
 
     private JsonObject Send(JsonObject message, string principal)

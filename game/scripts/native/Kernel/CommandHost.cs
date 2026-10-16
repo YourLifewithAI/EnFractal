@@ -30,7 +30,20 @@ public sealed class PendingApproval
     public string State { get; internal set; } = "pending";
     public JsonObject? Result { get; internal set; }
     internal JsonObject Held { get; set; } = new();
+    /// <summary>
+    /// The ask was only whether the player's builds may burn (Creative's fire rule): the player's no commits the fire with
+    /// them spared, instead of nothing. A deny of anything else commits nothing.
+    /// </summary>
+    internal bool SparesOnDeny { get; init; }
 }
+
+/// <summary>
+/// One message the host answered (<see cref="CommandHost.Handled"/>): the message as received, the principal the trusted caller
+/// named, the answer's envelope and the milliseconds it took. A copy read from the result after it was made: never the result
+/// itself, and never its data.
+/// </summary>
+public sealed record CommandHandled(string Message, string Principal, string Op, bool Ok, string? ActionId, string? Code, string? ErrorMessage,
+    int? Revision, bool Replayed, bool Preview, double Milliseconds);
 
 /// <summary>
 /// The room's single command path (contracts/game-command.schema.json). Manual controls, the companion
@@ -70,13 +83,38 @@ public partial class CommandHost : Node
     public const float GoToStopM = 0.08f;
     /// <summary>A come, go_to or fetch whose body has reported blocked this long without a break fails with target_unreachable.</summary>
     public const double UnreachableAfterS = 5.0;
+    /// <summary>
+    /// The engine's cap on active effects per room, whatever the ability: 8. It is the most effects of every kind the look draws
+    /// at once (EffectLook.MaxEffects), so the look never refuses an effect for count that the host admitted; it is the schema's outer
+    /// max_active for light.emit; and it is the omni lights Godot's Mobile renderer shades per mesh, so a spot lit by every
+    /// effect still shows each one. Later abilities share it.
+    /// </summary>
+    public const int MaxActiveEffects = 8;
+    /// <summary>capabilities.list pages this many items when no limit is given (as entities.list).</summary>
+    public const int CapabilitiesDefaultLimit = 50;
+    /// <summary>A point effect's place must be in the team's sight: a column twice this wide (metres) over the centre, as tall as the wisp floats above it.</summary>
+    public const float EffectSightHalfWidthM = 0.02f;
+    /// <summary>
+    /// observe's radius_m is at most this (contract, 13 October: past the 10x garage island's farthest corner, about
+    /// 100 m). Omitted, observe has no distance cut-off: line of sight is the real limit, on the whole island.
+    /// </summary>
+    public const int ObserveRadiusMaxM = 150;
+    /// <summary>
+    /// entities.list's near.radius_m is at most this (contract, S8 of the 10x world): room-sized, as observe's radius. It was
+    /// 50 m, seven times today's islands; on the 10x island it reaches across it from anywhere.
+    /// </summary>
+    public const int NearRadiusMaxM = 150;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
     // \A and \z, never ^ and $: in .NET, $ also matches before a final newline (Lane P review).
     private static readonly Regex ActionId = new(@"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly Regex Token = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
-    private static readonly Regex EntityId = new(@"\A(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    // A plant copy (plant:<set>-<row>, the 10x world) has one spelling: its row in decimal without leading zeros. A Fractal
+    // (fractal:<id>, the mechanics round) is the player's to pick up (item.pickup).
+    private static readonly Regex EntityId = new(@"\A((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7})|fractal:[a-z0-9]{1,32})\z", RegexOptions.Compiled);
+    private static readonly Regex FractalId = new(@"\Afractal:[a-z0-9]{1,32}\z", RegexOptions.Compiled);
+    private static readonly Regex ObjectIdPattern = new(@"\Aobj:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex AvatarId = new(@"\Aavatar:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex CreationId = new(@"\Acreation:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex EffectId = new(@"\Aeffect:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
@@ -89,23 +127,41 @@ public partial class CommandHost : Node
     {
         "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
         "creation.place", "creation.revise", "creation.activate", "protect.lock", "protect.unlock",
-        "goal.set", "goal.stop", "effect.start", "effect.stop", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "journal.note",
+        "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "world.set_mode", "journal.note",
+        "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
+        // The mechanics round (M0): player-only. The player's item.pickup of a Fractal and item.gather of a held log or stone
+        // are hosted (M1), knack.set too (M3, Saves/CommandHostTeams.cs), and fractal.spend (the second contract round, hosted in
+        // M1's fix round: CommandHostFractals), and receipt.mark and trust.reset since M8 (CommandHostTrust).
+        "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset",
     };
     private static readonly HashSet<string> QueryOps = new()
     {
         "room.describe", "entities.list", "entity.inspect", "capabilities.list", "observe", "jobs.status", "receipt.lookup", "approval.status",
-        "journal.read", "map.find",
+        "journal.read", "map.find", "player.status", "nature.describe", "wishes.read", "view.look",
     };
     private static readonly HashSet<string> DestructiveOps = new() { "entity.remove", "entity.transform", "creation.revise", "protect.lock", "protect.unlock" };
     /// <summary>
-    /// Ops that change no saved state, so their receipts are transient (contracts/README.md "Receipts"): goals, stops,
-    /// effects, grabs, activations and, while it is not saved, the world's physics. Never entity.release: putting a
-    /// thing down is saved state (kernel-host-gaps P8). Transient() refuses any other op.
+    /// Ops that change nothing in the room's saved state, so their receipts are transient (contracts/README.md "Receipts"):
+    /// goals, stops (wish.stop among them), effects, grabs, activations and, while it is not saved, the world's physics;
+    /// and the player's own settings, the game mode (world.set_mode) and Glow's touches (glow.configure), which are saved
+    /// in the player's profile files, never in the room. Never entity.release: putting a thing down is saved state
+    /// (kernel-host-gaps P8), and never a nature change, which is room state. Transient() refuses any other op.
     /// </summary>
-    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "entity.grab", "creation.activate", "world.set_physics" };
+    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop", "knack.set", "fractal.spend", "receipt.mark", "trust.reset" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
-    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics" };
-    private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop" };
+    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset" };
+    /// <summary>The mechanics round's player-only ops (contracts/README.md "Player-only operations"): the player's own, with no tool.</summary>
+    private static readonly HashSet<string> MechanicsPlayerOps = new() { "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset" };
+    /// <summary>The Gubble may find a Fractal and go to it, never gather it: the same refusal whether or not the Fractal exists.</summary>
+    public const string FractalRefusal = "Only the player can pick up a Fractal.";
+    /// <summary>The mechanics round's stubs' words (unsupported_capability at $.op), the mock host's too.</summary>
+    public const string MechanicsNotYet = "This operation is not available yet.";
+    public const string DifficultyNotYet = "Difficulties are chosen at the opening menu, which is not built yet.";
+    /// <summary>world.set_mode once a team's boot fixed the mode (M3, CheckModeChange): unsupported_capability at $.op.</summary>
+    public const string ModeAtMenu = "The mode is chosen at the menu; this save keeps its mode.";
+    /// <summary>world.set_mode to Live on a team's room (M3): unsupported_capability at $.args.mode, allowed creative and challenge.</summary>
+    public const string LiveNotYet = "Live is not available yet.";
+    private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop", "wish.stop" };
     /// <summary>Goals that only move or turn the companion: they may aim at something it remembers but cannot see now, re-checked on arrival.</summary>
     private static readonly HashSet<string> RememberedTargetGoals = new() { "go_to", "look_at", "point_at", "come", "fetch" };
     /// <summary>What perception memory keeps: everything but the shell, which is always in sight.</summary>
@@ -137,6 +193,12 @@ public partial class CommandHost : Node
     public event Action<PendingApproval>? ApprovalRequested;
     /// <summary>Raised when a goal's job ends: actor, job id and its state (succeeded, failed or cancelled).</summary>
     public event Action<string, string, string>? GoalFinished;
+    /// <summary>
+    /// The playtest record's one tap (docs/runs/RUN-2-PLAYTEST-LOOP.md, R1): raised once for every message HandleObject answered for
+    /// the player or the companion, after its result is made, with a copy of the result's envelope. Nothing a listener does reaches
+    /// the result, and a listener that throws is passed over. The host knows nothing else of who listens.
+    /// </summary>
+    public event Action<CommandHandled>? Handled;
     public IReadOnlyList<PendingApproval> PendingApprovals => _approvals.Values.Where(a => a.State == "pending").OrderBy(a => a.Created).ToList();
     /// <summary>Perception memory's size per companion (PerceptionMemoryEntries; 0 turns memory off). Tests lower it.</summary>
     public int PerceptionMemoryLimit { get; internal set; } = PerceptionMemoryEntries;
@@ -175,8 +237,19 @@ public partial class CommandHost : Node
     private Func<string, bool>? _previousPhysicsSink;
 
     /// <summary>The integrator's one-line wiring: RoomWorld calls CommandHost.Attach(this) once its room, player and companion exist.</summary>
-    public static CommandHost Attach(RoomWorld world) =>
-        Create(world, world.Room, world.Player, world.Companion, world.Look?.Preset, SavePathFor(world.Room));
+    public static CommandHost Attach(RoomWorld world)
+    {
+        var host = Create(world, world.Room, world.Player, world.Companion, world.Look?.Preset, SavePathFor(world.Room));
+        // The island's abilities light the room through its look (glows); RoomWorld then hands the host its rules (LoadRules).
+        host.LookHook = world.Look;
+        // The team's stores (M3: the boot points the paths at its team's folder): the vitals, one document per mode; one expertise
+        // store for every mode (expertise travels, decision 2), so each mode's Glow record is the same store.
+        host.ConfigurePlayerVitals(new LocalPlayerVitalsStore(ProjectSettings.GlobalizePath(DefaultPlayerVitalsPath)));
+        var expertise = new LocalGlowProgressStore(ProjectSettings.GlobalizePath(DefaultGlowProgressPath));
+        host.ConfigureGlowProgressModes(_ => expertise, host.Mode);
+        host.ConfigureWishes(new LocalWishQueueStore(ProjectSettings.GlobalizePath($"{DefaultWishSaveRoot}/{world.Room.RoomId}.json"), world.Room.RoomId));
+        return host;
+    }
 
     public static CommandHost Create(Node parent, RoomData room, SmallPlayerController? player, CompanionAvatar? companion, StylePreset? style, string savePath)
     {
@@ -189,38 +262,47 @@ public partial class CommandHost : Node
     public static string SavePathFor(RoomData room) => $"{SaveRoot}/{room.RoomId}/{room.ManifestSha256[..16]}/inventions.json";
 
     /// <summary>The host attached under a room world, if any.</summary>
-    public static CommandHost? Of(Node world) => world.GetNodeOrNull<CommandHost>("CommandHost");
+    public static CommandHost? Of(Node world) => world.GetNodeOrNull<CommandHost>(PathInWorld);
+
+    /// <summary>
+    /// Node paths and method names kept for the life of the game (S12): a temporary one made from a string for every call is a
+    /// Godot value the .NET finalizer frees later, on its own thread, while the main thread goes on using the engine.
+    /// </summary>
+    private static readonly NodePath PathInWorld = "CommandHost";
+    private static readonly NodePath BuiltPath = "Room";
+    private static readonly NodePath ShellPath = "Room/Shell";
 
     public override void _Ready()
     {
         _session = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
         Runtime = (Node3D)GD.Load<GDScript>(RuntimeScript).New().AsGodotObject();
         Runtime.Name = "InventionRuntime";
-        Runtime.Set("save_path", SavePath);
-        // The workshop (INVENTIONS panel, editor, keys B F E V Q K) is retired for players: the founder's second
-        // playtest found its Q and E blocking the isometric view's turn keys. The runtime still renders and runs creations.
-        Runtime.Set("workshop_enabled", false);
-        Runtime.Call("configure", RoomDictionary(Room), Player!, Companion!);
+        Runtime.Set(KernelNames.SavePath, SavePath);
+        Runtime.Call(KernelNames.Configure, RoomDictionary(Room), Player!, Companion!);
         // The scene is derived: the authority hands every saved object pose to the room's nodes, while a save loads too.
-        Runtime.Set("object_pose_sink", new Callable(this, MethodName.ApplyObjectPoses));
+        Runtime.Set(KernelNames.ObjectPoseSink, new Callable(this, MethodName.ApplyObjectPoses));
         // A save's object poses are checked against the room as it is before they are believed (asset size, collision, support).
-        Runtime.Set("object_pose_check", new Callable(this, MethodName.CheckObjectPoses));
+        Runtime.Set(KernelNames.ObjectPoseCheck, new Callable(this, MethodName.CheckObjectPoses));
         // A save's journal and discovered map are checked before the save is believed.
-        Runtime.Set("team_check", new Callable(this, MethodName.CheckTeam));
+        Runtime.Set(KernelNames.TeamCheck, new Callable(this, MethodName.CheckTeam));
+        // So is a save's nature block (NatureBlock): a save is untrusted input.
+        Runtime.Set(KernelNames.NatureCheck, new Callable(this, MethodName.CheckNature));
         AddChild(Runtime);
-        Authority = Runtime.Get("authority").AsGodotObject();
+        Authority = Runtime.Get(KernelNames.Authority).AsGodotObject();
         // The team's journal and map come back with the room; tasks an earlier session left open are closed (their jobs did not survive it).
         // A room with no save of its own offers the newest earlier save of the same room, until the player answers.
-        if (Authority.Call("is_ready").AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0) _migrationOffer = NewestOtherSave();
-        LoadTeam(Authority.Call("is_ready").AsBool() ? KernelJson.ToJson(Authority.Call("team")) as JsonObject : null, closeOpenTasks: true);
+        if (Authority.Call(KernelNames.IsReady).AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0) _migrationOffer = NewestOtherSave();
+        LoadTeam(Authority.Call(KernelNames.IsReady).AsBool() ? KernelJson.ToJson(Authority.Call(KernelNames.Team)) as JsonObject : null, closeOpenTasks: true);
+        // The island's nature comes back with the room too (room state); RoomWorld turns its simulation on (ConfigureNature).
+        LoadNature();
         // Whatever the load did, the scene shows the authority's state: a save that failed to load leaves the manifest's places.
         ApplyObjectPoses(ObjectPoses());
-        Runtime.Set("command_sink", new Callable(this, MethodName.RuntimeCommand));
+        Runtime.Set(KernelNames.CommandSink, new Callable(this, MethodName.RuntimeCommand));
         SaveNotice = OtherManifestNotice(SavePath);
         if (SaveNotice.Length > 0)
         {
             GD.Print("COMMAND_HOST " + SaveNotice);
-            Runtime.Call("notice", SaveNotice);
+            Runtime.Call(KernelNames.Notice, SaveNotice);
         }
         // The G key sends world.set_physics through this host as the player: one command path for every world change.
         _physicsSink = preset => IsInstanceValid(this) && HandleObjectOk(PlayerPhysics(preset));
@@ -232,22 +314,40 @@ public partial class CommandHost : Node
             Player.HandsFull = () => IsInstanceValid(this) && HeldBy(PlayerAvatar) != null;
         }
         BuildPrompt();
+        // The sight sweep's and perception's rays (S12): one node cast in place, so no ray leaves a Godot value for the finalizer.
+        _sightRay = new SightRay(this, RoomBuilder.SightMask);
         AddChild(new Sandbox.Carrying { Name = "Carrying", Carried = CarriedNow });
         // The room's bounds are its playable volume (room manifest): neither body walks out of them, and one that falls
         // below them is recovered. A generated landscape's ground stops just past its bounds, with nothing beyond.
         Player?.SetPlayableBounds(Room.Bounds);
         Companion?.SetPlayableBounds(Room.Bounds);
-        // An island's sea: past the reef a current turns a swimmer back, and past the playable water they wash ashore. The
-        // bounds stay only as the last safety net, out past the playable water.
+        // An island's sea has no edge: the bounds stop holding the bodies at their sides, the sea answers past the water
+        // meshes, B takes the player home to the jetty, and a far net hours out does the same (SmallPlayerController).
         Player?.SetSea(Room.Sea);
         Companion?.SetSea(Room.Sea);
+        // The Gubble caught up with the player far across the island (S8): its AI hears of it on its next result.
+        if (Companion != null) Companion.CaughtUp += NoteCatchUp;
+        BindPlayerVitals();
     }
 
     public override void _ExitTree()
     {
+        UnbindPlayerVitals();
+        if (Companion != null && IsInstanceValid(Companion)) Companion.CaughtUp -= NoteCatchUp;
+        WishRunnerSession(false);
+        // Nature first: its write carries the team block too when that waits.
+        SaveNatureOnExit();
         if (_teamDirty) SaveTeam();
+        // The room unloads: its effects end, and the look's glows with them; its bubbles pop and the body is handed back.
+        EndAllEffects();
+        EndAllBubbles();
         // A host freed while another is attached (a test's second host) hands the key back.
         if (Player != null && IsInstanceValid(Player) && Player.WorldPhysicsRequest == _physicsSink) Player.WorldPhysicsRequest = _previousPhysicsSink;
+        // The room is leaving (the game quits, or a room changes): every Godot value still waiting for the .NET finalizer is freed
+        // now, while the engine is whole and the main thread waits (S12). Left for later, the finalizer frees them on its own thread
+        // while the engine shuts down under it, which crashed at exit before.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
     }
 
     private static bool HandleObjectOk(JsonObject result) => result["ok"]?.GetValue<bool>() == true;
@@ -275,14 +375,16 @@ public partial class CommandHost : Node
     {
         // A lapse shows at once: the prompt never offers a request whose entities have changed.
         foreach (var approval in _approvals.Values) Refresh(approval);
+        // An effect ends at its duration, and its light with it.
+        ExpireEffects();
         if (_prompt == null || _promptText == null) return;
         var next = PendingApprovals.FirstOrDefault();
         _prompt.Visible = next != null;
         if (next != null) _promptText.Text = next.Reason;
     }
 
-    public int Revision => Authority.Get("revision").AsInt32();
-    private int PermissionRevision => Authority.Get("permission_revision").AsInt32();
+    public int Revision => Authority.Get(KernelNames.Revision).AsInt32();
+    private int PermissionRevision => Authority.Get(KernelNames.PermissionRevision).AsInt32();
     private string Now() => KernelJson.Utc(Clock());
 
     // ---- entry points ----
@@ -294,15 +396,37 @@ public partial class CommandHost : Node
     {
         if (principal is not (PlayerPrincipal or CompanionPrincipal))
             return Fail("invalid", "system:host", null, null, new Refusal("principal_unknown", "The host did not admit this caller."));
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         _perceived = null;
-        try { return HandleChecked(message, principal); }
+        JsonObject result;
+        try { result = HandleChecked(message, principal); }
         catch (Exception error)
         {
             // The host always answers (Lane P review: a result that could not be serialised threw out of Handle).
             GD.Print("COMMAND_HOST internal error: " + error.GetType().Name);
-            return InternalError("invalid", principal);
+            result = InternalError("invalid", principal);
         }
         finally { _perceived = null; }
+        // What the Gubble's actions did to the player rides on its next result, whatever it asked (CommandHostConsequences).
+        if (principal == CompanionPrincipal) DeliverNotices(result);
+        // The playtest record's tap, once the result is final: a copy of its envelope, so no listener can change the answer.
+        if (Handled != null) RaiseHandled(message, principal, result, started);
+        return result;
+    }
+
+    private void RaiseHandled(string message, string principal, JsonObject result, long started)
+    {
+        static string? Text(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+        static bool Flag(JsonNode? node) => node is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
+        var error = result["error"] as JsonObject;
+        var handled = new CommandHandled(message, principal, Text(result["op"]) ?? "invalid", Flag(result["ok"]), Text(result["action_id"]),
+            Text(error?["code"]), Text(error?["message"]), result["revision"] is JsonValue revision && revision.TryGetValue<int>(out var number) ? number : null,
+            Flag(result["replayed"]), Flag(result["preview"]), System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        foreach (var listener in Handled!.GetInvocationList())
+        {
+            try { ((Action<CommandHandled>)listener)(handled); }
+            catch (Exception failure) { GD.Print("COMMAND_HOST a listener of Handled failed: " + failure.GetType().Name); }
+        }
     }
 
     private JsonObject HandleChecked(string message, string principal)
@@ -358,18 +482,27 @@ public partial class CommandHost : Node
     /// <summary>Transient receipts the host keeps for principal this session.</summary>
     public int TransientReceiptCount(string principal) => _transientOrder.TryGetValue(principal, out var order) ? order.Count : 0;
 
-    /// <summary>Manual companion controls (HUD keys) as goal.set / goal.stop commands from the player.</summary>
-    public JsonObject PlayerGoal(string goal, Vector3? point = null)
+    /// <summary>
+    /// Manual companion controls (HUD keys) as goal.set / goal.stop commands from the player: a goal, at a point (position_m) or
+    /// of a room thing by its id (target; fetch). The host checks both as it checks the companion's own.
+    /// </summary>
+    public JsonObject PlayerGoal(string goal, Vector3? point = null, string? target = null)
     {
         var args = new JsonObject { ["actor"] = CompanionAvatarId };
         var op = goal == "stop" ? "goal.stop" : "goal.set";
         if (op == "goal.set")
         {
             args["goal"] = goal;
+            if (target != null) args["target"] = target;
             if (point is { } at) args["position_m"] = KernelJson.Vector(at);
         }
         return PlayerCommand(op, args);
     }
+
+    /// <summary>Why the actor's last goal job failed (the host's own words), or null after one that succeeded.</summary>
+    public string? LastGoalError(string actor) => _lastGoalError.GetValueOrDefault(actor);
+
+    private readonly Dictionary<string, string> _lastGoalError = new(StringComparer.Ordinal);
 
     /// <summary>The G key: world.set_physics from the player (player-only, transient, the revision does not move).</summary>
     public JsonObject PlayerPhysics(string preset)
@@ -379,14 +512,28 @@ public partial class CommandHost : Node
         return result;
     }
 
-    private JsonObject PlayerCommand(string op, JsonObject args)
+    private JsonObject PlayerCommand(string op, JsonObject args, bool preview = false, int? expectedRevision = null)
     {
         var command = new JsonObject
         {
             ["schema"] = "enfractal.command", ["version"] = 1, ["action_id"] = $"hud-{_session}-{++_counter}",
             ["room_id"] = Room.RoomId, ["op"] = op, ["args"] = args,
         };
+        if (preview) command["preview"] = true;
+        if (expectedRevision != null) command["expected_revision"] = expectedRevision;
         return HandleObject(CanonicalJson.Text(command), PlayerPrincipal);
+    }
+
+    /// <summary>
+    /// The player's order to the Gubble to put down what it holds (entity.release through the Gubble's avatar, as the player): in
+    /// front of it (no spot), or at a spot (placement.position_m), where the room's physics settles it. preview: only whether it
+    /// would work now, changing nothing (the HUD asks it on the Gubble's way there). The host checks reach and room as ever.
+    /// </summary>
+    public JsonObject PlayerPutDown(Vector3? at = null, bool preview = false)
+    {
+        var args = new JsonObject { ["actor"] = CompanionAvatarId };
+        if (at is { } spot) args["placement"] = new JsonObject { ["position_m"] = KernelJson.Vector(spot) };
+        return PlayerCommand("entity.release", args, preview);
     }
 
     /// <summary>The player's click: commit the held command under its original principal, recorded as approved by the player.</summary>
@@ -415,10 +562,18 @@ public partial class CommandHost : Node
         var code = result["error"]?["code"]?.GetValue<string>();
         Finish(approval, code == "receipt_limit"
             ? new Refusal("receipt_limit", "The receipt ledger is full; nothing was changed. A room.checkpoint compacts it; then ask again with a new action_id.")
+            // The pool could not pay its principal's price when the click committed it: that, with the balance and the price.
+            : code == "energy_exhausted" && result["error"]?["balance"]?.GetValue<int>() is { } balance && result["error"]?["price"]?.GetValue<int>() is { } price
+                ? new Refusal("energy_exhausted", EnergyExhaustedMessage, "$.args.capability", retryable: true) { Balance = balance, Price = price }
             : new Refusal("approval_mismatch", "The change can no longer be made as approved; nothing was changed. To ask again, use a new action_id."));
         return (JsonObject)approval.Result!.DeepClone();
     }
 
+    /// <summary>
+    /// The player's no. A request held only to ask whether the player's builds may burn (SparesOnDeny) is then made with
+    /// them spared: the fire is lit and stops at them, under the original principal, with no approval recorded (the player
+    /// approved nothing). Anything else is declined and commits nothing.
+    /// </summary>
     public JsonObject Deny(string requestId)
     {
         if (!_approvals.TryGetValue(requestId, out var approval))
@@ -426,6 +581,21 @@ public partial class CommandHost : Node
         Refresh(approval);
         if (approval.State != "pending")
             return Fail("approval.status", PlayerPrincipal, null, null, new Refusal("target_not_found", "There is no waiting request with that id."));
+        if (approval.SparesOnDeny)
+        {
+            using var document = JsonDocument.Parse(approval.CommandText);
+            JsonObject spared;
+            _perceived = null;
+            _sparing = true;
+            try { spared = Execute(document.RootElement, approval.Principal, approval.Fingerprint, null); }
+            finally { _sparing = false; _perceived = null; }
+            if (spared["ok"]!.GetValue<bool>())
+            {
+                approval.State = "denied";
+                approval.Result = spared;
+                return (JsonObject)spared.DeepClone();
+            }
+        }
         Finish(approval, new Refusal("permission_denied", "The player declined this request. To ask again, use a new action_id."), "denied");
         return (JsonObject)approval.Result!.DeepClone();
     }
@@ -468,14 +638,26 @@ public partial class CommandHost : Node
             var args = root.GetProperty("args");
             var preview = root.TryGetProperty("preview", out var p) && p.ValueKind == JsonValueKind.True;
             CheckArgs(op, args);
+            CheckWishCommandBudget(root, principal);
             // Player-only ops are refused outright from the companion, never held for a click.
             if (PlayerOnlyOps.Contains(op) && principal != PlayerPrincipal)
-                throw new Refusal("permission_denied", op == "protect.unlock"
-                    ? "Only the player can unlock, directly in the game." : "Only the player can change the world's physics, directly in the game.", "$.op");
+                throw new Refusal("permission_denied", op == "protect.unlock" ? "Only the player can unlock, directly in the game."
+                    : MechanicsPlayerOps.Contains(op) ? "Only the player can do that, directly in the game."
+                    : "Only the player can choose this setting or submit wishes, directly in the game.", "$.op");
+            // A Fractal is never carried, placed, pushed or fetched by the companion: refused by the id's namespace before
+            // anything is looked up, so the answer is the same whether or not it exists (contracts: common fractal_id).
+            if (principal != PlayerPrincipal && NamesAFractal(op, args))
+                throw new Refusal("permission_denied", FractalRefusal, "$.args.target");
+            // The mode is the boot's once a team's room is up, and Live is not yet (M3, CheckModeChange).
+            if (op == "world.set_mode") CheckModeChange(args);
             var unsupported = Unsupported(op, args, principal);
             if (unsupported != null) throw new Refusal("unsupported_capability", unsupported, "$.op");
             if (!StopOps.Contains(op)) CheckExpectations(root, op, args, principal);
             CheckPerceived(op, args, principal);
+            CheckNatureRemains(op, args);
+            // An ability is checked against the island's rules before anything else happens, a hold included.
+            var effect = op == "effect.start" ? PlanEffect(args, principal) : null;
+            if (op == "effect.adjust") EffectAdjust(args, principal, actionId, fingerprint, true, approvedBy);
             if (approvedBy == null && !preview && principal == CompanionPrincipal && NeedsApproval(op, args, out var reason, out var touched))
                 return Hold(root, principal, actionId, fingerprint, op, reason, touched);
             var meta = new Godot.Collections.Dictionary { ["fingerprint"] = fingerprint, ["op"] = op, ["at_utc"] = Now() };
@@ -488,19 +670,42 @@ public partial class CommandHost : Node
                 "creation.activate" => Activate(args, principal, actionId, fingerprint, meta, preview),
                 "goal.set" => GoalSet(args, principal, actionId, fingerprint, preview),
                 "goal.stop" => GoalStop(args, principal, actionId, fingerprint, preview),
+                "effect.start" => EffectStart(effect!, principal, actionId, fingerprint, preview, approvedBy),
                 "effect.stop" => EffectStop(args, principal, actionId, fingerprint, preview),
+                "effect.adjust" => EffectAdjust(args, principal, actionId, fingerprint, preview, approvedBy),
+                "glow.configure" => ConfigureGlow(args, principal, actionId, fingerprint, preview),
+                "nature.cast" or "nature.trail" or "nature.repair" => NatureCommand(root, principal, fingerprint, approvedBy),
+                "room.undo" => NatureUndo(root, principal, fingerprint, approvedBy),
+                "wish.submit" => WishSubmit(args, principal, actionId, fingerprint, preview),
+                "wish.stop" => WishStop(principal, actionId, preview),
                 "room.checkpoint" => Checkpoint(args, principal, actionId, meta, preview),
                 "world.set_physics" => SetPhysics(args, principal, actionId, fingerprint, preview),
+                "world.set_mode" => SetMode(args, principal, actionId, fingerprint, preview),
                 "entity.grab" => Grab(args, principal, actionId, fingerprint, preview),
                 "entity.release" => Release(args, principal, actionId, meta, preview),
                 "entity.place" => PlaceObject(args, principal, actionId, meta, preview),
                 "entity.push" => PushObject(args, principal, actionId, meta, preview),
                 "journal.note" => Note(args, principal, actionId, meta, preview),
+                "item.pickup" => PickUpFractal(args, principal, actionId, fingerprint, preview),
+                "item.gather" => GatherHeld(args, principal, actionId, fingerprint, preview),
+                "knack.set" => SetKnack(args, principal, actionId, fingerprint, preview),
+                "fractal.spend" => SpendFractals(args, principal, actionId, fingerprint, preview),
+                // M8: the player's marks and reset (CommandHostTrust).
+                "receipt.mark" => MarkReceipt(args, principal, actionId, fingerprint, preview),
+                "trust.reset" => ResetTrust(principal, actionId, fingerprint, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
+            ObserveWishCommand(root, result, principal);
+            // M8: a command of the Gubble's that committed opens its Trust window and can be marked (CommandHostTrust).
+            ObserveTrustCommand(root, result, principal);
             return result;
         }
-        catch (Refusal refusal) { return Fail(op, principal, actionId, null, refusal); }
+        catch (Refusal refusal)
+        {
+            var result = Fail(op, principal, actionId, null, refusal);
+            ObserveWishCommand(root, result, principal);
+            return result;
+        }
     }
 
     private JsonObject PlaceOrRevise(string op, JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview, string? approvedBy)
@@ -523,9 +728,13 @@ public partial class CommandHost : Node
             source = KernelJson.ToVariant(args.GetProperty("source"));
             (x, y, z, yaw, on) = ReadPlacement(args.GetProperty("placement"), 0);
         }
+        // The land's walkable ground is built only near the bodies (S12b, TerrainCollision): under a placement far from them it is
+        // built now, a few tiles at most, so the authority's surface checks meet the real ground, as they did before.
+        var spot = new Vector3((float)x, (float)y, (float)z);
+        if (spot.IsFinite()) TerrainCollision.EnsureAround(this, spot, TerrainCollision.FarActionM);
         if (preview)
         {
-            var checkedPlacement = Authority.Call("preflight", principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
+            var checkedPlacement = Authority.Call(KernelNames.Preflight, principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
             if (!checkedPlacement["ok"].AsBool()) throw Translate(checkedPlacement);
             var answer = Result(op, principal, actionId, null, true);
             answer["preview"] = true;
@@ -546,7 +755,7 @@ public partial class CommandHost : Node
         if (instanceId.Length > 0) request["instance_id"] = instanceId;
         // The journal's fact goes in the same save as the creation and its receipt (review major 3): the same candidate
         // path the commit takes names the creation and where it will stand.
-        var candidate = Authority.Call("preflight", principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
+        var candidate = Authority.Call(KernelNames.Preflight, principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
         if (!candidate["ok"].AsBool()) throw Translate(candidate);
         var id = candidate["instance_id"].AsString();
         (string Name, Vector3 Pin)? view;
@@ -576,18 +785,21 @@ public partial class CommandHost : Node
         if (!target.StartsWith("creation:", StringComparison.Ordinal))
             throw new Refusal("unsupported_capability", target.StartsWith("obj:", StringComparison.Ordinal)
                 ? "Removing room objects arrives with the sandbox verbs (Run 2)." : "That part of the room cannot be removed.", "$.args.target");
-        if (Authority.Call("is_locked", target).AsBool()) throw new Refusal("target_protected", "That is protected. Only the player can unlock it.", "$.args.target");
+        if (Authority.Call(KernelNames.IsLocked, target).AsBool()) throw new Refusal("target_protected", "That is protected. Only the player can unlock it.", "$.args.target");
         if (preview) return Previewed("entity.remove", principal, actionId, target);
         var request = new Godot.Collections.Dictionary
         {
             ["op"] = "remove", ["action_id"] = actionId, ["instance_id"] = target,
             ["expected_revision"] = Revision, ["expected_permission_revision"] = PermissionRevision,
         };
-        // The removal's fact is saved with the removal and its receipt (review major 3).
+        // The removal's fact is saved with the removal and its receipt (review major 3), and so is the end of its scorch record.
         var fact = CreationFact("entity.remove", principal, approvedBy, target, TeamView(target));
         request["team"] = FactTeam(fact);
+        var nature = NatureWithout(target);
+        if (nature != null) request["nature"] = KernelJson.ToVariant(NatureBlock.Pack(nature));
         var result = Submit(request, principal, actionId, meta);
         AddHistory(fact);
+        if (nature != null) PublishNature(nature);
         return result;
     }
 
@@ -602,7 +814,7 @@ public partial class CommandHost : Node
         if (preview)
         {
             foreach (var target in targets)
-                if (Authority.Call("is_locked", target).AsBool() == (op == "protect.lock"))
+                if (Authority.Call(KernelNames.IsLocked, target).AsBool() == (op == "protect.lock"))
                     throw new Refusal("invalid_args", op == "protect.lock" ? "That is already protected." : "That is not protected.", "$.args.targets");
             return Previewed(op, principal, actionId, targets);
         }
@@ -625,7 +837,7 @@ public partial class CommandHost : Node
             ["op"] = "activate", ["action_id"] = actionId, ["instance_id"] = target,
             ["expected_revision"] = Revision, ["expected_permission_revision"] = PermissionRevision,
         };
-        var outcome = Runtime.Call("execute_activation", principal, request, meta).AsGodotDictionary();
+        var outcome = Runtime.Call(KernelNames.ExecuteActivation, principal, request, meta).AsGodotDictionary();
         if (!outcome["ok"].AsBool()) throw Translate(outcome);
         return Transient("creation.activate", principal, actionId, fingerprint, new JsonArray(target), null);
     }
@@ -640,6 +852,8 @@ public partial class CommandHost : Node
         }
         if (actor != CompanionAvatarId || Companion == null) throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
         var goal = Str(args, "goal")!;
+        // The Gubble leading a bubble to a spot: its target is a bubble, never an entity (Kernel/Bubble/CommandHostBubbleLead).
+        if (goal == "lead") return LeadGoal(args, principal, actionId, fingerprint, preview);
         var data = new JsonObject { ["actor"] = actor, ["goal"] = goal };
         string? target = null;
         Aabb aim = default;
@@ -685,7 +899,8 @@ public partial class CommandHost : Node
                 Companion.GoTo(target != null ? aim : new Aabb(KernelJson.ReadVector(args.GetProperty("position_m")), Vector3.Zero), GoToStopM);
                 break;
             // Already holding it: straight to the return phase. Otherwise walk to it first.
-            case "fetch" when returning: Companion.Come(); break;
+            // A fetch's way back carries the thing the whole way: it never catches up (CompanionAvatar.CatchUpM).
+            case "fetch" when returning: Companion.Come(catchUp: false); break;
             case "fetch": Companion.GoTo(aim, GoToStopM); break;
         }
         // A goal with a target runs as a job: the host re-checks the target when the avatar arrives. A walk with no thing to
@@ -714,24 +929,54 @@ public partial class CommandHost : Node
         if (preview) return Previewed("goal.stop", principal, actionId);
         var whose = actor == null ? (principal == PlayerPrincipal ? "" : principal) : actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
         var affected = new JsonArray();
+        string? led = null;
         if (whose != PlayerPrincipal && Companion != null)
         {
+            // The bubble it leads pops with its stop (decision 60), as the player's own pop when it is the player's X (Kernel/Bubble).
+            led = PopLedBubble(principal == PlayerPrincipal);
             CancelGoal(CompanionAvatarId);
             Companion.Stop();
             affected.Add(CompanionAvatarId);
         }
-        var stopped = Runtime.Call("stop_effects", whose).AsInt32();
-        return Transient("goal.stop", principal, actionId, fingerprint, affected, new JsonObject { ["effects_stopped"] = stopped });
+        var stopped = Runtime.Call(KernelNames.StopEffects, whose).AsInt32();
+        // The Gubble carries out the island's abilities: a stop that covers it ends the effects this principal may stop.
+        if (whose != PlayerPrincipal)
+            foreach (var ended in StopCompanionEffects(principal))
+            {
+                affected.Add(ended);
+                stopped++;
+            }
+        // Its bubbles pop too, the player's X whoever cast them (Kernel/Bubble): a body in one deflates.
+        if (led != null)
+        {
+            affected.Add(led);
+            stopped++;
+        }
+        if (whose != PlayerPrincipal)
+            foreach (var popped in PopBubbles(principal, "all"))
+            {
+                affected.Add(popped);
+                stopped++;
+            }
+        var data = new JsonObject { ["effects_stopped"] = stopped };
+        // And every fire the Gubble lit goes out at once, whatever any budget says (the player's X; the Gubble's own stop too).
+        if (whose != PlayerPrincipal && PutOutCompanionFire()) data["fires_put_out"] = 1;
+        return Transient("goal.stop", principal, actionId, fingerprint, affected, data);
     }
 
     private JsonObject EffectStop(JsonElement args, string principal, string actionId, string fingerprint, bool preview)
     {
         var effect = Str(args, "effect")!;
         if (preview) return Previewed("effect.stop", principal, actionId);
-        // Creation effects have no effect: ids yet, so a named effect is already stopped. "all" is everything for
-        // the player and the companion's own effects for the companion.
-        var stopped = effect == "all" ? Runtime.Call("stop_effects", principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
-        return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(), new JsonObject { ["effects_stopped"] = stopped });
+        // Creation effects have no effect: ids yet, so for them a named effect is already stopped. "all" is everything
+        // for the player and the companion's own effects for the companion; the island's abilities (glows) go the same
+        // way, by id or all. An unknown id, or one the companion may not stop, stops nothing and still applies.
+        var stopped = effect == "all" ? Runtime.Call(KernelNames.StopEffects, principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
+        var ended = StopEffects(principal, effect);
+        // A bubble is stopped by its effect: id as well (Kernel/Bubble): the player any, a companion its own.
+        ended.AddRange(PopBubbles(principal, effect));
+        return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(ended.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+            new JsonObject { ["effects_stopped"] = stopped + ended.Count });
     }
 
     /// <summary>room.checkpoint: compacts the durable ledger in the authority. It changes no world state and never fails for a full ledger.</summary>
@@ -760,7 +1005,7 @@ public partial class CommandHost : Node
                 allowed: new JsonArray(presets.OrderBy(id => id, StringComparer.Ordinal).Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()));
         if (Player == null || !IsInstanceValid(Player)) throw new Refusal("not_ready", "The player's body is not in the room yet.", retryable: true);
         if (preview) return Previewed("world.set_physics", principal, actionId);
-        var profile = script.Call("preset", preset, Player.WorldPhysicsRevision + 1).AsGodotDictionary();
+        var profile = script.Call(KernelNames.Preset, preset, Player.WorldPhysicsRevision + 1).AsGodotDictionary();
         if (!Player.SetWorldPhysics(profile)) throw new Refusal("internal_error", "The game could not change the world's physics.", retryable: true);
         // The companion lives under the same world physics; it would also adopt the player's newer profile next tick.
         if (Companion != null && IsInstanceValid(Companion)) Companion.SetWorldPhysics(profile);
@@ -769,13 +1014,13 @@ public partial class CommandHost : Node
 
     private JsonObject Submit(Godot.Collections.Dictionary request, string principal, string actionId, Godot.Collections.Dictionary meta)
     {
-        var outcome = Authority.Call("submit", principal, request, meta).AsGodotDictionary();
+        var outcome = Authority.Call(KernelNames.Submit, principal, request, meta).AsGodotDictionary();
         if (!outcome["ok"].AsBool()) throw Translate(outcome);
         // The scene is derived at once: a placed, revised or removed creation's colliders are where the state says before
         // the next command looks (object poses reach the scene through the authority's pose seam during the commit).
-        Runtime.Call("refresh_now");
+        Runtime.Call(KernelNames.RefreshNow);
         // The first answer is rebuilt from the durable receipt, exactly as every replay will be.
-        var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
+        var record = Authority.Call(KernelNames.ReceiptFor, principal, actionId).AsGodotDictionary();
         return Durable(record, replayed: false);
     }
 
@@ -783,13 +1028,16 @@ public partial class CommandHost : Node
     /// A transient receipt for the session. Never fails: each principal keeps its latest MaxTransientPerPrincipal and
     /// the oldest is forgotten, so a full store can never turn an action that already happened into a refusal.
     /// </summary>
-    private JsonObject Transient(string op, string principal, string actionId, string fingerprint, JsonArray affected, JsonObject? data, string? jobId = null)
+    private JsonObject Transient(string op, string principal, string actionId, string fingerprint, JsonArray affected, JsonObject? data, string? jobId = null,
+        JsonArray? created = null, string? approvedBy = null)
     {
         // Only ops that change no saved state answer with a transient receipt (P8: never entity.release).
         if (!TransientOps.Contains(op)) throw new InvalidOperationException(op + " keeps a durable receipt");
         var result = Result(op, principal, actionId, null, true);
         result["transient"] = true;
         if (affected.Count > 0) result["affected"] = affected;
+        if (created is { Count: > 0 }) result["created"] = created;
+        if (approvedBy != null) result["approved_by"] = approvedBy;
         if (jobId != null) result["job_id"] = jobId;
         if (data != null) result["data"] = data;
         var key = principal + "|" + actionId;
@@ -823,7 +1071,7 @@ public partial class CommandHost : Node
     /// </summary>
     private JsonObject? Replay(string op, string principal, string actionId, string fingerprint)
     {
-        var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
+        var record = Authority.Call(KernelNames.ReceiptFor, principal, actionId).AsGodotDictionary();
         if (record.Count > 0)
         {
             if (record["fingerprint"].AsString() != fingerprint)
@@ -831,7 +1079,7 @@ public partial class CommandHost : Node
             return Durable(record, replayed: true);
         }
         // A checkpoint compacted it: it still replays, and still refuses other content under its id.
-        var compacted = Authority.Call("compacted_receipt", principal, actionId).AsGodotDictionary();
+        var compacted = Authority.Call(KernelNames.CompactedReceipt, principal, actionId).AsGodotDictionary();
         if (compacted.Count > 0)
         {
             if (compacted["fingerprint_prefix"].AsString() != fingerprint[..16])
@@ -844,6 +1092,7 @@ public partial class CommandHost : Node
             if (op == "room.checkpoint") replayed["data"] = new JsonObject { ["checkpoint_revision"] = compacted["revision"].AsInt32() };
             return replayed;
         }
+        if (ReplayWish(principal, actionId, fingerprint) is { } wish) return wish;
         if (!_transient.TryGetValue(principal + "|" + actionId, out var transient)) return null;
         if (transient.Fingerprint != fingerprint)
             throw new Refusal("action_id_conflict", "This action id was already used for different content.", "$.action_id");
@@ -869,6 +1118,17 @@ public partial class CommandHost : Node
         if (meta["approved_by"].AsString().Length > 0) result["approved_by"] = meta["approved_by"].AsString();
         if (meta["op"].AsString() == "room.checkpoint") result["data"] = new JsonObject { ["checkpoint_revision"] = receipt["revision"].AsInt32() };
         if (meta["op"].AsString() == "journal.note" && receipt.ContainsKey("entry_id")) result["data"] = new JsonObject { ["entry_id"] = receipt["entry_id"].AsString() };
+        // A nature change's receipt keeps the data its first answer had (as the requester was allowed to see it). A pickup is
+        // kept by the same authority path: its receipt's data names the Fractal (the authority's own entity ids have no
+        // fractal: namespace), which the result carries in affected, with no data (contracts: item.pickup).
+        if (meta["op"].AsString() == "item.pickup")
+        {
+            if (receipt.ContainsKey("data") && receipt["data"].AsGodotDictionary() is { } kept && kept.TryGetValue("fractal", out var fractal) && fractal.AsString() is { Length: > 0 } id)
+                result["affected"] = new JsonArray(id);
+        }
+        // A gather is kept the same way, with nothing in its data: the object is in affected (contracts: item.gather).
+        else if (meta["op"].AsString() == "item.gather") { }
+        else if (receipt.ContainsKey("data")) result["data"] = Normalized(KernelJson.ToJson(receipt["data"]));
         return result;
     }
 
@@ -878,6 +1138,13 @@ public partial class CommandHost : Node
     {
         reason = "";
         touched = new Dictionary<string, int>();
+        // An ability of tier keyed_yes (T3) waits for the player's yes when the companion asks; the prompt names the capability token only.
+        if (op is "effect.start" or "effect.adjust")
+        {
+            if (Rules?.Ability(op == "effect.adjust" ? "glow" : Str(args, "capability")) is not { Tier: "keyed_yes" } ability) return false;
+            reason = $"The companion asks to use {ability.Capability}. Approve or deny it in the game.";
+            return true;
+        }
         if (op is not ("entity.remove" or "creation.revise")) return false;
         var target = Str(args, "target")!;
         var instance = Instance(target);
@@ -890,7 +1157,12 @@ public partial class CommandHost : Node
         return true;
     }
 
-    private JsonObject Hold(JsonElement root, string principal, string actionId, string fingerprint, string op, string reason, Dictionary<string, int> touched)
+    /// <summary>
+    /// Holds a command for the player's click. bindRevision makes the hold lapse as soon as the room changes (a nature
+    /// change was judged on the room as it is), as naming expected_revision does.
+    /// </summary>
+    private JsonObject Hold(JsonElement root, string principal, string actionId, string fingerprint, string op, string reason, Dictionary<string, int> touched, bool bindRevision = false,
+        bool sparesOnDeny = false)
     {
         if (_approvals.Values.Count(a => a.Principal == principal && a.State == "pending") >= MaxPendingApprovals)
             throw new Refusal("rate_limited", "Too many requests are already waiting for the player.", retryable: true);
@@ -899,7 +1171,8 @@ public partial class CommandHost : Node
             RequestId = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(),
             Principal = principal, ActionId = actionId, Fingerprint = fingerprint, Op = op, Reason = reason,
             CommandText = CanonicalJson.Text(root), Created = Clock(), Expires = Clock() + ApprovalLifetime, Touched = touched,
-            RoomRevision = root.TryGetProperty("expected_revision", out _) ? Revision : null,
+            RoomRevision = bindRevision || root.TryGetProperty("expected_revision", out _) ? Revision : null,
+            SparesOnDeny = sparesOnDeny,
         };
         var result = Fail(op, principal, actionId, null, new Refusal("approval_required", "Waiting for the player to approve this change.", retryable: true));
         result["approval_needed"] = new JsonObject
@@ -952,6 +1225,8 @@ public partial class CommandHost : Node
     {
         approval.State = state;
         approval.Result = Fail(approval.Op, approval.Principal, approval.ActionId, null, refusal);
+        using var heldCommand = JsonDocument.Parse(approval.CommandText);
+        ObserveWishCommand(heldCommand.RootElement, approval.Result, approval.Principal);
     }
 
     // ---- queries ----
@@ -981,6 +1256,10 @@ public partial class CommandHost : Node
                 "jobs.status" => JobStatus(args, principal),
                 "journal.read" => JournalRead(args, principal),
                 "map.find" => MapFind(args, principal),
+                "player.status" => PlayerStatus(),
+                "nature.describe" => NatureSnapshot(principal),
+                "wishes.read" => WishesRead(principal),
+                "view.look" => ViewLook(args, principal),
                 _ => throw new Refusal("request_invalid", "That operation does not exist.", "$.op"),
             };
             return result;
@@ -1056,14 +1335,6 @@ public partial class CommandHost : Node
         return data;
     }
 
-    /// <summary>Effect capabilities as contract capability_summary items: none until effect.start arrives (Run 3), kernel-host-gaps P1.</summary>
-    private static JsonObject Capabilities(JsonElement args)
-    {
-        if (args.TryGetProperty("cursor", out var cursor) && cursor.GetString() != "0")
-            throw new Refusal("invalid_args", "That cursor is not from this list.", "$.args.cursor");
-        return new JsonObject { ["items"] = new JsonArray() };
-    }
-
     private JsonObject Observe(JsonElement args, string principal)
     {
         var actor = Str(args, "actor")!;
@@ -1071,8 +1342,9 @@ public partial class CommandHost : Node
             throw new Refusal("actor_denied", "A companion observes only through its own avatar.", "$.args.actor");
         SmallPlayerController? body = actor == CompanionAvatarId ? Companion : actor == PlayerAvatar ? Player : null;
         if (body == null) throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
-        // The founder's rule: everything in line of sight, so the radius defaults to its 20 m maximum (P4).
-        var radius = args.TryGetProperty("radius_m", out var r) ? (float)CanonicalJson.ReadNumber(r) : 20.0f;
+        // The founder's rule: everything in line of sight (P4). Omitted, there is no distance cut-off: on the 10x island
+        // line of sight is the real limit; a given radius narrows the answer.
+        var radius = args.TryGetProperty("radius_m", out var r) ? (float)CanonicalJson.ReadNumber(r) : float.PositiveInfinity;
         var eye = body.EyeCamera.GlobalPosition;
         var entities = Entities();
         // A companion's own sight was taken (and remembered) for this request; the player looking through either
@@ -1119,12 +1391,12 @@ public partial class CommandHost : Node
     private JsonObject Lookup(JsonElement args, string principal)
     {
         var actionId = Str(args, "action_id")!;
-        var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
+        var record = Authority.Call(KernelNames.ReceiptFor, principal, actionId).AsGodotDictionary();
         if (record.Count > 0) return new JsonObject { ["found"] = true, ["receipt"] = Durable(record, replayed: false) };
-        if (Authority.Call("compacted_receipt", principal, actionId).AsGodotDictionary().Count > 0) return new JsonObject { ["found"] = true, ["compacted"] = true };
+        if (Authority.Call(KernelNames.CompactedReceipt, principal, actionId).AsGodotDictionary().Count > 0) return new JsonObject { ["found"] = true, ["compacted"] = true };
         if (_transient.TryGetValue(principal + "|" + actionId, out var transient))
             return new JsonObject { ["found"] = true, ["receipt"] = transient.Result.DeepClone() };
-        return new JsonObject { ["found"] = false };
+        return WishReceiptLookup(principal, actionId) ?? new JsonObject { ["found"] = false };
     }
 
     /// <summary>A goal's job, for the principal that set it; anyone else's job id, like an unknown one, is target_not_found.</summary>
@@ -1154,47 +1426,195 @@ public partial class CommandHost : Node
     /// <summary>Every entity in the room as contract entity summaries, sorted by id. Names are untrusted data.</summary>
     public List<JsonObject> Entities()
     {
-        var list = new List<JsonObject>();
-        var snapshot = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
-        var locks = snapshot.ContainsKey("locks") ? snapshot["locks"].AsGodotDictionary() : new Godot.Collections.Dictionary();
+        var list = new List<(string Id, JsonObject Summary)>(Room.Shell.Count + Room.Objects.Count + 4);
+        // The authority's state, read once and copied into C# (S12): no Godot value of it is left for the .NET finalizer.
+        var view = ReadEntitySnapshot();
         var shellProvenance = Room.SourceKind switch { "capture" => "captured_scanned", "procedural" => "procedural", _ => "hand_authored" };
         foreach (var part in Room.Shell)
         {
             var box = ShellBounds(part);
-            list.Add(Summary(part.Id, "shell", Readable(part.Id), null, null, box.GetCenter(), box,
-                part.Role == "floor" ? new[] { "walkable_top" } : Array.Empty<string>(), false, false, shellProvenance, EntityRevision(part.Id)));
+            // A room entity's revision is its play revision, 0 until play changes it (the authority's entity_revision).
+            list.Add((part.Id, Summary(part.Id, "shell", Readable(part.Id), null, null, box.GetCenter(), box,
+                part.Role == "floor" ? WalkableTop : Array.Empty<string>(), false, false, shellProvenance, view.Revisions.GetValueOrDefault(part.Id))));
         }
         // Objects stand where play last put them (the authority's poses), ride over their holder while carried, and
         // otherwise stand where the manifest puts them.
-        var poses = snapshot.ContainsKey("object_poses") ? snapshot["object_poses"].AsGodotDictionary() : new Godot.Collections.Dictionary();
         foreach (var item in Room.Objects)
         {
-            var (position, rotation) = PoseOf(item, poses);
+            // A stock object that burned down is gone from the room (its record stays in nature, for a later rebuild).
+            if (IsBurnedDown(item.Id)) continue;
+            var (position, rotation) = PoseOf(item, view.Poses);
             var box = Sandbox.SandboxPhysics.Bounds(position, rotation, item.Asset.DimensionsM * item.Scale);
-            var holder = _held.FirstOrDefault(h => h.Value.Target == item.Id).Key;
-            list.Add(Summary(item.Id, "object", item.DisplayName ?? item.Asset.DisplayName, item.Asset.Category, item.Asset.CategoryGroup, position, box,
-                item.Asset.Affordances, item.Asset.Movable, locks.ContainsKey(item.Id), item.Asset.ProvenanceKind, EntityRevision(item.Id), holder));
+            list.Add((item.Id, ObjectSummary(item, position, box, view)));
         }
-        if (snapshot.ContainsKey("instances"))
-            foreach (var (key, value) in snapshot["instances"].AsGodotDictionary())
-            {
-                var instance = value.AsGodotDictionary();
-                var position = instance["position_m"].AsGodotArray();
-                var origin = new Vector3((float)position[0].AsDouble(), (float)position[1].AsDouble(), (float)position[2].AsDouble());
-                var bounds = instance["artifact"].AsGodotDictionary()["bounds"].AsGodotDictionary();
-                var local = new Aabb(ArrayVector(bounds["min"].AsGodotArray()), ArrayVector(bounds["max"].AsGodotArray()) - ArrayVector(bounds["min"].AsGodotArray()));
-                var box = new Transform3D(new Basis(Vector3.Up, Mathf.DegToRad((float)instance["yaw_deg"].AsDouble())), origin) * local;
-                var name = instance["source"].AsGodotDictionary()["name"].AsString();
-                list.Add(Summary(key.AsString(), "creation", name, "creation", null, origin, box, Array.Empty<string>(), false,
-                    locks.ContainsKey(key.AsString()), instance["owner_id"].AsString() == CompanionPrincipal ? "ai_created" : "player_created", instance["revision"].AsInt32()));
-            }
-        foreach (var (id, body, name) in new (string, SmallPlayerController?, string)[] { (PlayerAvatar, Player, "Player"), (CompanionAvatarId, Companion, Companion?.CompanionName ?? "Companion") })
+        foreach (var creation in view.Creations)
+            list.Add((creation.Id, Summary(creation.Id, "creation", creation.Name, "creation", null, creation.Origin, creation.Box, Array.Empty<string>(), false,
+                view.Locked.Contains(creation.Id), creation.AiCreated ? "ai_created" : "player_created", creation.Revision)));
+        // The Fractals still on the island (the manifest's x_fractals, less those picked up).
+        AddFractals(list);
+        AddAvatar(list, PlayerAvatar, Player, "Player");
+        AddAvatar(list, CompanionAvatarId, Companion, Companion?.CompanionName ?? "Companion");
+        // Sorted by id (ids are unique, so the order is the one a stable sort gives).
+        list.Sort(static (a, b) => string.CompareOrdinal(a.Id, b.Id));
+        var entities = new List<JsonObject>(list.Count);
+        foreach (var (_, summary) in list) entities.Add(summary);
+        return entities;
+    }
+
+    private static readonly string[] WalkableTop = { "walkable_top" };
+
+    /// <summary>A room object's summary, where it stands now, as Entities gives it.</summary>
+    private JsonObject ObjectSummary(ObjectInstance item, Vector3 position, Aabb box, EntitySnapshot view)
+    {
+        string? holder = null;
+        foreach (var (actor, held) in _held)
+            if (held.Target == item.Id) { holder = actor; break; }
+        return Summary(item.Id, "object", item.DisplayName ?? item.Asset.DisplayName, item.Asset.Category, item.Asset.CategoryGroup, position, box,
+            item.Asset.Affordances, item.Asset.Movable, view.Locked.Contains(item.Id), item.Asset.ProvenanceKind, view.Revisions.GetValueOrDefault(item.Id), holder);
+    }
+
+    /// <summary>
+    /// The summaries of the room objects within a body's reach (SandboxRules.WithinReach, with a centimetre to spare), exactly as
+    /// Entities gives them: the HUD's focus, asked up to ten times a second, needs nothing else (S12: it built the whole room's).
+    /// </summary>
+    private List<JsonObject> ObjectEntitiesNear(SmallPlayerController body)
+    {
+        var view = ReadEntitySnapshot();
+        var near = new List<JsonObject>();
+        foreach (var item in Room.Objects)
         {
-            if (body == null || !IsInstanceValid(body)) continue;
-            var box = new Aabb(body.GlobalPosition - new Vector3(body.BodyRadiusM, 0, body.BodyRadiusM), new Vector3(body.BodyRadiusM * 2, body.BodyHeightM, body.BodyRadiusM * 2));
-            list.Add(Summary(id, "avatar", name, null, null, body.GlobalPosition, box, Array.Empty<string>(), true, false, "hand_authored", 0));
+            if (IsBurnedDown(item.Id)) continue;
+            var (position, rotation) = PoseOf(item, view.Poses);
+            var box = Sandbox.SandboxPhysics.Bounds(position, rotation, item.Asset.DimensionsM * item.Scale);
+            if (Sandbox.SandboxRules.WithinReach(body, box.Grow(0.01f))) near.Add(ObjectSummary(item, position, box, view));
         }
-        return list.OrderBy(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal).ToList();
+        return near;
+    }
+
+    private static void AddAvatar(List<(string Id, JsonObject Summary)> list, string id, SmallPlayerController? body, string name)
+    {
+        if (body == null || !IsInstanceValid(body)) return;
+        var box = new Aabb(body.GlobalPosition - new Vector3(body.BodyRadiusM, 0, body.BodyRadiusM), new Vector3(body.BodyRadiusM * 2, body.BodyHeightM, body.BodyRadiusM * 2));
+        list.Add((id, Summary(id, "avatar", name, null, null, body.GlobalPosition, box, Array.Empty<string>(), true, false, "hand_authored", 0)));
+    }
+
+    /// <summary>What Entities reads of the authority's snapshot, copied into C#.</summary>
+    private sealed class EntitySnapshot
+    {
+        public readonly HashSet<string> Locked = new(StringComparer.Ordinal);
+        /// <summary>The play revisions of room entities play changed (the others are 0).</summary>
+        public readonly Dictionary<string, int> Revisions = new(StringComparer.Ordinal);
+        /// <summary>The saved poses of the objects play moved, as PoseOf reads them.</summary>
+        public readonly Dictionary<string, (Vector3 Position, Quaternion Rotation)> Poses = new(StringComparer.Ordinal);
+        public readonly List<(string Id, Vector3 Origin, Aabb Box, string Name, bool AiCreated, int Revision)> Creations = new();
+    }
+
+    /// <summary>
+    /// The authority's snapshot (as the player, who reads everything), copied into C#: locks, play revisions, object poses and the
+    /// creations' places. Every Godot dictionary, array and Variant read here is disposed here, on the main thread (S12).
+    /// </summary>
+    private EntitySnapshot ReadEntitySnapshot()
+    {
+        var view = new EntitySnapshot();
+        using var answer = Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument);
+        using var snapshot = answer.AsGodotDictionary();
+        using (var locks = ChildDictionary(snapshot, SnapshotKeys.Locks))
+            if (locks != null)
+                foreach (var (key, value) in locks)
+                {
+                    using (key)
+                    using (value)
+                        view.Locked.Add(key.AsString());
+                }
+        using (var revisions = ChildDictionary(snapshot, SnapshotKeys.EntityRevisions))
+            if (revisions != null)
+                foreach (var (key, value) in revisions)
+                {
+                    using (key)
+                    using (value)
+                        view.Revisions[key.AsString()] = value.AsInt32();
+                }
+        using (var poses = ChildDictionary(snapshot, SnapshotKeys.ObjectPoses))
+            if (poses != null)
+                foreach (var (key, value) in poses)
+                {
+                    using (key)
+                    using (value)
+                    using (var pose = value.AsGodotDictionary())
+                    using (var position = ChildArray(pose, SnapshotKeys.PositionM)!)
+                    using (var rotation = ChildArray(pose, SnapshotKeys.Rotation)!)
+                        view.Poses[key.AsString()] = (new Vector3((float)Number(position, 0), (float)Number(position, 1), (float)Number(position, 2)),
+                            new Quaternion((float)Number(rotation, 0), (float)Number(rotation, 1), (float)Number(rotation, 2), (float)Number(rotation, 3)).Normalized());
+                }
+        using (var instances = ChildDictionary(snapshot, SnapshotKeys.Instances))
+            if (instances != null)
+                foreach (var (key, value) in instances)
+                {
+                    using (key)
+                    using (value)
+                    using (var instance = value.AsGodotDictionary())
+                    using (var position = ChildArray(instance, SnapshotKeys.PositionM)!)
+                    using (var artifact = ChildDictionary(instance, SnapshotKeys.Artifact)!)
+                    using (var bounds = ChildDictionary(artifact, SnapshotKeys.Bounds)!)
+                    using (var min = ChildArray(bounds, SnapshotKeys.Min)!)
+                    using (var max = ChildArray(bounds, SnapshotKeys.Max)!)
+                    using (var source = ChildDictionary(instance, SnapshotKeys.Source)!)
+                    {
+                        var origin = new Vector3((float)Number(position, 0), (float)Number(position, 1), (float)Number(position, 2));
+                        var low = new Vector3((float)Number(min, 0), (float)Number(min, 1), (float)Number(min, 2));
+                        var high = new Vector3((float)Number(max, 0), (float)Number(max, 1), (float)Number(max, 2));
+                        var box = new Transform3D(new Basis(Vector3.Up, Mathf.DegToRad((float)Number(instance, SnapshotKeys.YawDeg))), origin) * new Aabb(low, high - low);
+                        view.Creations.Add((key.AsString(), origin, box, Text(source, SnapshotKeys.Name), Text(instance, SnapshotKeys.OwnerId) == CompanionPrincipal,
+                            Integer(instance, SnapshotKeys.Revision)));
+                    }
+                }
+        return view;
+    }
+
+    /// <summary>The snapshot's keys, as Variants made once.</summary>
+    private static class SnapshotKeys
+    {
+        public static readonly Variant Locks = "locks", EntityRevisions = "entity_revisions", ObjectPoses = "object_poses", Instances = "instances",
+            PositionM = "position_m", Rotation = "rotation", Artifact = "artifact", Bounds = "bounds", Min = "min", Max = "max", YawDeg = "yaw_deg",
+            Source = "source", Name = "name", OwnerId = "owner_id", Revision = "revision", LockedBy = "locked_by";
+    }
+
+    /// <summary>A dictionary under a key, as its own wrapper for the caller to dispose (null when there is none).</summary>
+    private static Godot.Collections.Dictionary? ChildDictionary(Godot.Collections.Dictionary parent, Variant key)
+    {
+        if (!parent.TryGetValue(key, out var value)) return null;
+        using (value) return value.VariantType == Variant.Type.Dictionary ? value.AsGodotDictionary() : null;
+    }
+
+    /// <summary>An array under a key, as its own wrapper for the caller to dispose (null when there is none).</summary>
+    private static Godot.Collections.Array? ChildArray(Godot.Collections.Dictionary parent, Variant key)
+    {
+        if (!parent.TryGetValue(key, out var value)) return null;
+        using (value) return value.VariantType == Variant.Type.Array ? value.AsGodotArray() : null;
+    }
+
+    private static double Number(Godot.Collections.Array array, int index)
+    {
+        using var value = array[index];
+        return value.AsDouble();
+    }
+
+    private static double Number(Godot.Collections.Dictionary parent, Variant key)
+    {
+        using var value = parent[key];
+        return value.AsDouble();
+    }
+
+    private static int Integer(Godot.Collections.Dictionary parent, Variant key)
+    {
+        using var value = parent[key];
+        return value.AsInt32();
+    }
+
+    private static string Text(Godot.Collections.Dictionary parent, Variant key)
+    {
+        using var value = parent[key];
+        return value.AsString();
     }
 
     private static JsonObject Summary(string id, string kind, string name, string? category, string? group, Vector3 position, Aabb bounds,
@@ -1204,13 +1624,27 @@ public partial class CommandHost : Node
         {
             ["id"] = id, ["kind"] = kind, ["display_name"] = KernelJson.DisplayText(name, 80), ["position_m"] = KernelJson.Vector(position),
             ["bounds_m"] = KernelJson.Box(bounds),
-            ["affordances"] = new JsonArray(affordances.Where(Affordances.Contains).Distinct().Select(a => (JsonNode?)JsonValue.Create(a)).ToArray()),
+            ["affordances"] = KnownAffordances(affordances),
             ["movable"] = movable, ["protected"] = locked, ["provenance_kind"] = provenance, ["revision"] = Math.Max(0, revision),
         };
         if (category != null) summary["category"] = KernelJson.DisplayText(category, 60);
         if (group != null) summary["category_group"] = group;
         if (heldBy != null) summary["held_by"] = heldBy;
         return summary;
+    }
+
+    /// <summary>The contract's affordances among these, each once, in the order given.</summary>
+    private static JsonArray KnownAffordances(IEnumerable<string> affordances)
+    {
+        var known = new JsonArray();
+        List<string>? seen = null;
+        foreach (var affordance in affordances)
+        {
+            if (!Affordances.Contains(affordance) || (seen?.Contains(affordance) ?? false)) continue;
+            (seen ??= new List<string>(4)).Add(affordance);
+            known.Add(JsonValue.Create(affordance));
+        }
+        return known;
     }
 
     // ---- perception (docs/companion/PERCEPTION.md) ----
@@ -1248,7 +1682,7 @@ public partial class CommandHost : Node
     /// Line of sight from a body's eye (PERCEPTION.md, with physics ray casts against the real colliders in place of
     /// the mock's boxes). Each entity is sampled at 15 points of its bounds (the centre, eight corners and six face
     /// centres, each pulled 1 cm or a quarter of the box inside); a sample is seen when a ray from the eye reaches it
-    /// or the entity itself first. Rays test only the world layer, so avatars and effects never occlude. The body's
+    /// or the entity itself first. Rays test the world layer and the far ground (RoomBuilder.SightMask: far hills hide what is behind them), so avatars and effects never occlude. The body's
     /// own avatar and the room shell are always perceived.
     /// </summary>
     public HashSet<string> Perceive(SmallPlayerController? body, string ownAvatar, List<JsonObject> entities)
@@ -1269,38 +1703,61 @@ public partial class CommandHost : Node
     /// Whether a ray from the body's eye reaches one of the box's 15 samples, or hits inside the box first: an
     /// entity there is in sight, and an empty place there is seen to be empty.
     /// </summary>
-    private static bool SeesBox(SmallPlayerController body, Aabb bounds)
+    private bool SeesBox(SmallPlayerController body, Aabb bounds) => SeesBoxFrom(body, body.EyeCamera.GlobalPosition, body.GetRid(), bounds);
+
+    /// <summary>SeesBox from a given eye, leaving out a given body (the sweep's eyes, as they were when it began).</summary>
+    private bool SeesBoxFrom(SmallPlayerController body, Vector3 eye, Rid exclude, Aabb bounds)
     {
-        var eye = body.EyeCamera.GlobalPosition;
-        var space = body.GetWorld3D().DirectSpaceState;
-        var exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
         var box = bounds.Grow(0.002f);
-        foreach (var sample in Samples(bounds.Position, bounds.End))
-        {
-            var ray = PhysicsRayQueryParameters3D.Create(eye, sample, RoomBuilder.WorldLayer, exclude);
-            var hit = space.IntersectRay(ray);
-            if (hit.Count == 0 || box.HasPoint(hit["position"].AsVector3())) return true;
-        }
+        var (centre, reach) = SampleFrame(bounds.Position, bounds.End);
+        foreach (var offset in SampleOffsets)
+            if (!CastSight(body, eye, centre + reach * offset, exclude, out var hit) || box.HasPoint(hit)) return true;
         return false;
     }
 
-    private static IEnumerable<Vector3> Samples(Vector3 low, Vector3 high)
+    /// <summary>
+    /// The 15 samples of a box, as offsets from its centre in units of SampleFrame's reach: the centre, the eight corners, then
+    /// the six face centres (right, left, up, down, back, forward).
+    /// </summary>
+    private static readonly Vector3[] SampleOffsets =
+    {
+        Vector3.Zero,
+        new(-1, -1, -1), new(-1, -1, 1), new(-1, 1, -1), new(-1, 1, 1), new(1, -1, -1), new(1, -1, 1), new(1, 1, -1), new(1, 1, 1),
+        Vector3.Right, -Vector3.Right, Vector3.Up, -Vector3.Up, Vector3.Back, -Vector3.Back,
+    };
+
+    /// <summary>A box's centre, and how far its samples reach from it: each half-size pulled 1 cm, or a quarter of the size, inside.</summary>
+    private static (Vector3 Centre, Vector3 Reach) SampleFrame(Vector3 low, Vector3 high)
     {
         var centre = (low + high) * 0.5f;
         var size = high - low;
         var reach = new Vector3(Mathf.Max(0, size.X * 0.5f - Mathf.Min(0.01f, size.X * 0.25f)),
             Mathf.Max(0, size.Y * 0.5f - Mathf.Min(0.01f, size.Y * 0.25f)), Mathf.Max(0, size.Z * 0.5f - Mathf.Min(0.01f, size.Z * 0.25f)));
-        yield return centre;
-        foreach (var x in new[] { -1f, 1f })
-        foreach (var y in new[] { -1f, 1f })
-        foreach (var z in new[] { -1f, 1f })
-            yield return centre + reach * new Vector3(x, y, z);
-        foreach (var axis in new[] { Vector3.Right, Vector3.Up, Vector3.Back })
-        {
-            yield return centre + reach * axis;
-            yield return centre - reach * axis;
-        }
+        return (centre, reach);
     }
+
+    /// <summary>The host's sight ray (SightRay), made when the host enters the tree.</summary>
+    private SightRay? _sightRay;
+
+    /// <summary>
+    /// A world-layer ray from an avatar's eye, leaving its own body out: the first surface hit, or false for none. Cast with the
+    /// host's SightRay (no garbage); a host that is not in the tree asks the body's space directly, disposing what that makes.
+    /// </summary>
+    private bool CastSight(SmallPlayerController body, Vector3 from, Vector3 to, Rid exclude, out Vector3 hit)
+    {
+        if (_sightRay is { Ready: true } ray) return ray.Cast(from, to, exclude, out hit);
+        hit = default;
+        var excluded = new Godot.Collections.Array<Rid> { exclude };
+        using var excludedArray = (Godot.Collections.Array)excluded;
+        using var query = PhysicsRayQueryParameters3D.Create(from, to, RoomBuilder.SightMask, excluded);
+        using var answer = body.GetWorld3D().DirectSpaceState.IntersectRay(query);
+        if (answer.Count == 0) return false;
+        hit = answer[HitPosition].AsVector3();
+        return true;
+    }
+
+    /// <summary>The key of a ray answer's hit point (a Variant kept, never made for each ray).</summary>
+    private static readonly Variant HitPosition = "position";
 
     /// <summary>
     /// A companion command may name only what the companion can see now (the player's avatar included, P3): anything
@@ -1315,6 +1772,8 @@ public partial class CommandHost : Node
         {
             if (Perceives(principal, id)) continue;
             if (path == "$.args.target" && goal != null && RememberedTargetGoals.Contains(goal) && Recall(principal, id) != null) continue;
+            // A lead's bubble is no entity: LeadGoal checks it is one the team sees now (Kernel/Bubble/CommandHostBubbleLead).
+            if (path == "$.args.target" && goal == "lead") continue;
             throw new Refusal("target_not_found", "That is not in this room.", path);
         }
     }
@@ -1330,7 +1789,12 @@ public partial class CommandHost : Node
         public int SeenRevision { get; init; }
         /// <summary>It changed in some way since (sticky until seen again); emitted only as may_be_stale.</summary>
         public bool Changed { get; set; }
+        /// <summary>The summary's canonical text without its place (SameAsSeen's), made when first compared. A summary never changes once kept.</summary>
+        public string? UnplacedText { get; set; }
     }
+
+    /// <summary>The fields of a summary that say where it is, which SameAsSeen compares within 5 mm instead.</summary>
+    private static readonly string[] PlaceFields = { "position_m", "bounds_m", "seen" };
 
     /// <summary>What one companion has seen in this room, least recently seen first.</summary>
     private sealed class PerceptionMemory
@@ -1404,16 +1868,38 @@ public partial class CommandHost : Node
         }
         var byId = entities.ToDictionary(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal);
         var owners = LockOwners();
+        var eye = body.EyeCamera.GlobalPosition;
+        var exclude = body.GetRid();
         foreach (var id in memory.Order.ToList())
         {
             // A sweep looks at some things each time: what it did not look at is neither changed nor gone as far as it knows.
             if (sight.Contains(id) || (considered != null && !considered.Contains(id))) continue;
-            var entry = memory.Entries[id];
-            if (!entry.Changed && (!byId.TryGetValue(id, out var now) || !SameAsSeen(entry, now, owners.GetValueOrDefault(id, ""))))
-                entry.Changed = true;
-            if (SeesBox(body, BoundsOf(entry.Summary))) memory.Remove(id);
+            CheckRemembered(memory, id, byId, owners, body, eye, exclude, null);
         }
-        var eye = body.EyeCamera.GlobalPosition;
+        AddFresh(memory, entities, sight, ownAvatar, eye, owners, Revision, copy: true);
+        EvictPastTheBound(memory, sight);
+    }
+
+    /// <summary>
+    /// Remember's first half, for one remembered thing out of sight: marked changed if it is not as it was seen (sticky), and
+    /// dropped when the eye sees its place and it is not there.
+    /// </summary>
+    private void CheckRemembered(PerceptionMemory memory, string id, Dictionary<string, JsonObject> byId, Dictionary<string, string> owners,
+        SmallPlayerController body, Vector3 eye, Rid exclude, Dictionary<JsonObject, string>? unplacedTexts)
+    {
+        if (!memory.Entries.TryGetValue(id, out var entry)) return;
+        if (!entry.Changed && (!byId.TryGetValue(id, out var now) || !SameAsSeen(entry, now, owners.GetValueOrDefault(id, ""), unplacedTexts)))
+            entry.Changed = true;
+        if (SeesBoxFrom(body, eye, exclude, BoundsOf(entry.Summary))) memory.Remove(id);
+    }
+
+    /// <summary>
+    /// Remember's second half: what the eye sees now is remembered afresh, nearest last. The summaries are copied unless they are
+    /// the caller's own and never handed out (the sweep's).
+    /// </summary>
+    private void AddFresh(PerceptionMemory memory, List<JsonObject> entities, HashSet<string> sight, string ownAvatar, Vector3 eye,
+        Dictionary<string, string> owners, int revision, bool copy)
+    {
         var fresh = entities
             .Where(e => sight.Contains(e["id"]!.GetValue<string>()) && e["id"]!.GetValue<string>() != ownAvatar && e["id"]!.GetValue<string>() != CompanionAvatarId && RememberedKinds.Contains(e["kind"]!.GetValue<string>()))
             .OrderByDescending(e => Distance(e, eye)).ThenBy(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal);
@@ -1422,10 +1908,9 @@ public partial class CommandHost : Node
             var id = entity["id"]!.GetValue<string>();
             memory.Add(id, new Remembered
             {
-                Summary = (JsonObject)entity.DeepClone(), ProtectedBy = owners.GetValueOrDefault(id, ""), SeenAt = Clock(), SeenRevision = Revision,
+                Summary = copy ? (JsonObject)entity.DeepClone() : entity, ProtectedBy = owners.GetValueOrDefault(id, ""), SeenAt = Clock(), SeenRevision = revision,
             });
         }
-        EvictPastTheBound(memory, sight);
     }
 
     /// <summary>
@@ -1462,18 +1947,19 @@ public partial class CommandHost : Node
     /// Whether an entity is as the companion saw it: every field the same, and its place within 5 mm (a body at rest on
     /// the floor settles by a fraction of a millimetre, which is no change).
     /// </summary>
-    private static bool SameAsSeen(Remembered entry, JsonObject now, string protectedBy)
+    private static bool SameAsSeen(Remembered entry, JsonObject now, string protectedBy, Dictionary<JsonObject, string>? unplacedTexts = null)
     {
         if (entry.ProtectedBy != protectedBy) return false;
-        static JsonObject Unplaced(JsonObject summary)
+        // Every field but the place compared as canonical text: the remembered side's made once and kept, the side seen now made
+        // once a sweep (S12; it was two deep copies and two texts for every comparison).
+        entry.UnplacedText ??= CanonicalJson.TextWithout(entry.Summary, PlaceFields);
+        string? nowText = null;
+        if (unplacedTexts == null || !unplacedTexts.TryGetValue(now, out nowText))
         {
-            var copy = (JsonObject)summary.DeepClone();
-            copy.Remove("position_m");
-            copy.Remove("bounds_m");
-            copy.Remove("seen");
-            return copy;
+            nowText = CanonicalJson.TextWithout(now, PlaceFields);
+            unplacedTexts?.Add(now, nowText);
         }
-        if (CanonicalJson.Text(Unplaced(entry.Summary)) != CanonicalJson.Text(Unplaced(now))) return false;
+        if (entry.UnplacedText != nowText) return false;
         var was = BoundsOf(entry.Summary);
         var box = BoundsOf(now);
         return ReadNodeVector(entry.Summary["position_m"]!).DistanceTo(ReadNodeVector(now["position_m"]!)) <= 0.005f &&
@@ -1530,10 +2016,18 @@ public partial class CommandHost : Node
     private Dictionary<string, string> LockOwners()
     {
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
-        var snapshot = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
-        if (snapshot.ContainsKey("locks"))
-            foreach (var (key, value) in snapshot["locks"].AsGodotDictionary())
-                owners[key.AsString()] = value.AsGodotDictionary()["locked_by"].AsString();
+        // Every Godot value read here is freed here (S12): the sweep asks four times a second.
+        using var answer = Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument);
+        using var snapshot = answer.AsGodotDictionary();
+        using var locks = ChildDictionary(snapshot, SnapshotKeys.Locks);
+        if (locks != null)
+            foreach (var (key, value) in locks)
+            {
+                using (key)
+                using (value)
+                using (var lockRecord = value.AsGodotDictionary())
+                    owners[key.AsString()] = Text(lockRecord, SnapshotKeys.LockedBy);
+            }
         return owners;
     }
 
@@ -1591,7 +2085,10 @@ public partial class CommandHost : Node
     {
         if (!_runningGoals.Remove(actor, out var job)) return;
         job.State = "cancelled";
+        // A lead's end pops the bubble it led (decision 60; Kernel/Bubble/CommandHostBubbleLead).
+        LeadCancelled(job);
         TaskEnded(job);
+        WishGoalEnded(job);
         GoalFinished?.Invoke(actor, job.Id, job.State);
     }
 
@@ -1650,7 +2147,10 @@ public partial class CommandHost : Node
         if (_runningGoals.TryGetValue(job.Actor, out var running) && running == job) _runningGoals.Remove(job.Actor);
         job.State = error == null ? "succeeded" : "failed";
         if (error != null) job.Result = Fail("goal.set", job.Principal, job.ActionId, null, error);
+        if (error != null) _lastGoalError[job.Actor] = error.Message;
+        else _lastGoalError.Remove(job.Actor);
         TaskEnded(job);
+        WishGoalEnded(job);
         GoalFinished?.Invoke(job.Actor, job.Id, job.State);
     }
 
@@ -1679,7 +2179,7 @@ public partial class CommandHost : Node
             Finish(job, refusal);
             return;
         }
-        Companion!.Come();
+        Companion!.Come(catchUp: false);
         job.Serial = Companion.IntentSerial;
         job.Phase = "return";
         job.BlockedS = 0;
@@ -1707,6 +2207,10 @@ public partial class CommandHost : Node
     public override void _PhysicsProcess(double delta)
     {
         SightSweep(delta);
+        AdvanceNature(delta);
+        AdvanceBubbles(delta);
+        // A scorched creation's assembly the runtime rebuilt gets its scorch back (nothing is touched while nothing changed).
+        if (Nature.Objects.Count > 0) ApplyNatureObjects();
         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
         if (job.Goal == "fetch" && job.Phase == "approach" && Companion.GoToArrivedSerial == job.Serial)
         {
@@ -1757,12 +2261,12 @@ public partial class CommandHost : Node
     {
         if (id == PlayerAvatar) return Player != null ? 0 : -1;
         if (id == CompanionAvatarId) return Companion != null ? 0 : -1;
-        return Authority.Call("entity_revision", id).AsInt32();
+        return Authority.Call(KernelNames.EntityRevision, id).AsInt32();
     }
 
     private Godot.Collections.Dictionary? Instance(string id)
     {
-        var snapshot = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
+        var snapshot = Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument).AsGodotDictionary();
         if (!snapshot.ContainsKey("instances")) return null;
         var instances = snapshot["instances"].AsGodotDictionary();
         return instances.TryGetValue(id, out var item) ? item.AsGodotDictionary() : null;
@@ -1833,6 +2337,9 @@ public partial class CommandHost : Node
         public bool Retryable { get; } = retryable;
         public JsonNode? Actual { get; } = actual;
         public JsonNode? Allowed { get; } = allowed;
+        /// <summary>energy_exhausted only (contracts: error.balance and error.price): the pips in the pool and what this command costs this principal.</summary>
+        public int? Balance { get; init; }
+        public int? Price { get; init; }
     }
 
     private void CheckEnvelope(JsonElement root, bool command, bool stop)
@@ -1878,6 +2385,14 @@ public partial class CommandHost : Node
         }
         if (DestructiveOps.Contains(op) && !root.TryGetProperty("expected_revision", out _) && !root.TryGetProperty("expected_entities", out _))
             throw new Refusal("request_invalid", "This change must name expected_revision or expected_entities.", "$");
+        // contracts/README.md "Revisions for a live room": room.undo names the room revision it undoes from.
+        if (op == "room.undo" && !root.TryGetProperty("expected_revision", out _))
+            throw new Refusal("request_invalid", "room.undo must name the room revision it undoes from (expected_revision).", "$");
+        // The targets rule (the mechanics round): a nature.cast that names an avatar to envelop is its preview, or names the
+        // preview_id of the caster's own preview of exactly that cast. The ghost preview the player sees is the consent.
+        if (op == "nature.cast" && root.GetProperty("args") is { ValueKind: JsonValueKind.Object } cast && cast.TryGetProperty("target", out _) &&
+            !(root.TryGetProperty("preview", out var asked) && asked.ValueKind == JsonValueKind.True) && !cast.TryGetProperty("preview_id", out _))
+            throw new Refusal("request_invalid", "A Bubble cast on an avatar is previewed first and names its preview_id.", "$");
     }
 
     /// <summary>
@@ -1937,6 +2452,9 @@ public partial class CommandHost : Node
 
     private static void CheckArgs(string op, JsonElement args)
     {
+        if (op.StartsWith("nature.", StringComparison.Ordinal)) { CheckNatureArgs(op, args); return; }
+        if (op == "effect.adjust") { CheckEffectAdjustArgs(args); return; }
+        if (op == "glow.configure") { CheckGlowConfigureArgs(args); return; }
         string[] allowed = op switch
         {
             "entity.grab" => new[] { "target", "actor" },
@@ -1951,12 +2469,20 @@ public partial class CommandHost : Node
             "protect.lock" or "protect.unlock" => new[] { "targets" },
             "goal.set" => new[] { "actor", "goal", "target", "position_m", "area", "duration_s" },
             "goal.stop" => new[] { "actor" },
-            "effect.start" => new[] { "capability", "params", "area", "duration_s", "targets" },
+            "effect.start" => new[] { "capability", "params", "area", "duration_s", "targets", "variant", "touch" },
             "effect.stop" => new[] { "effect" },
             "style.set" => new[] { "preset_id", "preset_version" },
             "room.checkpoint" => new[] { "label" },
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
+            "world.set_mode" => new[] { "mode", "difficulty" },
+            "item.pickup" or "item.gather" => new[] { "target" },
+            "knack.set" => new[] { "slot", "knack" },
+            "fractal.spend" => new[] { "grow" },
+            "receipt.mark" => new[] { "action_id", "mark" },
+            "trust.reset" => Array.Empty<string>(),
+            "wish.submit" => new[] { "text", "aim_id" },
+            "wish.stop" => Array.Empty<string>(),
             "journal.note" => new[] { "text" },
             _ => Array.Empty<string>(),
         };
@@ -1978,11 +2504,42 @@ public partial class CommandHost : Node
             "style.set" => new[] { "preset_id", "preset_version" },
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
+            "world.set_mode" => new[] { "mode" },
+            "item.pickup" or "item.gather" => new[] { "target" },
+            "knack.set" => new[] { "slot", "knack" },
+            "fractal.spend" => new[] { "grow" },
+            "receipt.mark" => new[] { "action_id", "mark" },
+            "wish.submit" => new[] { "text" },
             "journal.note" => new[] { "text" },
             _ => Array.Empty<string>(),
         };
         foreach (var name in required)
             if (!args.TryGetProperty(name, out _)) throw new Refusal("request_invalid", $"This operation needs '{name}'.", "$.args." + name);
+        if (op == "world.set_mode" && (args.GetProperty("mode").ValueKind != JsonValueKind.String || !PlayerModesProfile.ValidMode(Str(args, "mode") ?? "")))
+            throw new Refusal("request_invalid", "Choose creative, challenge or live.", "$.args.mode");
+        if (op == "world.set_mode" && args.TryGetProperty("difficulty", out _) &&
+            (Str(args, "difficulty") is not ("gentle" or "standard" or "brave") || Str(args, "mode") != "challenge"))
+            throw new Refusal("request_invalid", "A difficulty is gentle, standard or brave, and only for challenge.", "$.args.difficulty");
+        if (op == "item.pickup" && (Str(args, "target") is not { } fractal || !FractalId.IsMatch(fractal)))
+            throw new Refusal("request_invalid", "item.pickup names a Fractal.", "$.args.target");
+        if (op == "item.gather" && (Str(args, "target") is not { } gathered || !ObjectIdPattern.IsMatch(gathered)))
+            throw new Refusal("request_invalid", "item.gather names the room object the player is holding.", "$.args.target");
+        if (op == "knack.set" && (args.GetProperty("slot") is var slot && (slot.ValueKind != JsonValueKind.Number || !IsIntegerLiteral(slot) || slot.GetDouble() is < 1 or > 3)))
+            throw new Refusal("request_invalid", "slot is 1, 2 or 3.", "$.args.slot");
+        if (op == "knack.set" && (Str(args, "knack") is not { } knack || !Token.IsMatch(knack)))
+            throw new Refusal("request_invalid", "knack names a knack.", "$.args.knack");
+        if (op == "fractal.spend" && Str(args, "grow") is not ("heart" or "band"))
+            throw new Refusal("request_invalid", "grow is heart or band.", "$.args.grow");
+        if (op == "receipt.mark" && (Str(args, "action_id") is not { } marked || !ActionId.IsMatch(marked)))
+            throw new Refusal("request_invalid", "action_id names a receipt of the Gubble's.", "$.args.action_id");
+        if (op == "receipt.mark" && Str(args, "mark") is not ("yes" or "not_that"))
+            throw new Refusal("request_invalid", "A mark is yes or not_that.", "$.args.mark");
+        if (op == "wish.submit")
+        {
+            var text = Str(args, "text");
+            if (text == null || text.Length is < 1 or > 280 || string.IsNullOrWhiteSpace(text)) throw new Refusal("request_invalid", "A wish is one to 280 characters.", "$.args.text");
+            if (args.TryGetProperty("aim_id", out var aim) && (aim.ValueKind != JsonValueKind.String || !EntityId.IsMatch(aim.GetString()!))) throw new Refusal("request_invalid", "aim_id names a known entity.", "$.args.aim_id");
+        }
         if (args.TryGetProperty("target", out var target) && (target.ValueKind != JsonValueKind.String || !EntityId.IsMatch(target.GetString()!)))
             throw new Refusal("request_invalid", "target is an entity id.", "$.args.target");
         if (op == "creation.revise" && !CreationId.IsMatch(target.GetString()!))
@@ -1991,7 +2548,8 @@ public partial class CommandHost : Node
             throw new Refusal("request_invalid", "A revision changes the source, the placement or both.", "$.args");
         if (args.TryGetProperty("targets", out var targets))
         {
-            if (targets.ValueKind != JsonValueKind.Array || targets.GetArrayLength() is < 1 or > 64)
+            // effect.start may name no targets (a point); every other op names at least one.
+            if (targets.ValueKind != JsonValueKind.Array || targets.GetArrayLength() > 64 || (targets.GetArrayLength() < 1 && op != "effect.start"))
                 throw new Refusal("request_invalid", "targets lists 1 to 64 entity ids.", "$.args.targets");
             var names = targets.EnumerateArray().Select(t => t.ValueKind == JsonValueKind.String ? t.GetString()! : "").ToArray();
             if (names.Any(n => !EntityId.IsMatch(n)) || names.Distinct().Count() != names.Length)
@@ -2012,8 +2570,13 @@ public partial class CommandHost : Node
         if (op == "goal.set")
         {
             var goal = args.GetProperty("goal");
-            if (goal.ValueKind != JsonValueKind.String || goal.GetString() is not ("follow" or "stay" or "come" or "look_at" or "point_at" or "go_to" or "fetch" or "wander"))
+            if (goal.ValueKind != JsonValueKind.String || goal.GetString() is not ("follow" or "stay" or "come" or "look_at" or "point_at" or "go_to" or "fetch" or "wander" or "lead"))
                 throw new Refusal("request_invalid", "That goal does not exist.", "$.args.goal");
+            // lead (decision 57, Kernel/Bubble/CommandHostBubbleLead): a bubble (its effect: id, never an avatar) to a spot.
+            if (goal.GetString() == "lead" && (!args.TryGetProperty("target", out var led) || led.ValueKind != JsonValueKind.String || !EffectId.IsMatch(led.GetString()!)))
+                throw new Refusal("request_invalid", "A lead names the bubble it leads (its effect: id).", "$.args.target");
+            if (goal.GetString() == "lead" && !args.TryGetProperty("position_m", out _))
+                throw new Refusal("request_invalid", "A lead names the spot it leads the bubble to.", "$.args.position_m");
             if (goal.GetString() is "look_at" or "point_at" or "go_to" && !args.TryGetProperty("target", out _) && !args.TryGetProperty("position_m", out _))
                 throw new Refusal("request_invalid", "This goal needs a target or a position.", "$.args");
             if (goal.GetString() == "fetch" && !args.TryGetProperty("target", out _))
@@ -2026,6 +2589,8 @@ public partial class CommandHost : Node
             throw new Refusal("request_invalid", "A note is one line of 1 to 280 characters.", "$.args.text");
         if (op == "world.set_physics" && (args.GetProperty("preset").ValueKind != JsonValueKind.String || !Token.IsMatch(args.GetProperty("preset").GetString()!)))
             throw new Refusal("request_invalid", "preset is a preset id, a lowercase token.", "$.args.preset");
+        if (op == "room.undo" && (!IsIntegerLiteral(args.GetProperty("to_revision")) || args.GetProperty("to_revision").GetDouble() < 0))
+            throw new Refusal("request_invalid", "to_revision is a room revision: a non-negative integer.", "$.args.to_revision");
         if (op == "room.checkpoint" && args.TryGetProperty("label", out var label) &&
             (label.ValueKind != JsonValueKind.String || KernelText.CodePoints(label.GetString()!).Length > 80))
             throw new Refusal("request_invalid", "A checkpoint label is one line of at most 80 characters.", "$.args.label");
@@ -2043,6 +2608,7 @@ public partial class CommandHost : Node
             foreach (var parameter in parameters.EnumerateObject())
                 if (!ParamName.IsMatch(parameter.Name) || ReservedParams.Contains(parameter.Name) || parameter.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.Null)
                     throw new Refusal("request_invalid", "Effect parameters are bounded scalars under plain lowercase names; identity and authority names are refused.", "$.args.params");
+            CheckEffectArgs(args);
         }
     }
 
@@ -2090,6 +2656,7 @@ public partial class CommandHost : Node
             "approval.status" => new[] { "request_id" },
             "journal.read" => new[] { "kind", "about", "since_utc", "cursor", "limit" },
             "map.find" => new[] { "category_group", "name", "near_m", "limit" },
+            "view.look" => new[] { "actor", "yaw_deg", "pitch_deg" },
             _ => Array.Empty<string>(),
         };
         foreach (var property in args.EnumerateObject())
@@ -2104,8 +2671,11 @@ public partial class CommandHost : Node
             case "observe":
                 if (!args.TryGetProperty("actor", out var actor) || actor.ValueKind != JsonValueKind.String || !AvatarId.IsMatch(actor.GetString()!))
                     throw new Refusal("request_invalid", "actor is an avatar id.", "$.args.actor");
-                if (args.TryGetProperty("radius_m", out var radius) && (radius.ValueKind != JsonValueKind.Number || radius.GetDouble() is <= 0 or > 20))
-                    throw new Refusal("request_invalid", "radius_m is between 0 and 20.", "$.args.radius_m");
+                if (args.TryGetProperty("radius_m", out var radius) && (radius.ValueKind != JsonValueKind.Number || radius.GetDouble() is <= 0 or > ObserveRadiusMaxM))
+                    throw new Refusal("request_invalid", $"radius_m is more than 0 and at most {ObserveRadiusMaxM}.", "$.args.radius_m");
+                break;
+            case "view.look":
+                CheckLookArgs(args);
                 break;
             case "receipt.lookup":
                 if (!args.TryGetProperty("action_id", out var action) || action.ValueKind != JsonValueKind.String || !ActionId.IsMatch(action.GetString()!))
@@ -2164,8 +2734,8 @@ public partial class CommandHost : Node
                         if (near.ValueKind != JsonValueKind.Object || !near.TryGetProperty("center_m", out var centre) || !near.TryGetProperty("radius_m", out var nearRadius) || near.EnumerateObject().Count() != 2)
                             throw new Refusal("request_invalid", "near has center_m and radius_m.", "$.args.filter.near");
                         CheckVector(centre, "$.args.filter.near.center_m");
-                        if (nearRadius.ValueKind != JsonValueKind.Number || nearRadius.GetDouble() is <= 0 or > 50)
-                            throw new Refusal("request_invalid", "radius_m is between 0 and 50.", "$.args.filter.near.radius_m");
+                        if (nearRadius.ValueKind != JsonValueKind.Number || nearRadius.GetDouble() is <= 0 or > NearRadiusMaxM)
+                            throw new Refusal("request_invalid", $"radius_m is between 0 and {NearRadiusMaxM}.", "$.args.filter.near.radius_m");
                     }
                     foreach (var name in new[] { "kind", "category_group", "affordance", "provenance_kind" })
                         if (filter.TryGetProperty(name, out var value) && (value.ValueKind != JsonValueKind.String || !Token.IsMatch(value.GetString()!)))
@@ -2175,13 +2745,25 @@ public partial class CommandHost : Node
         }
     }
 
-    private static string? Unsupported(string op, JsonElement args, string principal) => op switch
+    /// <summary>Whether a command would have its actor carry, place, push or fetch a Fractal (by the id's namespace alone).</summary>
+    private static bool NamesAFractal(string op, JsonElement args) =>
+        (op is "entity.grab" or "entity.place" or "entity.push" || (op == "goal.set" && Str(args, "goal") == "fetch")) &&
+        Str(args, "target") is { } target && target.StartsWith("fractal:", StringComparison.Ordinal);
+
+    private string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
+        // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
+        // pickup of a Fractal and spending them (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1,
+        // knack.set since M3, the Bubbles expertise since M9 (Kernel/Bubble), receipt.mark and trust.reset since M8
+        // (CommandHostTrust). A difficulty in a request waits for the menu (M7): the boot sets it from the island save (BootMode,
+        // UseDifficulty).
+        "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
-        "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
-        "room.undo" => "Undo arrives with room saves (Run 3).",
+        // The founder, 13 October: "Being able to rewind any action or consequence removes stakes." Undo is Creative's alone.
+        "room.undo" when Mode != "creative" => "There is no undo in Challenge or Live: what happens there stays.",
+        "room.undo" when !NatureConfigured => "Undo takes back nature changes, and this room's nature is not running.",
         "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",
         // Today the body follows and comes to the player only; staying by something waits for the goal runner too.
         "goal.set" when Str(args, "goal") is "follow" or "stay" or "come" && Str(args, "target") is { } target && (target != PlayerAvatar || Str(args, "goal") == "stay") =>
@@ -2257,6 +2839,11 @@ public partial class CommandHost : Node
         if (refusal.Path != null) error["field_path"] = KernelJson.DisplayText(refusal.Path, 200);
         if (refusal.Allowed != null) error["allowed"] = refusal.Allowed.DeepClone();
         if (refusal.Actual != null) error["actual"] = refusal.Actual.DeepClone();
+        if (refusal.Balance is { } balance && refusal.Price is { } price)
+        {
+            error["balance"] = balance;
+            error["price"] = price;
+        }
         result["error"] = error;
         return result;
     }

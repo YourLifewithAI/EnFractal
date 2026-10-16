@@ -1,0 +1,13 @@
+{
+  "schema": "enfractal.creation", "version": 1, "name": "Fixture proximity wind", "seed": 7, "mount": "ground",
+  "parts": [
+    {"id":"pad","shape":"cylinder","position_m":[0,0.1,0],"rotation_deg":[0,0,0],"size_m":[1.6,0.2,1.6],"material":"stone"},
+    {"id":"bulb","shape":"sphere","position_m":[0,0.35,0],"rotation_deg":[0,0,0],"size_m":[0.3,0.3,0.3],"material":"copper"}
+  ],
+  "nodes": [
+    {"id":"near","op":"proximity","part_id":"pad","params":{"radius_m":2,"interval_s":0.75}},
+    {"id":"push","op":"wind","part_id":"pad","params":{"direction":[0,1,0],"acceleration_mps2":2,"radius_m":2,"duration_s":0.75}},
+    {"id":"glow","op":"light","part_id":"bulb","params":{"intensity":1,"duration_s":0.75}}
+  ],
+  "edges": [{"from":"near","to":"push"},{"from":"near","to":"glow"}]
+}

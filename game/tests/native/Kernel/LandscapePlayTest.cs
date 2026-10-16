@@ -51,20 +51,48 @@ public partial class LandscapePlayTest : Node3D
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             _world.RoomDirectory = directory.Replace('\\', '/');
             AddChild(_world);
-            for (var i = 0; i < 1800 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 120 && !_world.WorldReady && _world.LoadError.Length == 0;) await Frames(1);
             Check(_world.WorldReady, "the landscape room boots: " + _world.LoadError);
             if (!_world.WorldReady) { Finish(); return; }
             _roomId = _world.Room.RoomId;
+            _loose = LooseIds(directory);
             // The test steers the player as a player would; the keyboard (nobody at it) must not override that.
             _world.Player.ReadKeyboard = false;
             _host = CommandHost.Of(_world)!;
             _navigation = _world.GetNode<RoomNavigation>("RoomNavigation");
-            for (var i = 0; i < 30 && !_navigation.IsReady; i++) await Frames(1);
+            // The bake runs on worker threads (packet S7): a small island is ready when the room is, a magnified one a few
+            // seconds later, in the background.
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            while (!_navigation.IsReady && waited.Elapsed.TotalSeconds < 120) await Frames(1);
             Check(_navigation.IsReady, "the landscape bakes a navigation mesh for the companion");
-            Measure($"LANDSCAPE_NAVIGATION {_navigation.PolygonCount} polygons, bake {_navigation.LastBakeMs:0} ms, climb {_navigation.AgentMaxClimbM:0.000} m, radius {_navigation.AgentRadiusM:0.000} m");
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_NAVIGATION {_navigation.PolygonCount} polygons in {_navigation.TileCount} tiles ({_navigation.TileColumns} x {_navigation.TileRows}), {_navigation.IslandCount} islands; " +
+                $"bake {_navigation.LastBakeMs:0} ms on worker threads ({_navigation.LastBakeMainThreadMs:0.0} ms of the main thread), ready {waited.Elapsed.TotalSeconds:0.0} s after the room; climb {_navigation.AgentMaxClimbM:0.000} m, radius {_navigation.AgentRadiusM:0.000} m"));
             await Frames(30);
             // The Gubble floats: it hovers over the land (or water) at its spawn rather than standing on it.
             Check(_world.Player.IsOnFloor() && Hovering(_world.Companion), "the player stands on the land at its spawn, and the Gubble hovers over it");
+            // "-- --rebake" times a re-bake alone (packet S7; see TestReBakeDoesNotHold).
+            if (OS.GetCmdlineUserArgs().Contains("--rebake"))
+            {
+                await TestReBakeDoesNotHold();
+                Finish();
+                return;
+            }
+            // "-- --play-distances" runs the play distances alone (packet S8; see TestPlayDistances).
+            if (OS.GetCmdlineUserArgs().Contains("--play-distances"))
+            {
+                await TestPlayDistances();
+                Finish();
+                return;
+            }
+            // "-- --gubble-reach" runs the Gubble's reach alone (packet S1; see TestGubbleReach).
+            if (OS.GetCmdlineUserArgs().Contains("--gubble-reach"))
+            {
+                await TestGubbleReach();
+                Finish();
+                return;
+            }
+            await TestLooseThingsRest();
 
             // "-- --climb-only" runs the climbing checks alone (for tuning them).
             if (!OS.GetCmdlineUserArgs().Contains("--climb-only"))
@@ -75,6 +103,7 @@ public partial class LandscapePlayTest : Node3D
                 await TestCompanionFetches();
                 await TestDestinations();
                 await TestNavigationClimb();
+                await TestReBakeDoesNotHold();
             }
             MeasureWater();
             await TestClimbACliff();
@@ -157,10 +186,9 @@ public partial class LandscapePlayTest : Node3D
     private const float EdgeInsetM = 0.10f;
 
     /// <summary>
-    /// The island's edge on the generated garage (the founder, 9 October: "My daughter hates the invisible wall"). From the
-    /// water off a beach, out past the reef: a swimmer who stops is carried back by the current; one who swims on washes up on
-    /// the nearest beach, standing on the sand facing inland, with the bounds never holding them back; the Gubble comes too.
-    /// The bounds' top stands well over the highest land, and the Gubble sent out past the bounds stays inside them, hovering.
+    /// The open sea round the generated garage (the founder, 9 October: "the kids want to be able to swim forever"). From the
+    /// water off a beach, out past the reef, the bounds and the water meshes: nothing turns the swimmer back and the Gubble
+    /// follows; B takes them home to the jetty, standing and facing inland. The bounds' top stands well over the highest land.
     /// </summary>
     private async Task TestSeaEdge(RoomSea sea)
     {
@@ -183,6 +211,29 @@ public partial class LandscapePlayTest : Node3D
         Measure($"LANDSCAPE_SEA the highest land {highest:0.000} m; the bounds' top {bounds.End.Y:0.000} m");
         Check(highest + player.BodyHeightM + player.MaxJumpApexM < bounds.End.Y, $"the bounds' top stands over the highest land with room for a body and its floatiest leap ({bounds.End.Y - highest:0.00} m over it)");
 
+        // One open-sea floor (Codex Astra's review): RoomSea.OpenSeaBedAt against the far floor the room draws, the generator's
+        // far sea floor (the shell's scenery parts), whose distant islands only ever rise above it. Every drawn vertex must lie
+        // on the formula's floor or above it, and most of them on it.
+        int onFloor = 0, underFloor = 0, drawn = 0;
+        var deepestUnder = 0.0f;
+        foreach (var part in _world.Room.Shell.Where(p => p.Id.StartsWith("shell:scenery_", StringComparison.Ordinal)))
+        {
+            var node = _world.Built.GetNodeOrNull<Node3D>("Shell/" + RoomBuilder.NodeName(part.Id));
+            if (node == null) continue;
+            foreach (var mesh in node.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
+                for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
+                    foreach (var local in mesh.Mesh.SurfaceGetArrays(surface)[(int)Mesh.ArrayType.Vertex].AsVector3Array())
+                    {
+                        var at = mesh.GlobalTransform * local;
+                        var below = at.Y - sea.OpenSeaBedAt(new Vector2(at.X, at.Z));
+                        drawn++;
+                        if (Mathf.Abs(below) <= 0.002f) onFloor++;
+                        else if (below < 0) { underFloor++; deepestUnder = Mathf.Min(deepestUnder, below); }
+                    }
+        }
+        Measure($"LANDSCAPE_SEA the open-sea floor (centre {sea.OpenSeaCentreM}, sinking from {sea.OpenSeaStartM:0.00} m) against the drawn far floor: {drawn} vertices, {onFloor} on it, {underFloor} under it (deepest {deepestUnder * 1000:0.0} mm)");
+        Check(drawn > 1000 && underFloor == 0 && onFloor > drawn * 0.6f, "RoomSea.OpenSeaBedAt is the far sea floor the room draws");
+
         // Open water past the reef: off the first beach, outward until past the reef and deep enough to swim.
         var beach = sea.Beaches[0];
         var outward = -(new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward);
@@ -199,42 +250,79 @@ public partial class LandscapePlayTest : Node3D
         Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
         Check(companion.TryTeleportTo(beach.WashAshoreM + Vector3.Up * 0.01f), "the Gubble waits on the beach");
 
-        // The current: a swimmer who stops out there is carried back toward the island.
+        // The open sea: swim on out at the fast swim, past the reef, the playable water, the bounds and the water meshes,
+        // to 1.5 m past the bounds. Nothing carries the swimmer back or washes them ashore; the sea holds them up out there.
         player.SetControlInput(Vector2.Zero);
         player.GlobalPosition = start + Vector3.Down * player.SwimFloatDepthM;
         player.Velocity = Vector3.Zero;
         player.ResetPhysicsInterpolation();
-        await Frames(10);
-        var pastBefore = sea.PastReefM(new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z));
-        var washes = player.WashAshores;
-        await Frames(240);
-        var pastAfter = sea.PastReefM(new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z));
-        Measure($"LANDSCAPE_SEA a swimmer stopped {pastBefore:0.00} m past the reef is carried to {pastAfter:0.00} m in 4 s (swimming {player.IsSwimming}, current {player.SeaCurrent.Length():0.000} m/s)");
-        Check(player.IsSwimming && pastAfter < pastBefore - 0.05f && player.WashAshores == washes, "past the reef the current carries a swimmer who stops back toward the island");
-
-        // Swim on out: washed up on the nearest beach, standing, facing inland; the bounds never hold the swimmer back.
         player.Rotation = new Vector3(0, Mathf.Atan2(-outward.X, -outward.Z), 0);
+        await Frames(10);
+        var trips = player.HomeTrips;
         var stops = player.BoundsStops;
-        player.SetControlInput(new Vector2(0, 1));
         var frames = 0;
-        var left = Vector2.Zero;
-        for (; frames < 3600 && (player.WashAshores == washes || player.WashingAshore); frames++)
+        var dry = 0;
+        var eyeUnder = 0;
+        var beyond = float.NegativeInfinity;
+        for (; frames < 3600 && beyond < 1.5f; frames++)
         {
+            player.SetControlInput(new Vector2(0, 1), sprint: true);
             await Frames(1);
-            if (player.WashAshores == washes) left = new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z);
+            beyond = Outside(bounds, player.GlobalPosition, 0);
+            if (!player.IsSwimming) dry++;
+            if (player.Water.Wet && player.GlobalPosition.Y + player.EyeCamera.Position.Y < player.Water.SurfaceY - 0.001f) eyeUnder++;
         }
         player.SetControlInput(Vector2.Zero);
-        await Frames(30);
-        var nearest = sea.NearestBeach(left)!.Value;
-        var landed = player.GlobalPosition - nearest.WashAshoreM;
-        Measure($"LANDSCAPE_SEA swam out {frames / 60.0f:0.0} s and washed up on {player.LastBeachId} (nearest to where it left the water: {nearest.Id}), {new Vector2(landed.X, landed.Z).Length():0.00} m from its spot, facing {Mathf.RadToDeg(player.Rotation.Y):0} deg, on floor {player.IsOnFloor()}, bound stops {player.BoundsStops - stops}");
-        Check(player.WashAshores == washes + 1 && player.LastBeachId == nearest.Id && player.IsOnFloor() && !player.IsSwimming && new Vector2(landed.X, landed.Z).Length() < 0.15f &&
-            Mathf.Abs(Mathf.AngleDifference(player.Rotation.Y, Mathf.DegToRad(nearest.YawDeg))) < 0.01f && player.BoundsStops == stops,
-            "swimming on past the current, the player washes up on the nearest beach, standing on the sand facing inland, never held by the bounds");
+        await Frames(60);
         var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
-        Check(gap < 0.4f, $"the Gubble comes too ({gap:0.00} m from the player)");
+        Measure($"LANDSCAPE_SEA swam out {frames / 60.0f:0.0} s to {beyond:0.00} m past the bounds: taken home {player.HomeTrips - trips} times, bound stops {player.BoundsStops - stops}, ticks not swimming {dry}, eye under {eyeUnder}; " +
+                $"the water {player.Water.DepthM:0.00} m deep there; the Gubble {gap:0.00} m away, {(companion.GlobalPosition.Y - sea.LevelM) * 100:0.0} cm over the water");
+        Check(beyond >= 1.5f && player.HomeTrips == trips && player.BoundsStops == stops && dry == 0 && eyeUnder == 0 && player.IsSwimming,
+            "the sea has no edge: the swimmer swims on past the reef, the bounds and the water meshes, held up by the open sea, never turned back or washed ashore");
+        Check(gap < 0.4f && companion.HoversOverWater && companion.GlobalPosition.Y > sea.LevelM + 0.005f, "the Gubble follows out over the open sea, hovering over it");
 
-        // The Gubble sent a metre past the bounds over the open sea: it stays inside them, hovering over the water.
+        // Diving out there, in F2 (Codex's reviews): W with the shoulder camera level swims level, not up; and at the open-sea
+        // bed, which no arm collides with, looking up, the camera stays over the bed.
+        var hud = _world.GetNode<RoomHud>("RoomHud");
+        hud.SetViewMode(1);
+        player.SetDiveInput(true, false);
+        await Frames(120);
+        player.SetDiveInput(false, false);
+        player.EyeCamera.Rotation = new Vector3(0.18f, 0, 0);   // the shoulder camera looks 0.18 rad under the eye: level
+        await Frames(10);
+        var levelFrom = player.GlobalPosition;
+        for (var i = 0; i < 60; i++) { player.SetControlInput(new Vector2(0, 1)); await Frames(1); }
+        player.SetControlInput(Vector2.Zero);
+        var levelRise = player.GlobalPosition.Y - levelFrom.Y;
+        player.EyeCamera.Rotation = Vector3.Zero;
+        player.SetDiveInput(true, false);
+        await Frames(600);
+        var bedThere = player.Water.BedY;
+        player.EyeCamera.Rotation = new Vector3(0.8f, 0, 0);
+        await Frames(10);
+        var followCamera = player.GetNode<SpringArm3D>("FollowCameraArm").GetNode<Camera3D>("FollowCamera");
+        var lensOverBed = followCamera.GlobalPosition.Y - bedThere;
+        player.SetDiveInput(false, true);
+        for (var i = 0; i < 900 && player.IsDiving; i++) await Frames(1);
+        player.SetDiveInput(false, false);
+        player.EyeCamera.Rotation = Vector3.Zero;
+        hud.SetViewMode(0);
+        Measure($"LANDSCAPE_SEA diving in F2: W with the shoulder camera level rose {levelRise * 100:0.0} cm in 1 s; at the bed ({bedThere:0.000} m), looking up, the shoulder camera {lensOverBed * 100:0.0} cm over it");
+        Check(Mathf.Abs(levelRise) < 0.01f && lensOverBed > 0.01f, "in F2, W swims where the shoulder camera looks, and the camera never goes under the open-sea bed");
+
+        // B, out there: home to the jetty's landward end, standing, facing inland; the Gubble beside.
+        Check(player.RequestHome(), "B starts the way home");
+        await Frames(100);
+        var jetty = sea.JettyData;
+        var inland = jetty is { } j ? new Vector3(j.RootM.X - j.EndM.X, 0, j.RootM.Z - j.EndM.Z).Normalized() : Vector3.Zero;
+        var fromRoot = jetty is { } k ? PlanarDistance(player.GlobalPosition, k.RootM) : float.NaN;
+        gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        Measure($"LANDSCAPE_SEA B: home to {player.LastHome}, {fromRoot:0.00} m from the jetty's root at {(jetty is { } r ? Text(r.RootM) : "none")}, facing {Mathf.RadToDeg(player.Rotation.Y):0} deg (inland {Mathf.RadToDeg(Mathf.Atan2(-inland.X, -inland.Z)):0}), on floor {player.IsOnFloor()}; the Gubble {gap:0.00} m away");
+        Check(jetty != null && player.HomeTrips == trips + 1 && player.LastHome == "jetty" && fromRoot < 0.25f && player.IsOnFloor() && !player.IsSwimming &&
+              Mathf.Abs(Mathf.AngleDifference(player.Rotation.Y, Mathf.Atan2(-inland.X, -inland.Z))) < 0.01f && gap < 0.4f,
+            "B takes the player home from the open sea: standing at the jetty's landward end, facing inland, the Gubble beside");
+
+        // The Gubble sent past the bounds over the open sea: it floats out there, hovering over the water.
         var far = start + outward * 10;
         companion.GoTo(new Aabb(new Vector3(Mathf.Clamp(far.X, bounds.Position.X - 1, bounds.End.X + 1), sea.LevelM, Mathf.Clamp(far.Z, bounds.Position.Z - 1, bounds.End.Z + 1)), Vector3.Zero), CommandHost.GoToStopM);
         var worstOut = float.NegativeInfinity;
@@ -246,7 +334,7 @@ public partial class LandscapePlayTest : Node3D
             if (companion.HoversOverWater) lowest = Mathf.Min(lowest, companion.GlobalPosition.Y - sea.LevelM);
         }
         Measure($"LANDSCAPE_SEA the Gubble sent past the bounds over the sea: furthest {worstOut * 100:0.0} cm past, lowest {lowest * 100:0.0} cm over the water, intent {companion.CurrentIntent}, blocked {companion.GoalBlocked}");
-        Check(worstOut <= 0.001f && lowest > 0.005f && companion.WashAshores == 0, "the Gubble floats out over the sea and is never lost: inside the bounds, over the water");
+        Check(lowest > 0.005f && companion.HoversOverWater, "the Gubble floats out over the open sea past the bounds, hovering over the water");
         companion.Stop();
         Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM) && companion.TryTeleportTo(_world.Room.SpawnFor("companion").PositionM), "both bodies back at their spawns");
         player.Rotation = new Vector3(0, Mathf.DegToRad(_world.Room.SpawnFor("player").YawDeg), 0);
@@ -354,6 +442,58 @@ public partial class LandscapePlayTest : Node3D
         var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
         Check(held && job?["state"]?.GetValue<string>() == "succeeded" && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && gap <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.03f,
             $"the companion fetches it across the land and stands {gap:0.00} m from the player holding it ({trip.Summary()}): {job?.ToJsonString()}");
+        // B with the Gubble on Stay out at sea, carrying the crate (Codex Sol's review): it comes home with the player, holding it.
+        if (_world.Room.Sea is { } sea && sea.Beaches.Count > 0)
+        {
+            var beach = sea.Beaches[0];
+            var outward = -(new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward);
+            var offshore = beach.WaterM + outward * 2.5f;
+            Send(Command(NextId("stay"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stay" }), Player);
+            companion.GlobalPosition = new Vector3(offshore.X, sea.LevelM + 0.03f, offshore.Z);
+            companion.ResetPhysicsInterpolation();
+            player.GlobalPosition = new Vector3(offshore.X, sea.LevelM - player.SwimFloatDepthM, offshore.Z) + outward.Cross(Vector3.Up) * 0.3f;
+            player.ResetPhysicsInterpolation();
+            await Frames(30);
+            // The sea wraps round (Lane P, the Glow playtest round): out past the wrap with the Gubble following, carrying the
+            // crate, in the high view. Both come in from the far side together, the crate riding with the Gubble, and the view
+            // is put straight on the player rather than swept across the island.
+            var hud = _world.GetNode<RoomHud>("RoomHud");
+            var seam = EnFractal.Native.Look.OpenSea.SeamFor(sea, _world.Room.Bounds);
+            var centre = sea.OpenSeaCentreM;
+            var away2 = (new Vector2(offshore.X, offshore.Z) - centre).Normalized();
+            var away = new Vector3(away2.X, 0, away2.Y);
+            player.GlobalPosition = new Vector3(centre.X, sea.LevelM - player.SwimFloatDepthM, centre.Y) + away * (player.WrapM - 0.2f);
+            player.ResetPhysicsInterpolation();
+            player.Rotation = new Vector3(0, Mathf.Atan2(-away.X, -away.Z), 0);
+            companion.GlobalPosition = player.GlobalPosition + Vector3.Up * 0.12f - away * 0.15f;
+            companion.ResetPhysicsInterpolation();
+            Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+            hud.SetViewMode(2);
+            await Frames(5);
+            var wraps = player.Wraps;
+            for (var i = 0; i < 600 && player.Wraps == wraps; i++) { player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+            player.SetControlInput(Vector2.Zero);
+            await Frames(1);
+            var lens = hud.DioramaCamera.GlobalPosition.DistanceTo(player.GlobalPosition);
+            var rides = PlanarDistance(CrateBox().GetCenter(), companion.GlobalPosition);
+            var beside = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+            var reefOut = sea.Reef.Length > 0 ? sea.Reef.Max(r => r.DistanceTo(centre)) : 0f;
+            Measure($"LANDSCAPE_SEA the wrap {player.WrapM:0.00} m from the island's centre (the look's seam {seam:0.00} m, the reef's farthest {reefOut:0.00} m): " +
+                $"{(player.WrapM - reefOut) / 0.19f:0} s from the reef at the plain swim, {(player.WrapM - reefOut) / 0.32f:0} s at the fast swim; after it the Gubble {beside:0.00} m away, " +
+                $"the crate {rides:0.00} m from it, the F3 lens {lens:0.00} m from the player");
+            Check(player.Wraps == wraps + 1 && beside < 0.5f && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && rides < 0.3f && lens < RoomHud.DioramaMaxDistanceM + 0.5f,
+                "out past the wrap the swimmer comes in from the far side with the Gubble beside it, the crate it carries riding with it, and the F3 view put straight on them");
+            hud.SetViewMode(0);
+            Send(Command(NextId("stay"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stay" }), Player);
+            await Frames(5);
+            player.RequestHome();
+            await Frames(100);
+            var crateGap = PlanarDistance(CrateBox().GetCenter(), companion.GlobalPosition);
+            gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+            Measure($"LANDSCAPE_SEA B with the Gubble on Stay at sea carrying the crate: {gap:0.00} m from the player, holding {_host.HeldBy(CompanionAvatar) ?? "nothing"}, the crate {crateGap:0.00} m from it");
+            Check(player.LastHome == "jetty" && gap < 0.5f && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && crateGap < 0.3f,
+                "B brings the Gubble home from the sea, still carrying the crate");
+        }
         var down = Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Player);
         await Frames(10);
         var setDown = CrateBox();
@@ -390,11 +530,46 @@ public partial class LandscapePlayTest : Node3D
     /// <summary>
     /// What the land promises a visit to, by what the entity is (never by id): a thing to find and carry (movable), or a
     /// dwelling, which the exporter names cottage or tower or builds as a structure with a roof. Fences, boulders and
-    /// lanterns are landmarks.
+    /// lanterns are landmarks. So are the loose things the exporter lists in extensions.x_landscape_loose (Codex brief 23:
+    /// logs from a woodpile, small stones): they are found, perhaps up a cliff, not promised on foot.
     /// </summary>
-    private static bool Promised(ObjectInstance item) =>
-        item.Asset.Movable || item.Asset.Category is "cottage" or "tower" ||
-        (item.Asset.CategoryGroup == "structure" && item.Asset.Materials.Any(m => m.Slot == "roof" || m.Role == "roof"));
+    private bool Promised(ObjectInstance item) =>
+        !_loose.Contains(item.Id) &&
+        (item.Asset.Movable || item.Asset.Category is "cottage" or "tower" ||
+         (item.Asset.CategoryGroup == "structure" && item.Asset.Materials.Any(m => m.Slot == "roof" || m.Role == "roof")));
+
+    private HashSet<string> _loose = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Loose things rest where the exporter put them: a woodpile's stacked logs and the small stones sit still once the
+    /// room has loaded (each one's foot within 5 mm of its manifest position after 1.5 s).
+    /// </summary>
+    private async Task TestLooseThingsRest()
+    {
+        if (_loose.Count == 0) return;
+        await Frames(90);
+        var worst = (Id: "", Gap: 0f);
+        foreach (var item in _world.Room.Objects.Where(o => _loose.Contains(o.Id)))
+        {
+            var box = EntityBox(item.Id);
+            var gap = new Vector3(box.GetCenter().X, box.Position.Y, box.GetCenter().Z).DistanceTo(item.PositionM);
+            if (gap > worst.Gap) worst = (item.Id, gap);
+        }
+        Measure($"LANDSCAPE_LOOSE {_loose.Count} loose things; the furthest from where it was put: {worst.Gap * 1000:0.0} mm ({(worst.Id.Length == 0 ? "none" : worst.Id)})");
+        Check(worst.Gap <= 0.005f, $"the loose things rest where they were put (worst {worst.Gap * 1000:0.0} mm, {worst.Id})");
+    }
+
+    /// <summary>The ids of the room's loose things (extensions.x_landscape_loose.items), or none for an older export.</summary>
+    private static HashSet<string> LooseIds(string directory)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var manifest = System.IO.Path.Combine(directory, "room.json");
+        if (!System.IO.File.Exists(manifest)) return ids;
+        var items = JsonNode.Parse(System.IO.File.ReadAllText(manifest))?["extensions"]?["x_landscape_loose"]?["items"]?.AsArray();
+        foreach (var item in items ?? new JsonArray())
+            if (item?["id"]?.GetValue<string>() is { } id) ids.Add(id);
+        return ids;
+    }
 
     /// <summary>
     /// The shortest route from a point to anywhere beside a box's footprint (the four sides and four corners, a body's
@@ -437,7 +612,7 @@ public partial class LandscapePlayTest : Node3D
         var bounds = sea?.LandBounds(_world.Room.Bounds) ?? _world.Room.Bounds;
         if (sea != null)
         {
-            var whole = RoomNavigation.Create(this, _world.Built, _world.Room.Bounds, WorldScaleProfile.Companion, 0.01f);
+            var whole = RoomNavigation.Create(this, _world.Built, _world.Room.Bounds, WorldScaleProfile.Companion, 0.01f, room: _world.Room);
             for (var i = 0; i < 30 && !whole.IsReady; i++) await Frames(1);
             var land = new List<double>();
             var all = new List<double>();
@@ -458,11 +633,12 @@ public partial class LandscapePlayTest : Node3D
                 if (slope <= 45f) samples.Add((hit["position"].AsVector3(), slope));
             }
         var spawn = _world.Room.SpawnFor("player").PositionM;
-        var twoCm = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.02f);
-        var fineCells = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, cellM: 0.01f);
-        for (var i = 0; i < 30 && !(twoCm.IsReady && fineCells.IsReady); i++) await Frames(1);
-        Measure($"LANDSCAPE_NAVIGATION bakes: 2 cm cells climb 0.01 m {_navigation.LastBakeMs:0} ms, climb 0.02 m {twoCm.LastBakeMs:0} ms; 1 cm cells climb 0.01 m {fineCells.LastBakeMs:0} ms");
-        foreach (var (name, mesh) in new[] { ("climb 0.010 m on 2 cm cells (the game's)", _navigation), ("climb 0.020 m on 2 cm cells (the body's step)", twoCm), ("climb 0.010 m on 1 cm cells", fineCells) })
+        var oneCm = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, room: _world.Room);
+        var fineCells = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, cellM: 0.01f, room: _world.Room);
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!(oneCm.IsReady && fineCells.IsReady) && waited.Elapsed.TotalSeconds < 60) await Frames(1);
+        Measure($"LANDSCAPE_NAVIGATION bakes: 2 cm cells climb 0.02 m (the game's) {_navigation.LastBakeMs:0} ms, climb 0.01 m {oneCm.LastBakeMs:0} ms; 1 cm cells climb 0.01 m {fineCells.LastBakeMs:0} ms");
+        foreach (var (name, mesh) in new[] { ("climb 0.020 m on 2 cm cells (the game's: the body's step)", _navigation), ("climb 0.010 m on 2 cm cells (before S7)", oneCm), ("climb 0.010 m on 1 cm cells", fineCells) })
         {
             int covered = 0, reached = 0, steep = 0, steepCovered = 0;
             foreach (var (point, slope) in samples)
@@ -478,8 +654,474 @@ public partial class LandscapePlayTest : Node3D
         }
         var worst = samples.Count == 0 ? 0 : samples.Max(s => s.Slope);
         Check(samples.Count > 0 && worst <= 45f, "the land has body-walkable ground to measure");
-        twoCm.QueueFree();
+        oneCm.QueueFree();
         fineCells.QueueFree();
+    }
+
+    // ---- the Gubble's reach (packet S1 of the move to the 10x world, 13 October) ----
+
+    /// <summary>
+    /// "-- --gubble-reach": the founder walked the garage island magnified ten times and found the Gubble lost on its way to the
+    /// player, ending high in the sky saying it could not get there. On any island: how far across it the Gubble's routes reach
+    /// (against Godot's default capped query), a come from about 60 m (or most of a smaller island) through the command host, and
+    /// a come from the highest land down to the player. Not part of the runner's pass (the magnified island is not generated
+    /// there): pass the exported room, e.g. the scale experiment's landscape_garage_x10.
+    /// </summary>
+    private async Task TestGubbleReach()
+    {
+        var sea = _world.Room.Sea;
+        var bounds = sea?.LandBounds(_world.Room.Bounds) ?? _world.Room.Bounds;
+        var companion = _world.Companion;
+        var player = _world.Player;
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        // Its travel is what is measured here: no catching up (S8's own check, "-- --play-distances", has that).
+        companion.CatchUpBeyondM = float.PositiveInfinity;
+        var spawn = _navigation.ClosestPoint(companion.GlobalPosition);
+        // The land on a grid of about 50 by 50, kept where the walkable mesh is.
+        var step = Mathf.Max(0.1f, Mathf.Max(bounds.Size.X, bounds.Size.Z) / 50f);
+        var (land, samples) = LandSamples(bounds, step);
+        int reached = 0, reachedCapped = 0;
+        float farthest = 0, farthestCapped = 0, widest = 0;
+        var farthestWalk = spawn;
+        double hitMs = 0, hitWorst = 0, missMs = 0, missWorst = 0;
+        foreach (var point in land)
+        {
+            widest = Mathf.Max(widest, PlanarDistance(point, spawn));
+            var before = System.Diagnostics.Stopwatch.GetTimestamp();
+            var route = _navigation.FindRoute(spawn, point, 0.06f);
+            var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - before) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            if (route.Reaches)
+            {
+                reached++;
+                if (PlanarDistance(point, spawn) > farthest) (farthest, farthestWalk) = (PlanarDistance(point, spawn), point);
+                hitMs += ms;
+                hitWorst = Math.Max(hitWorst, ms);
+            }
+            else { missMs += ms; missWorst = Math.Max(missWorst, ms); }
+            // The query as it was (MapGetPath: Godot's default search cap), judged the same way.
+            var capped = NavigationServer3D.MapGetPath(_navigation.Map, spawn, point, true);
+            if (capped.Length > 0 && PlanarDistance(capped[^1], point) <= 0.06f && capped[^1].DistanceTo(_navigation.ClosestPoint(point)) <= RoomNavigation.SameIslandM)
+            { reachedCapped++; farthestCapped = Mathf.Max(farthestCapped, PlanarDistance(point, spawn)); }
+        }
+        var misses = land.Count - reached;
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_GUBBLE_REACH {_navigation.PolygonCount} polygons; {samples} land samples on a {step:0.00} m grid, {land.Count} on the walkable mesh, out to {widest:0.0} m from the Gubble's spawn: " +
+            $"its routes reach {reached} ({100f * reached / Mathf.Max(1, land.Count):0}%, out to {farthest:0.0} m); Godot's default capped query reached {reachedCapped} ({100f * reachedCapped / Mathf.Max(1, land.Count):0}%, out to {farthestCapped:0.0} m); " +
+            $"a route that reaches {hitMs / Mathf.Max(1, reached):0.0} ms on average (worst {hitWorst:0.0}), a goal out of reach {missMs / Mathf.Max(1, misses):0.0} ms (worst {missWorst:0.0})"));
+        Check(reached >= reachedCapped && farthest >= farthestCapped, "the Gubble's routes reach at least as far across the island as the default capped query did");
+        await MeasureWalkableReach(bounds, step, spawn);
+        await MeasureRouteRequests(land, spawn);
+        await TestReBakeDoesNotHold();
+
+        // Come along the longest walk the survey found (on the magnified island, past where the capped query reached).
+        if (farthest > 1f && player.TryTeleportTo(farthestWalk + Vector3.Up * 0.003f))
+        {
+            await Frames(10);
+            await ComeAndWatch($"come along a walk from {farthest:0} m");
+        }
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        Check(companion.TryTeleportTo(spawn + Vector3.Up * 0.01f), "the Gubble back at its spawn");
+
+        // Come from about 60 m (or four fifths of a smaller island's reach), through the command host as the player's key does.
+        var far = Mathf.Min(60f, widest * 0.8f);
+        var placed = land.OrderBy(p => Mathf.Abs(PlanarDistance(p, spawn) - far)).Take(40).Any(p => player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        Check(placed && PlanarDistance(player.GlobalPosition, spawn) > far * 0.8f, $"the player stands about {far:0} m from the Gubble");
+        await Frames(10);
+        await ComeAndWatch($"come from {PlanarDistance(player.GlobalPosition, companion.GlobalPosition):0} m");
+
+        // Down off the highest land: the Gubble on it, the player on land well below and a way off.
+        var top = land.OrderByDescending(p => p.Y).First();
+        var drop = Mathf.Min(8f, bounds.Size.Y * 0.3f);
+        var lows = land.Where(p => top.Y - p.Y > drop && PlanarDistance(p, top) > 3 * step).OrderBy(p => PlanarDistance(p, top)).ToList();
+        if (lows.Count == 0)
+        {
+            Measure("LANDSCAPE_GUBBLE_REACH no land stands high enough over the rest for the come down");
+            return;
+        }
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        var low = lows.Take(40).FirstOrDefault(p => player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        Check(companion.TryTeleportTo(top + Vector3.Up * 0.01f) && low != default,
+            $"the Gubble on the highest land ({Text(top)}), the player {top.Y - low.Y:0.0} m below and {PlanarDistance(top, low):0.0} m away");
+        await Frames(20);
+        await ComeAndWatch($"come down {top.Y - low.Y:0.0} m off the highest land");
+    }
+
+    // ---- play distances (packet S8 of the 10x world, 13 October) ----
+
+    /// <summary>
+    /// "-- --play-distances": what the player and the Gubble do over distances ten times longer, on any island (the 10x island is
+    /// the one that matters; not part of the runner's pass, which plays the 1x fixture): a come from 60 to 70 m travelled all the
+    /// way (time, share walked, worst height over the player); the Gubble rising up onto the highest land; following a player who
+    /// runs 40 m it keeps up and never catches up; left behind and called, out of the player's sight, it catches up beside them,
+    /// out of view, and its AI is told; and a fetch across the island, which never catches up.
+    /// </summary>
+    private async Task TestPlayDistances()
+    {
+        var sea = _world.Room.Sea;
+        var bounds = sea?.LandBounds(_world.Room.Bounds) ?? _world.Room.Bounds;
+        var companion = _world.Companion;
+        var player = _world.Player;
+        _world.GetNode<RoomHud>("RoomHud").SetViewMode(1);
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        var spawn = _navigation.ClosestPoint(companion.GlobalPosition);
+        var step = Mathf.Max(0.1f, Mathf.Max(bounds.Size.X, bounds.Size.Z) / 50f);
+        var (land, _) = LandSamples(bounds, step);
+        var widest = land.Max(p => PlanarDistance(p, spawn));
+        async Task Reset(Vector3 gubble)
+        {
+            Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+            Check(companion.TryTeleportTo(gubble + Vector3.Up * 0.01f), "the Gubble put back at " + Text(gubble));
+            await Frames(10);
+        }
+
+        // A come from 60 to 70 m (four fifths of a smaller island), a walk reaching the player, travelled all the way.
+        companion.CatchUpBeyondM = float.PositiveInfinity;
+        var far = Mathf.Min(65f, widest * 0.9f);
+        var start = land.Where(p => Mathf.Abs(PlanarDistance(p, spawn) - far) <= Mathf.Max(5f, far * 0.08f)).OrderBy(p => Mathf.Abs(PlanarDistance(p, spawn) - far)).Take(60)
+            .FirstOrDefault(p => _navigation.FindRoute(spawn, p, 0.06f).Reaches && player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        Check(start != default, $"the player stands about {far:0} m from the Gubble, a walk away");
+        await Frames(10);
+        var come = await ComeAndWatch($"S8 come from {PlanarDistance(player.GlobalPosition, companion.GlobalPosition):0} m (no catch-up)");
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_COME {PlanarDistance(start, spawn):0} m: {come.Seconds:0.0} s, {100 * come.WalkedShare:0}% walked, highest {come.HighestM:0.00} m over the player"));
+
+        // Up onto the highest land: the player on it, the Gubble on land well below and near its foot.
+        var top = land.OrderByDescending(p => p.Y).First();
+        var foot = land.Where(p => top.Y - p.Y > Mathf.Min(8f, bounds.Size.Y * 0.3f)).OrderBy(p => PlanarDistance(p, top)).FirstOrDefault();
+        if (foot != default && player.TryTeleportTo(top + Vector3.Up * 0.003f))
+        {
+            await Reset(foot);
+            var up = await ComeAndWatch($"S8 come up {top.Y - foot.Y:0.0} m onto the highest land from {PlanarDistance(top, foot):0.0} m off (no catch-up)");
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_S8_RISE {top.Y - foot.Y:0.0} m up from {PlanarDistance(top, foot):0.0} m off: {up.Seconds:0.0} s, fastest rise up a face {up.FastestRiseMps:0.00} m/s"));
+            // And back down: the player at the foot, the Gubble where it arrived beside them on the top.
+            if (player.TryTeleportTo(foot + Vector3.Up * 0.003f))
+            {
+                Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+                await Frames(10);
+                Check(PlanarDistance(companion.GlobalPosition, top) < 1f && top.Y - companion.GlobalPosition.Y < 0.2f, "the Gubble on the highest land, beside where the player stood");
+                var down = await ComeAndWatch($"S8 come down {top.Y - foot.Y:0.0} m off the highest land to {PlanarDistance(top, foot):0.0} m off (no catch-up)");
+                Measure(string.Create(CultureInfo.InvariantCulture, $"LANDSCAPE_S8_DROP {top.Y - foot.Y:0.0} m down to {PlanarDistance(top, foot):0.0} m off: {down.Seconds:0.0} s"));
+            }
+        }
+
+        // Following a player who runs 40 m: it keeps up and never needs to catch up.
+        companion.CatchUpBeyondM = EnFractal.Native.CompanionAvatar.CatchUpM;
+        Check(player.TryTeleportTo(spawn + Vector3.Up * 0.003f), "the player back at the Gubble's spawn");
+        await Reset(spawn + new Vector3(0.15f, 0, 0));
+        var run = land.Where(p => Mathf.Abs(PlanarDistance(p, spawn) - 40f) <= 4f).OrderBy(p => Mathf.Abs(PlanarDistance(p, spawn) - 40f)).Take(60)
+            .FirstOrDefault(p => _navigation.FindRoute(spawn, p, 0.06f).Reaches);
+        var catchUps = companion.CatchUps;
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        var widestGap = 0f;
+        var ran = await PlayerWalkWatching($"S8 the player runs {PlanarDistance(run, spawn):0} m, the Gubble following", run,
+            () => widestGap = Mathf.Max(widestGap, companion.GlobalPosition.DistanceTo(player.GlobalPosition)));
+        for (var i = 0; i < 300 && companion.FollowMoving; i++) await Frames(1);
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_FOLLOW the player ran {ran.DistanceM:0.0} m in {ran.Ticks / 60.0:0.0} s; the Gubble following was at most {widestGap:0.00} m behind, ending {PlanarDistance(companion.GlobalPosition, player.GlobalPosition):0.00} m away; catch-ups {companion.CatchUps - catchUps}"));
+        Check(run != default && ran.Arrived && companion.CatchUps == catchUps && widestGap < EnFractal.Native.CompanionAvatar.CatchUpM,
+            $"following a player who runs {ran.DistanceM:0} m, the Gubble keeps up (at most {widestGap:0.0} m behind) and never catches up");
+
+        // Left behind on stay while the player runs off 40 m, then called to follow out of the player's sight: it catches up.
+        Send(Command(NextId("stay"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stay" }), Player);
+        var left = companion.GlobalPosition;
+        var from = player.GlobalPosition;
+        var away = land.Where(p => PlanarDistance(p, left) > 38f && PlanarDistance(p, left) < 50f && PlanarDistance(p, from) < 45f)
+            .OrderBy(p => PlanarDistance(p, from)).Take(80).FirstOrDefault(p => _navigation.FindRoute(from, p, 0.06f).Reaches);
+        var off = await PlayerWalkWatching($"S8 the player runs off {PlanarDistance(away, from):0} m, the Gubble staying", away, () => { });
+        var apart = companion.GlobalPosition.DistanceTo(player.GlobalPosition);
+        var seen = companion.BodyInPlayerView(companion.GlobalPosition);
+        catchUps = companion.CatchUps;
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        var caughtAfter = -1;
+        var inViewAtArrival = true;
+        var arrivedAt = Vector3.Zero;
+        for (var i = 0; i < 600 && caughtAfter < 0; i++)
+        {
+            await Frames(1);
+            if (companion.CatchUps == catchUps) continue;
+            caughtAfter = i;
+            arrivedAt = companion.GlobalPosition;
+            inViewAtArrival = companion.BodyInPlayerView(arrivedAt);
+        }
+        var notice = Send(new JsonObject { ["schema"] = "enfractal.query", ["version"] = 1, ["query_id"] = "q-" + (++_ids), ["room_id"] = _roomId, ["op"] = "player.status", ["args"] = new JsonObject() },
+            CommandHost.CompanionPrincipal)["notices"]?.AsArray().OfType<JsonObject>().FirstOrDefault(n => n["kind"]?.GetValue<string>() == "caught_up");
+        var besideGap = PlanarDistance(arrivedAt, player.GlobalPosition);
+        var besideLevel = arrivedAt.Y - player.GlobalPosition.Y;
+        var wet = RoomWater.At(GetWorld3D().DirectSpaceState, arrivedAt, RoomWater.SearchM, 0.05f).Wet;
+        for (var i = 0; i < 360 && (companion.FollowMoving || PlanarDistance(companion.GlobalPosition, player.GlobalPosition) > EnFractal.Native.CompanionAvatar.FollowFarM + 0.05f); i++) await Frames(1);
+        var settled = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_CATCH_UP the player ran off {off.DistanceM:0.0} m ({apart:0.0} m from the Gubble, which the view {(seen ? "held" : "did not hold")}); called to follow, it caught up after {caughtAfter / 60.0:0.00} s, " +
+            $"reappearing {besideGap:0.00} m from the player, {besideLevel * 100:0.0} cm off their height, {(inViewAtArrival ? "IN VIEW" : "out of view")}, {(wet ? "IN WATER" : "dry")}; " +
+            $"then {settled:0.00} m away following; its AI's notice: {notice?.ToJsonString() ?? "none"}"));
+        Check(away != default && !seen && caughtAfter >= 0 && caughtAfter <= 60 && !inViewAtArrival && !wet && besideGap <= 4.1f && Mathf.Abs(besideLevel) <= EnFractal.Native.CompanionAvatar.LevelGapM &&
+              notice?["distance_m"]?.GetValue<double>() > EnFractal.Native.CompanionAvatar.CatchUpM && settled <= EnFractal.Native.CompanionAvatar.FollowFarM + 0.05f,
+            $"left {apart:0} m behind out of the player's sight and called, the Gubble catches up beside them out of view, dry and level, its AI is told, and it follows on");
+
+        // A fetch across the island: the crate 40 to 60 m off, the player facing away; the way back never catches up.
+        var crate = CrateBox().GetCenter();
+        var stand = land.Where(p => PlanarDistance(p, crate) > 40f && PlanarDistance(p, crate) < 60f).OrderBy(p => Mathf.Abs(PlanarDistance(p, crate) - 50f)).Take(80)
+            .FirstOrDefault(p => _navigation.FindRoute(p, _navigation.ClosestPoint(crate), 0.3f).Reaches && player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        if (stand == default)
+        {
+            Measure("LANDSCAPE_S8_FETCH no land 40 to 60 m from the crate with a walk to it");
+            return;
+        }
+        var facing = Planar(player.GlobalPosition - crate);
+        player.Rotation = new Vector3(0, Mathf.Atan2(-facing.X, -facing.Z), 0);
+        await Reset(stand + player.GlobalBasis.Z * 0.3f);
+        catchUps = companion.CatchUps;
+        var floatsBefore = companion.FloatStarts;
+        var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:apple_crate" }), Player);
+        int ticks = 0, floated = 0, outOfSightFar = 0;
+        var trace = new List<string>();
+        for (; ticks < 400 * 60 && _host.RunningGoal(CompanionAvatar) != null; ticks++)
+        {
+            await Frames(1);
+            if (companion.FloatingThere) floated++;
+            if (ticks % 60 == 0 || (companion.GoalBlocked && ticks % 15 == 0))
+                trace.Add(string.Create(CultureInfo.InvariantCulture, $"{ticks / 60.0:0.0}s {companion.CurrentIntent}{(_host.HeldBy(CompanionAvatar) != null ? "+held" : "")}{(companion.FloatingThere ? " float(" + companion.FloatReason + ")" : "")}{(companion.GoalBlocked ? " BLOCKED(" + companion.BlockedReason + ")" : "")} at {Text(companion.GlobalPosition)}"));
+            if (ticks % 30 == 0 && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && companion.GlobalPosition.DistanceTo(player.GlobalPosition) > EnFractal.Native.CompanionAvatar.CatchUpM &&
+                !companion.BodyInPlayerView(companion.GlobalPosition)) outOfSightFar++;
+        }
+        var job = JobStatus(fetch);
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_FETCH the crate {PlanarDistance(stand, crate):0} m off: {job?["state"]?.GetValue<string>() ?? "?"} after {ticks / 60.0:0.0} s, {100.0 * (ticks - floated) / Math.Max(1, ticks):0}% walked " +
+            $"(float starts {companion.FloatStarts - floatsBefore}); carried back far and out of the player's sight on {outOfSightFar} looks; catch-ups {companion.CatchUps - catchUps}"));
+        if (job?["state"]?.GetValue<string>() != "succeeded") Measure("LANDSCAPE_S8_FETCH_TRACE " + string.Join("; ", trace.TakeLast(40)));
+        Check(Ok(fetch) && job?["state"]?.GetValue<string>() == "succeeded" && companion.CatchUps == catchUps,
+            $"the Gubble fetches the crate from {PlanarDistance(stand, crate):0} m across the island, carrying it all the way back (no catch-up): {job?.ToJsonString()}");
+    }
+
+    /// <summary>The player runs to a point (PlayerWalk), with a watcher called each tick.</summary>
+    private Task<Walk> PlayerWalkWatching(string name, Vector3 to, Action each) =>
+        PlayerWalk(name, () => { each(); return to; }, 0.3f, 120 * 60);
+
+    private static Vector3 Planar(Vector3 v) => new(v.X, 0, v.Z);
+
+    /// <summary>The land on a grid of this step over the bounds, kept where the walkable mesh is (on it): the points, and how many columns met land.</summary>
+    private (List<Vector3> Land, int Samples) LandSamples(Aabb bounds, float step)
+    {
+        var land = new List<Vector3>();
+        var samples = 0;
+        for (var x = bounds.Position.X + step * 0.5f; x < bounds.End.X; x += step)
+            for (var z = bounds.Position.Z + step * 0.5f; z < bounds.End.Z; z += step)
+            {
+                var hit = GetWorld3D().DirectSpaceState.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.WorldLayer));
+                if (hit.Count == 0) continue;
+                samples++;
+                var point = hit["position"].AsVector3();
+                var snapped = _navigation.ClosestPoint(point);
+                if (PlanarDistance(snapped, point) <= _navigation.AgentRadiusM + 0.01f && Mathf.Abs(snapped.Y - point.Y) <= 0.03f) land.Add(snapped);
+            }
+        return (land, samples);
+    }
+
+    /// <summary>
+    /// The share of the land a body could walk on that the Gubble's routes reach from its spawn, judged without the mesh (S7):
+    /// the same grid, kept where the ground is no steeper than the body's 45 degrees, dry, and open for a body's height over it.
+    /// Measured on the game's mesh (the body's 2 cm step for a climb) and, beside it, on a bake with the 1 cm climb it had.
+    /// </summary>
+    private async Task MeasureWalkableReach(Aabb bounds, float step, Vector3 spawn)
+    {
+        var space = GetWorld3D().DirectSpaceState;
+        var walkable = new List<Vector3>();
+        for (var x = bounds.Position.X + step * 0.5f; x < bounds.End.X; x += step)
+            for (var z = bounds.Position.Z + step * 0.5f; z < bounds.End.Z; z += step)
+            {
+                var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.WorldLayer));
+                if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(Mathf.DegToRad(45f))) continue;
+                var point = hit["position"].AsVector3();
+                if (RoomWater.At(space, point + Vector3.Up * 0.001f, 0.4f, 0.02f).Wet) continue;
+                if (space.IntersectRay(PhysicsRayQueryParameters3D.Create(point + Vector3.Up * 0.005f, point + Vector3.Up * 0.10f, RoomBuilder.WorldLayer)).Count > 0) continue;
+                walkable.Add(point);
+            }
+        var before = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, room: _world.Room);
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!before.IsReady && waited.Elapsed.TotalSeconds < 120) await Frames(1);
+        foreach (var (name, mesh) in new[] { ("the game's mesh, climb 0.020 m (the body's step)", _navigation), ("a 0.010 m climb, as before S7", before) })
+        {
+            var from = mesh.ClosestPoint(spawn);
+            int on = 0, reached = 0;
+            foreach (var point in walkable)
+            {
+                var snapped = mesh.ClosestPoint(point);
+                if (PlanarDistance(snapped, point) > mesh.AgentRadiusM + 0.01f || Mathf.Abs(snapped.Y - point.Y) > 0.03f) continue;
+                on++;
+                if (mesh.FindRoute(from, point, 0.06f).Reaches) reached++;
+            }
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_WALKABLE_REACH {name}: {mesh.PolygonCount} polygons in {mesh.TileCount} tiles, {mesh.IslandCount} islands, baked in {mesh.LastBakeMs:0} ms; " +
+                $"of {walkable.Count} body-walkable places on a {step:0.00} m grid (slope at most 45 degrees, dry, open overhead) {on} on the mesh ({100f * on / Mathf.Max(1, walkable.Count):0}%), " +
+                $"{reached} reached from the Gubble's spawn ({100f * reached / Mathf.Max(1, walkable.Count):0}% of the walkable land, {100f * reached / Mathf.Max(1, on):0}% of it on the mesh)"));
+        }
+        before.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>
+    /// The searches the Gubble now makes (RoomNavigation.RequestRoute, S7): what asking costs the main thread, and how long the
+    /// worker takes, for a route that reaches and one out of reach.
+    /// </summary>
+    private async Task MeasureRouteRequests(List<Vector3> land, Vector3 spawn)
+    {
+        double askTotal = 0, askWorst = 0, hitTotal = 0, hitWorst = 0, missTotal = 0, missWorst = 0;
+        int hits = 0, misses = 0;
+        var frequency = (double)System.Diagnostics.Stopwatch.Frequency;
+        foreach (var point in land)
+        {
+            var asked = System.Diagnostics.Stopwatch.GetTimestamp();
+            var request = _navigation.RequestRoute(spawn, point, 0.06f);
+            var ask = (System.Diagnostics.Stopwatch.GetTimestamp() - asked) * 1000 / frequency;
+            request.Wait(10_000);
+            var done = (System.Diagnostics.Stopwatch.GetTimestamp() - asked) * 1000 / frequency;
+            askTotal += ask;
+            askWorst = Math.Max(askWorst, ask);
+            if (request.TryTake(out var route) && route.Reaches) { hits++; hitTotal += done; hitWorst = Math.Max(hitWorst, done); }
+            else { misses++; missTotal += done; missWorst = Math.Max(missWorst, done); }
+        }
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_ROUTE_REQUESTS {land.Count} searches from the Gubble's spawn on a worker thread: asking costs the main thread {askTotal / Math.Max(1, land.Count):0.000} ms on average (worst {askWorst:0.000}); " +
+            $"a route that reaches is found in {hitTotal / Math.Max(1, hits):0.0} ms (worst {hitWorst:0.0}), a goal out of reach answered in {missTotal / Math.Max(1, misses):0.0} ms (worst {missWorst:0.0})"));
+        Check(askWorst < 4, $"asking for a route never costs the main thread 4 ms (worst {askWorst:0.000} ms)");
+        // The nearest walkable point, which the Gubble asks for each tick (its place beside the player) and the sides of a go_to.
+        double nearTotal = 0, nearWorst = 0;
+        foreach (var point in land)
+        {
+            var asked = System.Diagnostics.Stopwatch.GetTimestamp();
+            _navigation.ClosestPoint(point + new Vector3(0.3f, 0.05f, 0.2f));
+            var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - asked) * 1000 / frequency;
+            nearTotal += ms;
+            nearWorst = Math.Max(nearWorst, ms);
+        }
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_CLOSEST_POINT {land.Count} nearest walkable points on the main thread: {nearTotal / Math.Max(1, land.Count):0.000} ms on average (worst {nearWorst:0.000})"));
+        await Frames(1);
+    }
+
+    /// <summary>
+    /// A re-bake after something moves bakes only the tiles round it, on worker threads (S7; the experiment's re-bake was a
+    /// 0.36 s hitch): a movable thing is moved half a metre and back, and every physics tick meanwhile is timed, with the
+    /// navigation's own share of it (reading the scene, waiting at most RoomNavigation.TickWaitMs, handing tiles to the map).
+    /// </summary>
+    private async Task TestReBakeDoesNotHold()
+    {
+        var thing = _world.Built.GetNode("Objects").GetChildren().OfType<StaticBody3D>()
+            .FirstOrDefault(n => n.GetMeta("movable", false).AsBool() && (n.CollisionLayer & RoomBuilder.WorldLayer) != 0);
+        if (thing == null)
+        {
+            Measure("LANDSCAPE_REBAKE no movable thing to move");
+            return;
+        }
+        // The same number of ticks with nothing re-baked, for comparison (headless ticks hold garbage collections of their own).
+        var idle = await TimeTicks(60, () => false);
+        Measure(string.Create(CultureInfo.InvariantCulture, $"LANDSCAPE_REBAKE_IDLE 60 ticks with no re-bake: {idle.Summary}"));
+        var home = thing.GlobalTransform;
+        foreach (var (name, pose) in new[] { ("moved 0.5 m", home.Translated(new Vector3(0.5f, 0, 0))), ("moved back", home) })
+        {
+            var revision = _navigation.Revision;
+            await Frames(2);
+            _navigation.WorstTickMs = 0;
+            EnFractal.Native.Sandbox.Carrying.Place(thing, pose);
+            var ticks = await TimeTicks(3600, () => _navigation.Revision != revision);
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_REBAKE {thing.Name} {name}: re-baked {_navigation.LastTilesBaked} of {_navigation.TileCount} tiles in {_navigation.LastBakeMs:0} ms on worker threads, {_navigation.LastBakeMainThreadMs:0.0} ms of the main thread in all, " +
+                $"in the map {_navigation.LastLiveFrame - _navigation.LastAppliedFrame} ticks after its last tiles went to it; the navigation's worst tick {_navigation.WorstTickMs:0.00} ms; {ticks.Summary}"));
+            // A small map's re-bake lands on its set tick (RoomNavigation.SmallReBakeTicks): 100 ms at 60 Hz, but headless, faster
+            // than real time, the tick waits for it there, so only a large map is held to the 4 ms here.
+            Check(_navigation.Revision > revision && _navigation.LastTilesBaked < Math.Max(2, _navigation.TileCount) && (_navigation.IsSmall || _navigation.WorstTickMs < 4.0),
+                $"{thing.Name} {name}: re-baked only the tiles round it ({_navigation.LastTilesBaked} of {_navigation.TileCount}){(_navigation.IsSmall ? "" : " without holding a tick 4 ms")} (the navigation's worst tick {_navigation.WorstTickMs:0.00} ms)");
+        }
+    }
+
+    /// <summary>Whole physics ticks timed until a condition holds (and three more): the worst, the worst with no garbage collection in it, the navigation server's own step, and the collections.</summary>
+    private async Task<(double Worst, double WorstClean, string Summary)> TimeTicks(int limit, Func<bool> done)
+    {
+        var frame = new System.Diagnostics.Stopwatch();
+        var times = new List<double>();
+        double worst = 0, worstClean = 0, worstServer = 0;
+        int collected = 0, after = 0;
+        var paused = GC.GetTotalPauseDuration();
+        while (times.Count < limit && after < 3)
+        {
+            if (done()) after++;
+            var collections = GC.CollectionCount(0);
+            frame.Restart();
+            await Frames(1);
+            var ms = frame.Elapsed.TotalMilliseconds;
+            times.Add(ms);
+            worst = Math.Max(worst, ms);
+            worstServer = Math.Max(worstServer, Performance.GetMonitor(Performance.Monitor.TimeNavigationProcess) * 1000);
+            if (GC.CollectionCount(0) != collections) collected++;
+            else worstClean = Math.Max(worstClean, ms);
+        }
+        times.Sort();
+        var summary = string.Create(CultureInfo.InvariantCulture,
+            $"over {times.Count} ticks the median whole tick {times[times.Count / 2]:0.0} ms, the worst {worst:0.0} ms, the worst with no garbage collection in it {worstClean:0.0} ms; " +
+            $"the navigation server's own step at most {worstServer:0.00} ms; {collected} ticks held collections, pausing {(GC.GetTotalPauseDuration() - paused).TotalMilliseconds:0.0} ms in all");
+        return (worst, worstClean, summary);
+    }
+
+    /// <summary>What a come measured: arrived, how long, the share of it the Gubble walked rather than floated, its worst height over the player.</summary>
+    private readonly record struct Trip(bool Arrived, double Seconds, double WalkedShare, float HighestM, float FastestRiseMps);
+
+    /// <summary>Send come and watch it through: it must succeed, ending beside the player and level with them, never lost up high.</summary>
+    private async Task<Trip> ComeAndWatch(string name)
+    {
+        var companion = _world.Companion;
+        var player = _world.Player;
+        var floats = companion.FloatStarts;
+        var ends = companion.FloatEnds;
+        var replans = companion.HighReplans;
+        var catchUps = companion.CatchUps;
+        // The walk there as the trip starts (how long a way round it is), and the ground covered.
+        var way = _navigation.FindRoute(companion.GlobalPosition, player.GlobalPosition, EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.05f);
+        var straight = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        var covered = 0f;
+        var last = companion.GlobalPosition;
+        var come = Send(Command(NextId("come"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "come" }), Player);
+        Check(Ok(come), $"{name}: the player calls the Gubble: {Code(come)}");
+        // The player's come runs as an unexposed job (no id to ask about): it arrived when the body says this come arrived.
+        var serial = companion.IntentSerial;
+        var highest = float.NegativeInfinity;
+        int blocked = 0, longestBlocked = 0, floating = 0, routed = 0, ticks = 0, worstAt = 0;
+        double worstTick = 0, totalTick = 0;
+        float fastestRise = 0, lastY = companion.GlobalPosition.Y;
+        var reasons = new SortedSet<string>(StringComparer.Ordinal);
+        var starts = floats;
+        var watch = new System.Diagnostics.Stopwatch();
+        for (; ticks < 200 * 60 && _host.RunningGoal(CompanionAvatar) != null; ticks++)
+        {
+            watch.Restart();
+            await Frames(1);
+            var ms = watch.Elapsed.TotalMilliseconds;
+            totalTick += ms;
+            if (ms > worstTick) (worstTick, worstAt) = (ms, ticks);
+            highest = Mathf.Max(highest, companion.GlobalPosition.Y - player.GlobalPosition.Y);
+            blocked = companion.GoalBlocked ? blocked + 1 : 0;
+            longestBlocked = Math.Max(longestBlocked, blocked);
+            if (companion.FloatingThere) floating++;
+            if (companion.FollowingRoute) routed++;
+            if (companion.FloatStarts != starts) { starts = companion.FloatStarts; reasons.Add(companion.FloatReason); }
+            if (companion.RisingOver) fastestRise = Mathf.Max(fastestRise, (companion.GlobalPosition.Y - lastY) * 60);
+            lastY = companion.GlobalPosition.Y;
+            covered += PlanarDistance(companion.GlobalPosition, last);
+            last = companion.GlobalPosition;
+        }
+        var arrived = companion.ComeArrivedSerial == serial;
+        var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        var level = companion.GlobalPosition.Y - player.GlobalPosition.Y;
+        var walked = ticks - floating;
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_GUBBLE_COME {name}: {(arrived ? "arrived" : "did not arrive, intent " + companion.CurrentIntent)} after {ticks / 60.0:0.0} s, ending {gap:0.00} m away and {level * 100:0.0} cm off the player's height; " +
+            $"{straight:0.0} m straight, the walk there {(way.Reaches ? $"{way.LengthM:0.0} m" : "out of reach")}, {covered:0.0} m covered ({covered / Math.Max(1e-3, ticks / 60.0):0.00} m/s); " +
+            $"walked {walked / 60.0:0.0} s ({100.0 * walked / Math.Max(1, ticks):0}% of the trip; round something on a route {routed / 60.0:0.0} s), floated {floating / 60.0:0.0} s (float starts {companion.FloatStarts - floats}" +
+            $"{(reasons.Count > 0 ? ": " + string.Join(", ", reasons) : "")}; back to walking {companion.FloatEnds - ends}), highest {highest:0.00} m over the player, fastest rise up a face {fastestRise:0.00} m/s, " +
+            $"watchdog {companion.HighReplans - replans} times, blocked at most {longestBlocked / 60.0:0.0} s running, catch-ups {companion.CatchUps - catchUps}; a tick {totalTick / Math.Max(1, ticks):0.00} ms on average, worst {worstTick:0.0} ms (tick {worstAt})"));
+        Check(arrived && gap <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.03f && Mathf.Abs(level) <= EnFractal.Native.CompanionAvatar.LevelGapM,
+            $"{name}: the Gubble arrives beside the player, level with them ({gap:0.00} m away, {level * 100:0.0} cm off their height)");
+        return new Trip(arrived, ticks / 60.0, (double)walked / Math.Max(1, ticks), highest, fastestRise);
     }
 
     // ---- climbing and water on the land (founder's playtest round, 8 October) ----
@@ -501,15 +1143,22 @@ public partial class LandscapePlayTest : Node3D
     /// centimetres of it along one of eight headings, and standable terrain at its top 6 to 30 cm higher, well inside the
     /// bounds, with nothing over any of it (a tree's crown over the foot is a tree, not a cliff: the fix round found the
     /// search had been standing the body on crown caps).
+    /// <para>
+    /// Two kinds are left out (Lane P, the open sea round). A foot under the sea is a swimmer's bank, never walked to. And a
+    /// top lower than the face's crest is no top: past a knife-edge ridge the line falls away down its far side, and the
+    /// gentler ground down there is not where a climber pulls over (the reshaped garage's (-2.39, 0.068, 1.07): a crest
+    /// 22 cm up, 44 to 59 degrees beyond it, beside a 50 cm needle the climber went on up and fell from).
+    /// </para>
     /// </summary>
     private List<Cliff> FindCliffs()
     {
         var bounds = _world.Room.Bounds;
+        var seaLevel = _world.Room.Sea?.LevelM ?? float.NegativeInfinity;
         var found = new List<Cliff>();
         for (var x = bounds.Position.X + 0.4f; x < bounds.End.X - 0.4f; x += 0.1f)
             for (var z = bounds.Position.Z + 0.4f; z < bounds.End.Z - 0.4f; z += 0.1f)
             {
-                if (FirstFromAbove(x, z) is not { Terrain: true } foot || foot.Slope > 30f) continue;
+                if (FirstFromAbove(x, z) is not { Terrain: true } foot || foot.Slope > 30f || foot.Point.Y < seaLevel) continue;
                 for (var heading = 0; heading < 8; heading++)
                 {
                     var direction = new Vector3(Mathf.Cos(heading * Mathf.Pi / 4), 0, Mathf.Sin(heading * Mathf.Pi / 4));
@@ -517,6 +1166,7 @@ public partial class LandscapePlayTest : Node3D
                     var faceStarted = false;
                     var flat = 0;
                     Vector3? top = null;
+                    var crest = float.NegativeInfinity;
                     for (var r = 0.02f; r <= 0.5f; r += 0.01f)
                     {
                         var at = foot.Point + direction * r;
@@ -527,6 +1177,9 @@ public partial class LandscapePlayTest : Node3D
                             else if (r > 0.05f) break;
                             continue;
                         }
+                        // Over a crest and down its far side: not a cliff with a top.
+                        if (here.Point.Y < crest - 0.02f) { top = null; break; }
+                        crest = Mathf.Max(crest, here.Point.Y);
                         steepest = Mathf.Max(steepest, here.Slope);
                         if (here.Slope <= 35f) { flat++; top ??= here.Point; if (flat >= 5) break; }
                         else if (here.Slope > 45f) { flat = 0; top = null; }
@@ -596,19 +1249,27 @@ public partial class LandscapePlayTest : Node3D
     private async Task TestClimbATree()
     {
         var player = _world.Player;
+        var axes = new List<(Vector2 Centre, float Bottom, float Top, int Count)>();
+        // The 10x world (S5, S6): trees are plant copies, their climbing collision built from their rows; a pole runs from just
+        // inside its trunk's top to its pole top.
+        foreach (var set in _world.Room.Copies?.Sets.Where(s => s.Kind == PlantKind.Tree) ?? Enumerable.Empty<PlantSet>())
+            for (var row = 0; row < set.Count; row++)
+            {
+                var tree = set.Tree(row);
+                axes.Add((new Vector2(tree.AxisX, tree.AxisZ), tree.TrunkTopM - PlantCollision.PoleOverlapM, tree.PoleTopM, 1));
+            }
         var poles = _world.Built.GetNodeOrNull<Node3D>("Shell/" + RoomBuilder.NodeName("shell:tree_climb_bark"));
-        if (poles == null)
+        if (poles == null && axes.Count == 0)
         {
             Measure("LANDSCAPE_TREE the room has no tree climbing poles (an export before brief 19)");
             return;
         }
         // The poles' axes: their collision vertices, clustered by where they stand.
-        var axes = new List<(Vector2 Centre, float Bottom, float Top, int Count)>();
-        foreach (var shapeNode in poles.GetChildren().OfType<CollisionShape3D>())
+        foreach (var shapeNode in poles?.GetChildren().OfType<CollisionShape3D>() ?? Enumerable.Empty<CollisionShape3D>())
             if (shapeNode.Shape is ConcavePolygonShape3D shape)
                 foreach (var local in shape.Data)
                 {
-                    var v = poles.GlobalTransform * shapeNode.Transform * local;
+                    var v = poles!.GlobalTransform * shapeNode.Transform * local;
                     var index = axes.FindIndex(a => a.Centre.DistanceTo(new Vector2(v.X, v.Z)) < 0.08f);
                     if (index < 0) axes.Add((new Vector2(v.X, v.Z), v.Y, v.Y, 1));
                     else
@@ -655,8 +1316,8 @@ public partial class LandscapePlayTest : Node3D
             await Frames(30);
             // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
             var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
-            var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
-            climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage" && player.GlobalPosition.Y - start.Y > 0.12f;
+            var standingOn = StandingOn(under);
+            climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && OnACrown(standingOn) && player.GlobalPosition.Y - start.Y > 0.12f;
             if (climbed) _climbedTree = (start, toward);
             Measure($"LANDSCAPE_TREE a tree at ({centre.X:0.00}, {centre.Y:0.00}), pole {bottom:0.000} to {top:0.000} m, its foot walkable from the spawn: {(climbed ? "climbed to its crown" : "not climbed")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
                     $"rose {(player.GlobalPosition.Y - start.Y) * 100:0.0} cm (highest {(highest - start.Y) * 100:0.0} cm) in {frames / 60.0:0.0} s, standing on {(standingOn.Length > 0 ? standingOn : "nothing")} at {Text(player.GlobalPosition)}");
@@ -729,6 +1390,19 @@ public partial class LandscapePlayTest : Node3D
 
     private (Vector3 Start, Vector3 Toward)? _climbedTree;
 
+    /// <summary>What a body stands on: a plant copy's id (its collision is built from its row, PlantCopiesView), else the entity_id above the collider.</summary>
+    private static string StandingOn(Godot.Collections.Dictionary hit)
+    {
+        if (hit.Count == 0) return "";
+        var copy = PlantCopiesView.EntityAt(hit["collider"].AsGodotObject(), hit["shape"].AsInt32());
+        return copy.Length > 0 ? copy : (hit["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "";
+    }
+
+    /// <summary>A tree's crown: one of the merged collision-only caps of an export before the 10x world, or a tree copy's cap.</summary>
+    private bool OnACrown(string standingOn) =>
+        standingOn == "shell:tree_climb_foliage" ||
+        (_world.Room.Copies is { } copies && copies.TryResolve(standingOn, out var set, out _) && set.Kind == PlantKind.Tree);
+
     /// <summary>
     /// The founder's playtest, 9 October: "I can climb around halfway up and then something happens to the controls and
     /// then I seem to be forced to climb down." The same tree climbed as a player climbs it: the W key held through the
@@ -745,9 +1419,14 @@ public partial class LandscapePlayTest : Node3D
             return;
         }
         var player = _world.Player;
+        var companion = _world.Companion;
         var hud = _world.GetNode<RoomHud>("RoomHud");
         hud.SetViewMode(1);
         Check(player.TryTeleportTo(tree.Start), "the player back at the foot of the tree, for the keys");
+        // The founder's video (9 October): the Gubble on follow beside this climb shook, its HUD line flipping every few frames.
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        var side = new Vector3(-tree.Toward.Z, 0, tree.Toward.X) * EnFractal.Native.CompanionAvatar.FollowSideM;
+        if (!companion.TryTeleportTo(tree.Start + side)) companion.TryTeleportTo(tree.Start - side);
         player.Rotation = new Vector3(0, Mathf.Atan2(-tree.Toward.X, -tree.Toward.Z), 0);
         await Frames(10);
         var camera = player.GetNode<SpringArm3D>("FollowCameraArm").GetNode<Camera3D>("FollowCamera");
@@ -763,9 +1442,14 @@ public partial class LandscapePlayTest : Node3D
         player.ReadKeyboard = true;
         Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = Key.W, Keycode = Key.W, Pressed = true });
         var lastY = player.GlobalPosition.Y;
+        var floatStarts = companion.FloatStarts;
+        var wasFloating = companion.FloatingThere;
+        var hudFlips = 0;
         for (; frames < 1800 && !(player.PullOvers > pulls && player.IsOnFloor() && !player.IsClimbing); frames++)
         {
             await Frames(1);
+            if (companion.FloatingThere != wasFloating) hudFlips++;
+            wasFloating = companion.FloatingThere;
             var y = player.GlobalPosition.Y;
             // Once on the trunk, the mouse turns the view 25 degrees, as a player looking round does.
             if (player.IsClimbing && !turned)
@@ -790,13 +1474,24 @@ public partial class LandscapePlayTest : Node3D
         var space = GetWorld3D().DirectSpaceState;
         // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
         var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
-        var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
-        var reached = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage";
+        var standingOn = StandingOn(under);
+        var reached = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && OnACrown(standingOn);
         Measure($"LANDSCAPE_TREE_KEYS W held, the view turned 25 deg once on the trunk, the follow camera live: {(reached ? "reached the crown" : "did not reach the crown")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
                 $"rose {(player.GlobalPosition.Y - start.Y) * 100:0.0} cm (highest {(highest - start.Y) * 100:0.0} cm) in {frames / 60.0:0.0} s; climbing down while W was held {downTicks} ticks, the face up to {worstTurn:0} deg off the body's heading; " +
                 $"the follow camera came within {nearestCamera * 100:0.0} cm of the head (its arm is {player.BodyHeightM * 3.2f * 100:0} cm); standing on {(standingOn.Length > 0 ? standingOn : "nothing")}");
         Check(reached && downTicks == 0, "with the keys and the follow camera, a tree is climbed to its crown and W never carries the climber down");
         Check(nearestCamera > player.BodyHeightM * 3.2f * 0.5f, "the tree's hidden climbing parts never pull the follow camera in");
+        await Frames(90);
+        for (var i = 0; i < 90; i++)
+        {
+            await Frames(1);
+            if (companion.FloatingThere != wasFloating) hudFlips++;
+            wasFloating = companion.FloatingThere;
+        }
+        var level = companion.GlobalPosition.Y - player.GlobalPosition.Y;
+        Measure($"LANDSCAPE_TREE_GUBBLE on follow beside the keyed climb and 3 s on the crown: it started to float {companion.FloatStarts - floatStarts} times and its HUD line flipped {hudFlips} times; it ends {level * 100:0.0} cm off the player's height, {PlanarDistance(companion.GlobalPosition, player.GlobalPosition):0.00} m away");
+        Check(hudFlips <= 4 && Mathf.Abs(level) <= EnFractal.Native.CompanionAvatar.LevelGapM, "the Gubble follows a climber up a tree steadily and settles level with them on the crown");
+        companion.Stop();
         Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM), "the player back at the spawn after the keyed climb");
         await Frames(10);
     }

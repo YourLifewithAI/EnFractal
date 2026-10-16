@@ -7,7 +7,6 @@ extends Node3D
 const AUTHORITY = preload("res://scripts/creation_authority.gd")
 const VISUALS = preload("res://scripts/creation_visuals.gd")
 const EXECUTION = preload("res://scripts/creation_execution.gd")
-const EDITOR = preload("res://scripts/invention_editor.gd")
 const PLAYER := "player:local"
 const COMPANION := "companion:local"
 const MAX_FIELDS := 16
@@ -21,15 +20,9 @@ var player: CharacterBody3D
 var companion: CharacterBody3D
 var authority
 var save_path := "user://saves/rooms/inventions.json"
-## Manual keys (B build, F/E use, V/Q revise, K consent). Off in tests that drive the runtime directly.
-var keyboard_enabled := true
-## The invention workshop as something the player is offered: the part-by-part editor, the INVENTIONS panel
-## and the keys B, F, E, V, Q and K. The founder retired it as a player-facing concept (6 October 2026, the
-## second playtest: its Q and E also stole the isometric view's turn keys). The command host turns it off, so
-## the playable room has no panel, no editor and no key bound here; this runtime still renders creations and
-## runs their effects for the host. The kernel suites leave it on: the editor's validation, budgets, receipts
-## and undo are what the Run 2 building kit may reuse.
-var workshop_enabled := true
+## The invention workshop (the part-by-part editor, the INVENTIONS panel and the keys B, F, E, V, Q and K) is gone:
+## the founder retired it on 6 October 2026, and its code went with the geography-era templates on 9 October. This
+## runtime binds no key and builds no interface; it renders creations and runs their effects and trigger graphs.
 ## Optional: Callable(command: Dictionary) -> Dictionary returning an enfractal.result.
 var command_sink := Callable()
 ## Optional: Callable(poses: Dictionary), the command host's scene seam for objects play has moved (the
@@ -41,10 +34,13 @@ var object_pose_check := Callable()
 ## Optional: Callable(team: Dictionary) -> Dictionary, the command host's check of a save's journal and discovered map
 ## (the authority's team_check). Set before this node enters the tree.
 var team_check := Callable()
-var editor
-var editor_open := false
+## Optional: Callable(nature: Dictionary, revision: int) -> Dictionary, the command host's check of a save's nature block
+## (the authority's nature_check). Set before this node enters the tree.
+var nature_check := Callable()
 var assemblies: Dictionary = {}
 var instances: Dictionary = {}
+## Trusted host-derived scorch status. Recipes and commands cannot supply it; repair restores the original graph.
+var nature_disabled_creations: Dictionary = {}
 var fields: Array = []
 var animations: Array = []
 var next_trigger: Dictionary = {}
@@ -52,9 +48,8 @@ var clock_s := 0.0
 var action_counter := 0
 var seen_revision := -1
 var seen_permissions := -1
-var hud: Label
-var hud_card: PanelContainer
-var message := "B builds an invention. K allows invention effects on you when you want to try one."
+## The last notice (the command host's save notice among them). Nothing displays it.
+var message := ""
 var activation_count := 0
 var evaluated_nodes := 0
 var rejected_activations := 0
@@ -80,38 +75,11 @@ func _ready() -> void:
 	authority.pose_sink = object_pose_sink
 	authority.pose_check = object_pose_check
 	authority.team_check = team_check
+	authority.nature_check = nature_check
 	var loaded: Dictionary = authority.load_saved() if configured.ok else configured
 	authority.occupancy_query = Callable(self, "_check_occupancy")
 	authority.activation_query = Callable(self, "_check_activation")
-	# Retired workshop: no panel, no editor and no key handler (see workshop_enabled).
-	set_process_unhandled_key_input(workshop_enabled and keyboard_enabled)
-	if workshop_enabled:
-		var layer := CanvasLayer.new()
-		layer.layer = 4
-		add_child(layer)
-		hud_card = PanelContainer.new()
-		# Top right: RoomHud owns the top-left panel and the bottom-wide footer.
-		hud_card.position = Vector2(704, 16)
-		hud_card.size = Vector2(560, 84)
-		var card_style := StyleBoxFlat.new()
-		card_style.bg_color = Color(0.045, 0.11, 0.12, 0.88)
-		card_style.content_margin_left = 12
-		card_style.content_margin_right = 12
-		card_style.content_margin_top = 8
-		card_style.content_margin_bottom = 8
-		card_style.set_corner_radius_all(8)
-		hud_card.add_theme_stylebox_override("panel", card_style)
-		layer.add_child(hud_card)
-		hud = Label.new()
-		hud.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		hud.add_theme_font_size_override("font_size", 14)
-		hud.add_theme_color_override("font_color", Color("f4f0d9"))
-		hud_card.add_child(hud)
 	_make_field_display()
-	if workshop_enabled:
-		editor = EDITOR.new()
-		editor.runtime = self
-		add_child(editor)
 	if not loaded.ok:
 		notice("Invention save could not open: " + loaded.message)
 	_refresh()
@@ -138,17 +106,8 @@ func surface_at(x: float, z: float, from_y: float) -> Dictionary:
 	return {"ok": true, "height_m": hit.position.y, "entity_id": entity}
 
 
-func set_editor_open(value: bool) -> void:
-	editor_open = value
-	if player:
-		player.SetInputEnabled(not value)
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if value else Input.MOUSE_MODE_CAPTURED)
-
-
 func notice(text: String) -> void:
 	message = text
-	if hud:
-		hud.text = "INVENTIONS\n" + message
 
 
 func placement_limits() -> Dictionary:
@@ -221,7 +180,7 @@ func commit_draft(source: Dictionary, instance_id: String, placement: Dictionary
 		result = authority.submit(PLAYER, request)
 	if result.ok:
 		_refresh()
-		notice("Saved " + str(source.name) + (". E uses your worn design; Q revises it." if source.mount == "avatar" else ". Walk close and press F to use it or V to revise it."))
+		notice("Saved " + str(source.name) + ".")
 	return result
 
 
@@ -238,7 +197,7 @@ func remove_creation(instance_id: String, expected_revision: int, expected_permi
 
 
 ## Sends a manual command through the contract command host and adapts its enfractal.result
-## to the {ok, instance_id, code, path, message} shape the editor reads.
+## to the {ok, instance_id, code, path, message} shape this runtime's callers read.
 func _send(op: String, args: Dictionary, expected_revision: int) -> Dictionary:
 	var command := {"schema": "enfractal.command", "version": 1, "action_id": _action(), "room_id": room.room_id, "op": op, "args": args, "expected_revision": expected_revision}
 	var result: Variant = command_sink.call(command)
@@ -355,33 +314,6 @@ func equipped_creation(owner := PLAYER) -> String:
 	return ""
 
 
-func _unhandled_key_input(event: InputEvent) -> void:
-	if not workshop_enabled or not keyboard_enabled or not event is InputEventKey or not event.pressed or event.echo or editor_open:
-		return
-	var code: Key = event.physical_keycode if event.physical_keycode != KEY_NONE else event.keycode
-	if code == KEY_B:
-		editor.open_editor()
-	elif code in [KEY_V, KEY_Q]:
-		var id := equipped_creation() if code == KEY_Q else nearest_creation()
-		if not id.is_empty():
-			editor.open_editor(id)
-		else:
-			notice("No worn design to revise. B opens a new draft." if code == KEY_Q else "Walk within 2 m of an invention to revise it. Q revises your worn design.")
-	elif code in [KEY_F, KEY_E]:
-		var id := equipped_creation() if code == KEY_E else nearest_creation()
-		var result := activate_creation(id) if not id.is_empty() else {"ok": false, "message": "No worn design is equipped. Build one with B." if code == KEY_E else "Walk within 2 m of an invention, then press F. E uses your worn design."}
-		notice("Invention activated." if result.ok else String(result.get("message", "That did not work.")))
-	elif code == KEY_K:
-		var snapshot: Dictionary = authority.snapshot(PLAYER)
-		if snapshot.ok:
-			var enabled := not bool(snapshot.consent[PLAYER])
-			set_local_consent(enabled)
-			notice("Invention effects allowed on you." if enabled else "Invention effects stopped. Your movement is your own.")
-	else:
-		return
-	get_viewport().set_input_as_handled()
-
-
 ## Manual Use. With a command host attached this is creation.activate through enfractal.command.
 func activate_creation(id: String, principal := PLAYER) -> Dictionary:
 	_refresh()
@@ -395,6 +327,8 @@ func activate_creation(id: String, principal := PLAYER) -> Dictionary:
 ## fire (no Use trigger, a busy budget), the receipt is dropped again, so a retry runs instead of
 ## replaying a success that never happened.
 func execute_activation(principal: String, request: Dictionary, receipt_meta: Dictionary = {}) -> Dictionary:
+	if nature_disabled_creations.has(String(request.get("instance_id", ""))):
+		return {"ok": false, "code": "activation_context", "path": "instance_id", "message": "Repair this scorched creation before using it."}
 	var result: Dictionary = authority.submit(principal, request, receipt_meta)
 	if not result.ok or result.get("replayed", false):
 		return result
@@ -452,6 +386,8 @@ func effect_count(principal := "") -> int:
 
 
 func _fire(id: String, trigger: String, principal: String, by := "") -> Dictionary:
+	if nature_disabled_creations.has(id):
+		return {"ok": false, "code": "activation_context", "path": "instance_id", "message": "This creation is scorched."}
 	if by.is_empty():
 		by = principal
 	if not instances.has(id):
@@ -496,10 +432,10 @@ func _physics_process(delta: float) -> void:
 				continue
 			assemblies[id].global_transform = wearer.global_transform
 			assemblies[id].visible = item.owner_id != PLAYER or player.get("EyeCamera") == null or not player.EyeCamera.current
-	fields = fields.filter(func(field): return clock_s < field.until and is_instance_valid(field.part) and instances.has(field.instance_id) and instances[field.instance_id].active)
+	fields = fields.filter(func(field): return not nature_disabled_creations.has(field.instance_id) and clock_s < field.until and is_instance_valid(field.part) and instances.has(field.instance_id) and instances[field.instance_id].active)
 	for id in instances:
 		var item: Dictionary = instances[id]
-		if not item.active:
+		if not item.active or nature_disabled_creations.has(id):
 			continue
 		var parts: Dictionary = assemblies[id].get_meta("parts")
 		for node in item.source.nodes:
@@ -535,17 +471,18 @@ func _physics_process(delta: float) -> void:
 	if companion:
 		var effect := effect_at(COMPANION, companion.global_position)
 		companion.SetCreationEffects(effect.acceleration, effect.glide, Callable(self, "_companion_position_allowed") if effect.allowed else Callable())
-	if hud and not editor_open:
-		var state := "effects allowed on you" if local_consent else "effects off for you"
-		hud.text = "INVENTIONS  /  " + state + "\nB Build · F Use nearby · E Use worn · V/Q Revise · K Allow effects\n" + message
-	if hud_card:
-		hud_card.visible = not editor_open
 
 
 func _step_animations(delta: float) -> void:
 	var remaining: Array = []
 	for animation in animations:
 		if not is_instance_valid(animation.part):
+			continue
+		if nature_disabled_creations.has(animation.instance_id):
+			if animation.op == "light":
+				var scorched_lamp = animation.part.get_node_or_null("Light_" + animation.node_id)
+				if scorched_lamp:
+					scorched_lamp.light_energy = 0.0
 			continue
 		if animation.op == "light":
 			var lamp = animation.part.get_node_or_null("Light_" + animation.node_id)
@@ -565,9 +502,13 @@ func effect_at(target: String, position: Vector3) -> Dictionary:
 	var glide := 0.0
 	var body: Node3D = player if target == PLAYER else companion
 	for field in fields:
+		if nature_disabled_creations.has(field.instance_id):
+			continue
 		if _body_allowed(field.owner, target, position, body) and authority.can_affect(field.owner, target, field.part.global_position, field.instance_id) and position.distance_to(field.part.global_position) <= field.radius:
 			acceleration += field.part.get_parent().global_basis * field.part.get_meta("authored_basis") * field.direction * field.acceleration
 	for item in instances.values():
+		if nature_disabled_creations.has(item.id):
+			continue
 		if item.source.mount == "avatar" and item.owner_id == target and _body_allowed(item.owner_id, target, position, body):
 			for node in item.source.nodes:
 				if node.op == "glide":

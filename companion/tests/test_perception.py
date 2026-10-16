@@ -14,7 +14,7 @@ from support import COMPANION, PLAYER, HostPolicy, command, contract_problems, c
 
 from enfractal_companion import perception
 
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # the 75 cm table stands between the companion and the rest of the room
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book, the doorstop and the player
@@ -139,7 +139,9 @@ class EverySurface(PerceptionCase):
                    query("capabilities.list", {}), query("observe", {"actor": "avatar:companion", "radius_m": 20}),
                    query("jobs.status", {"job_id": "job-" + "a" * 26}), query("receipt.lookup", {"action_id": "a-1"}),
                    query("approval.status", {"request_id": "0" * 32}), query("journal.read", {}),
-                   query("map.find", {"name": "book"})]
+                   query("map.find", {"name": "book"}), query("player.status", {}),
+                   query("nature.describe", {}), query("wishes.read", {}),
+                   query("view.look", {"actor": "avatar:companion", "pitch_deg": 10})]
         queries += [query("entity.inspect", {"target": hidden}) for hidden in self.HIDDEN]
         self.assertEqual({q["op"] for q in queries}, set(contracts().query_ops))
         for i, message in enumerate(queries):
@@ -151,13 +153,13 @@ class EverySurface(PerceptionCase):
                 self.assertNotIn("nobody can see", published)
 
     def test_no_command_can_name_anything_out_of_sight(self):
-        placed = self.host.player_command(command("creation.place", {"source": SPINNER,
+        placed = self.host.player_command(command("creation.place", {"source": SAMPLE,
                                                                      "placement": {"position_m": [0.5, 0, 0.5]}}, "p-place"))
         creation = placed["created"][0]
         self.hide_behind(BEHIND_THE_TABLE)  # from here only the table is in sight
         for hidden in self.HIDDEN + ("obj:box", creation):
             self.assertNotIn(hidden, self.host.perceived(COMPANION))
-        into = {"source": dict(SPINNER, name="Glider")}
+        into = {"source": dict(SAMPLE, name="Glider")}
         glow = {"capability": "glow", "params": {"intensity": 1}, "area": {"center_m": [0, 0.3, 0], "radius_m": 1},
                 "duration_s": 5}
         attempts = [
@@ -186,7 +188,7 @@ class EverySurface(PerceptionCase):
         self.assertEqual(self.host.approvals, {})
 
     def test_the_companion_never_acts_or_perceives_through_the_players_avatar(self):
-        attempts = [query("observe", {"actor": "avatar:player"}),
+        attempts = [query("observe", {"actor": "avatar:player"}), query("view.look", {"actor": "avatar:player"}),
                     command("entity.grab", {"target": "obj:book", "actor": "avatar:player"}, "a-1"),
                     command("entity.release", {"actor": "avatar:player"}, "a-2"),
                     command("entity.push", {"target": "obj:book", "distance_m": 0.1, "actor": "avatar:player"}, "a-5"),

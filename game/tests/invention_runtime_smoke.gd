@@ -8,6 +8,7 @@ var guard = GUARD.new()
 const Runtime = preload("res://scripts/invention_runtime.gd")
 const Player = preload("res://scripts/native/SmallPlayerController.cs")
 const Companion = preload("res://scripts/native/CompanionAvatar.cs")
+const ManagedShutdown = preload("res://tests/native/ManagedShutdown.cs")
 const PLAYER := "player:local"
 const COMPANION := "companion:local"
 const SAVE_PATH := "user://tests/manual_invention_runtime.json"
@@ -55,13 +56,12 @@ func _run() -> void:
 	world.add_child(companion)
 	runtime = Runtime.new()
 	runtime.save_path = SAVE_PATH
-	runtime.keyboard_enabled = false
 	runtime.configure(ROOM, player, companion)
 	world.add_child(runtime)
 	await _frames(25)
 	companion.Stop()
-	if not is_instance_valid(runtime.editor):
-		_expect(false, "runtime and editor dependencies initialize without script errors")
+	if runtime.authority == null or not runtime.authority.is_ready() or not is_instance_valid(runtime.field_display):
+		_expect(false, "runtime dependencies initialize without script errors")
 		_finish()
 		return
 	_expect(player.is_on_floor() and player.BodyHeightM < 0.11, "the real 10 cm body settles on the physics floor")
@@ -194,7 +194,7 @@ func _test_timer_and_glide() -> void:
 	var fired: int = runtime.activation_count - baseline
 	_expect(fired >= 2 and fired <= 4, "timer fires on bounded cadence without catch-up burst")
 	runtime.remove_creation(placed.instance_id, runtime.authority.revision, runtime.authority.permission_revision)
-	var glider: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://creation_templates/storm_glider.json"))
+	var glider: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/creations/fixture_worn_glide.json"))
 	for node in glider.nodes:
 		if node.op == "wind":
 			node.params.direction = [0, -1, 0]
@@ -342,6 +342,15 @@ func _remove_test_save() -> void:
 func _finish() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	world.queue_free()
+	# Let the freed bodies go before quitting: drop this suite's references, let the frees happen, then have .NET collect the
+	# bodies' managed wrappers. Quitting with them still alive aborted the debug engine at exit after every check had passed
+	# (about half the runs on a busy machine; see ManagedShutdown.cs).
+	player = null
+	companion = null
+	runtime = null
+	await _frames(2)
+	ManagedShutdown.new().Collect()
+	await _frames(2)
 	_remove_test_save()
 	print("Invention runtime: %d checks, %d failures" % [checks, failures])
 	quit(guard.exit_code(failures != 0))

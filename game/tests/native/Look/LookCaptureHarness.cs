@@ -35,6 +35,16 @@ namespace EnFractal.Tests.Look;
 ///   jpg   save JPEG files at that quality (1 to 100) instead of PNGs (a landscape set is committed, one picture under 1 MB)
 /// A camera entry may also stage the avatars first ("stage": player_m, yaw_deg, companion_m: where they stand, which way the
 /// player faces) and may ask for the player's own eye ("eye_view": true: the real eye camera's transform and focus rule).
+/// It may mirror any of the HUD's views ("hud_view": 0 eye, 1 shoulder, 2 diorama, 3 isometric; "hud_pitch_deg" tilts the diorama),
+/// name the view a fixed camera stands for ("view": eye, shoulder, diorama or isometric, which blurs its own way), and put the
+/// focus highlight on a room object moved onto a spot ("focus": object, at_xz_m, camera_offset_m: the camera looks at it from
+/// there). Looks without views or the highlight ignore those (the harness finds them by reflection).
+/// A camera may set its own hour ("hour", the review clock's date) and light the Gubble's glows before it is framed ("glows": id,
+/// on: "companion" for a halo or at_m for a wisp at a point, radius_m, intensity; the look's StartGlow, as the host calls it).
+/// A wisp's "at_xz_m" stands it on the ground there instead (a ray down). "spark_s": T casts the glows again T seconds before the
+/// picture, to catch the spark from the Gubble in flight. An entry's "kind" may be "fireworks" (StartFireworks: same fields); "bubbles"
+/// is the stream of small bubbles the founder's redesign removed (decisions 55 to 60), so it is skipped with a note; "settle_s": T
+/// lets the effects run T seconds before the warm-up.
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -48,6 +58,7 @@ public partial class LookCaptureHarness : Node
     private RoomHud? _hud;
     private Camera3D? _mirror;
     private readonly List<Dictionary<string, object>> _results = new();
+    private readonly List<string> _glows = new();
 
     public override async void _Ready()
     {
@@ -89,10 +100,14 @@ public partial class LookCaptureHarness : Node
             // Another room than the test room: a landscape export or a captured room (an id under the user's rooms, or a folder).
             if (Arg("room", "").Length > 0) _world.RoomDirectory = RoomWorld.ResolveRoom(Arg("room", "").Replace('\\', '/'));
             AddChild(_world);
-            for (var i = 0; i < 600 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
             _look = _world.Look;
+            await SkipIntro();
             AttachPondLife();
+            // The fish are surveyed over the first few seconds (the game's way): the captures wait for them, as they wait for the copies.
+            if (_world.FindChild("PondLife", true, false) is Node pondLife && pondLife.HasMethod("SurveyNow"))
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 60 && !pondLife.Get("Surveyed").AsBool();) await NextFrame();
             // Review captures show the room, not the interface: hide the HUD and the companion's floating name.
             foreach (var layer in _world.FindChildren("*", "CanvasLayer", true, false).OfType<CanvasLayer>()) layer.Visible = false;
             foreach (var label in _world.FindChildren("*", "Label3D", true, false).OfType<Label3D>()) label.Visible = false;
@@ -110,23 +125,47 @@ public partial class LookCaptureHarness : Node
             BuildTarget(resolution);
             // Let the avatars settle on the floor and the companion come to rest.
             for (var i = 0; i < 45; i++) await NextFrame();
+            // An island's copies arrive over its first frames: every camera (and every camera worked out from the island) waits for them.
+            var copies = _world.Built.GetNodeOrNull<EnFractal.Native.Room.PlantCopiesView>(EnFractal.Native.Room.PlantCopiesView.ViewName);
+            for (var waited = System.Diagnostics.Stopwatch.StartNew(); copies != null && waited.Elapsed.TotalSeconds < 60 && !copies.Complete;) await NextFrame();
 
             var only = Arg("only", "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
-            foreach (var entry in root.GetProperty("cameras").EnumerateArray())
+            foreach (var entry in Entries(root).ToList())
             {
                 var id = entry.GetProperty("id").GetString()!;
                 if (only.Count > 0 && !only.Contains(id)) continue;
+                var ownHour = entry.TryGetProperty("hour", out var hour) && root.TryGetProperty("clock", out var reviewClock)
+                    && SetClock(hour.GetDouble(), DayOfYear(reviewClock.GetProperty("date").GetString()!));
+                await PrepareStage(entry);
                 Frame(entry);
+                LightGlows(entry);
+                if (entry.TryGetProperty("settle_s", out var settleS))
+                {
+                    var lit = Time.GetTicksUsec();
+                    while ((Time.GetTicksUsec() - lit) / 1e6 < settleS.GetDouble()) await NextFrame();
+                }
                 for (var i = 0; i < warmup; i++) await NextFrame();
-                var timing = await Measure(frames);
+                var timing = await Measure(FlightFrames(entry, frames), entry);
+                timing["memory"] = MemoryNow();
+                if (entry.TryGetProperty("spark_s", out var sparkS))
+                {
+                    LightGlows(entry);
+                    var cast = Time.GetTicksUsec();
+                    while ((Time.GetTicksUsec() - cast) / 1e6 < sparkS.GetDouble()) await NextFrame();
+                }
                 var image = Grab();
+                LightGlows(default);
+                if (ownHour && root.TryGetProperty("clock", out var back))
+                    SetClock(back.GetProperty("hour").GetDouble(), DayOfYear(back.GetProperty("date").GetString()!));
                 var file = Save(image, id, outDir);
                 timing["camera"] = id;
                 timing["file"] = file;
                 timing["image_size"] = new[] { image.GetWidth(), image.GetHeight() };
                 if (ContactCameras(root).Contains(id)) timing["contact_crops"] = SaveContactCrops(image, id, outDir);
                 _results.Add(timing);
-                GD.Print($"LOOK_CAPTURE camera={id} frame_ms_p50={timing["frame_ms_p50"]} frame_ms_p95={timing["frame_ms_p95"]} gpu_ms_mean={timing["gpu_ms_mean"]} image={image.GetWidth()}x{image.GetHeight()}");
+                var memory = (Dictionary<string, object>)timing["memory"];
+                GD.Print($"LOOK_CAPTURE camera={id} frame_ms_p50={timing["frame_ms_p50"]} frame_ms_p95={timing["frame_ms_p95"]} frame_ms_max={timing["frame_ms_max"]} gpu_ms_mean={timing["gpu_ms_mean"]} " +
+                         $"working_set_mib={memory["working_set_mib"]} peak_mib={memory["peak_working_set_mib"]} video_mib={memory["video_mib"]} spikes={((List<Dictionary<string, object>>)timing["spikes"]).Count} image={image.GetWidth()}x{image.GetHeight()}");
             }
             if (Arg("sweep", "false") == "true") await Sweep(root, outDir);
             if (Arg("light-checks", "true") == "true") _lightChecks = await LightChecks(root, outDir);
@@ -174,13 +213,45 @@ public partial class LookCaptureHarness : Node
         return png;
     }
 
+    /// <summary>
+    /// A review shows the island, not the room turning into it: the room-to-island intro a landscape plays when it loads is skipped
+    /// (found by name, so looks from before the intro are untouched), and the frames it needs to put everything back are waited for.
+    /// </summary>
+    private async Task SkipIntro()
+    {
+        Node? intro = null;
+        for (var i = 0; i < 180 && intro == null; i++)
+        {
+            intro = _world.GetNodeOrNull("RoomIntro");
+            if (intro == null) await NextFrame();
+        }
+        if (intro == null || !intro.HasMethod("Skip")) return;
+        // Its data is read off the main thread and it marks the island once it has: it can only be skipped when that is done.
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 60 && !intro.Get("Playing").AsBool() && !intro.Get("Finished").AsBool();) await NextFrame();
+        intro.Call("Skip");
+        for (var i = 0; i < 10; i++) await NextFrame();
+        GD.Print("LOOK_CAPTURE: the room-to-island intro was skipped" + (GodotObject.IsInstanceValid(intro) ? " (still ending)" : ""));
+    }
+
+    /// <summary>
+    /// A camera that stages the player somewhere on a big island builds the ground's collision there first and waits for the physics
+    /// server to have it: a teleport the same frame finds no ground and leaves the player where he stood.
+    /// </summary>
+    private async Task PrepareStage(JsonElement entry)
+    {
+        if (!entry.TryGetProperty("stage", out var stage) || !stage.TryGetProperty("player_m", out var at)) return;
+        EnFractal.Native.Room.TerrainCollision.EnsureAround(_world, Vec(at), holdS: 3.0);
+        for (var i = 0; i < 4; i++) await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
+    }
+
     /// <summary>Stand the avatars where a camera wants them before it is framed: the player at a spot facing a heading, the companion at a spot.</summary>
     private void Stage(JsonElement stage)
     {
         var yaw = Mathf.DegToRad(stage.TryGetProperty("yaw_deg", out var yawElement) ? (float)yawElement.GetDouble() : 0f);
         if (stage.TryGetProperty("player_m", out var playerAt))
         {
-            _world.Player.TryTeleportTo(Vec(playerAt));
+            EnFractal.Native.Room.TerrainCollision.EnsureAround(_world, Vec(playerAt), holdS: 0.5);
+            if (!_world.Player.TryTeleportTo(Vec(playerAt))) GD.Print($"LOOK_CAPTURE stage: the player could not be placed at {Vec(playerAt)} (no ground there yet?); the camera is wherever the player stood");
             _world.Player.Rotation = new Vector3(0, yaw, 0);
             _world.Player.ResetPhysicsInterpolation();
         }
@@ -191,6 +262,46 @@ public partial class LookCaptureHarness : Node
             _world.Companion.Rotation = new Vector3(0, yaw + Mathf.Pi, 0);
             _world.Companion.ResetPhysicsInterpolation();
         }
+    }
+
+    /// <summary>
+    /// End the glows the last camera lit and light this camera's ("glows"), through the look's StartGlow as the host calls it: a halo
+    /// on the Gubble or a wisp at a point. Looks without the glow ignore it.
+    /// </summary>
+    private void LightGlows(JsonElement entry)
+    {
+        if (_look == null || !_look.HasMethod("StartGlow")) return;
+        foreach (var id in _glows) _look.Call(_look.HasMethod("StopEffect") ? "StopEffect" : "StopGlow", id);
+        _glows.Clear();
+        if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("glows", out var glows)) return;
+        foreach (var glow in glows.EnumerateArray())
+        {
+            var id = "effect:review_" + glow.GetProperty("id").GetString();
+            var onGubble = glow.TryGetProperty("on", out var on) && on.GetString() == "companion";
+            var at = onGubble ? Vector3.Zero : glow.TryGetProperty("at_xz_m", out var xz) ? Ground((float)xz[0].GetDouble(), (float)xz[1].GetDouble()) : Vec(glow.GetProperty("at_m"));
+            var radius = glow.TryGetProperty("radius_m", out var r) ? (float)r.GetDouble() : 0.6f;
+            var intensity = glow.TryGetProperty("intensity", out var i) ? (float)i.GetDouble() : 0.6f;
+            var kind = glow.TryGetProperty("kind", out var k) ? k.GetString() : "glow";
+            if (kind == "bubbles")
+            {
+                GD.Print($"LOOK_CAPTURE: the review glow {id} is a stream of bubbles, which is gone (decisions 55 to 60); skipped");
+                continue;
+            }
+            var method = kind == "fireworks" ? "StartFireworks" : "StartGlow";
+            if (!_look.HasMethod(method)) continue;
+            var started = _look.Call(method, id, onGubble ? _world.Companion : new Variant(), at, radius, intensity).AsBool();
+            if (!started) throw new InvalidOperationException($"the look refused the review glow {id}");
+            _glows.Add(id);
+        }
+    }
+
+    /// <summary>The ground under a spot: the first world-layer surface a ray down from 5 m meets (else the sea's level, 0).</summary>
+    private Vector3 Ground(float x, float z)
+    {
+        var space = _world.GetWorld3D().DirectSpaceState;
+        using var query = PhysicsRayQueryParameters3D.Create(new Vector3(x, 5f, z), new Vector3(x, -5f, z), EnFractal.Native.Room.RoomBuilder.WorldLayer);
+        using var hit = space.IntersectRay(query);
+        return hit.Count > 0 ? hit["position"].AsVector3() : new Vector3(x, 0f, z);
     }
 
     private string Require(string name) => _args.TryGetValue(name, out var value) && value.Length > 0
@@ -256,16 +367,83 @@ public partial class LookCaptureHarness : Node
         RenderingServer.ViewportSetMeasureRenderTime(_target.GetViewportRid(), true);
     }
 
+    private static readonly string[] HudViews = { "eye", "shoulder", "diorama", "isometric" };
+
+    /// <summary>Tell the look which view a camera stands for (null: none, the preset's miniature blur); older looks have no views.</summary>
+    private void SetView(string? name)
+    {
+        var property = _look?.GetType().GetProperty("View");
+        if (property == null) return;
+        var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        property.SetValue(_look, name == null ? null : Enum.Parse(type, name, ignoreCase: true));
+    }
+
+    private Node3D? _focused;
+    private Transform3D _focusedHome;
+
+    /// <summary>
+    /// The focus highlight's captures: a room object moved onto a spot (its base on the ground there) and given the focus, with
+    /// the camera looking at it from an offset. Every other camera has no focus, and the object goes back where it stood.
+    /// </summary>
+    private (Vector3 Position, Vector3 LookAt)? StageFocus(JsonElement entry)
+    {
+        if (_focused != null && IsInstanceValid(_focused)) _focused.GlobalTransform = _focusedHome;
+        _focused = null;
+        var setFocus = _look?.GetType().GetMethod("SetFocusHighlight");
+        setFocus?.Invoke(_look, new object?[] { null });
+        if (!entry.TryGetProperty("focus", out var focus)) return null;
+        var id = focus.GetProperty("object").GetString()!;
+        var thing = _world.Built.FindChildren("*", "Node3D", true, false).OfType<Node3D>().FirstOrDefault(n => n.HasMeta("entity_id") && n.GetMeta("entity_id").AsString() == id)
+            ?? throw new InvalidOperationException($"no room object {id} to put in focus");
+        _focused = thing;
+        _focusedHome = thing.GlobalTransform;
+        var spot = focus.GetProperty("at_xz_m");
+        var x = (float)spot[0].GetDouble();
+        var z = (float)spot[1].GetDouble();
+        var query = PhysicsRayQueryParameters3D.Create(new Vector3(x, 4f, z), new Vector3(x, -2f, z));
+        if (thing is CollisionObject3D own) query.Exclude = new Godot.Collections.Array<Rid> { own.GetRid() };
+        var hit = _world.GetWorld3D().DirectSpaceState.IntersectRay(query);
+        var ground = hit.Count > 0 ? hit["position"].AsVector3() : new Vector3(x, 0f, z);
+        var under = hit.Count > 0 && hit["collider"].AsGodotObject() is Node node ? EntityOf(node) : "nothing";
+        thing.GlobalPosition = ground;
+        setFocus?.Invoke(_look, new object?[] { thing });
+        GD.Print($"LOOK_CAPTURE focus={id} at={ground} on={under} highlight={(setFocus != null ? "on" : "not in this build")}");
+        var offset = Vec(focus.GetProperty("camera_offset_m"));
+        return (ground + offset, ground + Vector3.Up * 0.03f);
+    }
+
+    private static string EntityOf(Node node)
+    {
+        for (var current = node; current != null; current = current.GetParent())
+            if (current.HasMeta("entity_id")) return current.GetMeta("entity_id").AsString();
+        return node.Name;
+    }
+
+    /// <summary>
+    /// A camera may hold the living shore's wash at a second of its clock ("shore_clock_s"), so a before and an after show the same
+    /// moment and the wash can be shown up or drawn back; otherwise the wash runs. Found by name: looks from before the shore ignore it.
+    /// </summary>
+    private void HoldShore(JsonElement entry)
+    {
+        if (_look?.Get("OpenSea").AsGodotObject() is not GodotObject open) return;
+        if (entry.TryGetProperty("shore_clock_s", out var seconds) && open.HasMethod("HoldShoreAt")) open.Call("HoldShoreAt", (float)seconds.GetDouble());
+        else if (open.HasMethod("ReleaseShore")) open.Call("ReleaseShore");
+    }
+
     private void Frame(JsonElement entry)
     {
         // Leave the HUD rig a previous camera mirrored.
         _mirror = null;
         if (_hud != null && _hud.ViewMode != 1) _hud.SetViewMode(1);
         if (entry.TryGetProperty("stage", out var stage)) Stage(stage);
+        HoldShore(entry);
+        var focused = StageFocus(entry);
+        SetView(entry.TryGetProperty("view", out var view) ? view.GetString() : null);
         if (entry.TryGetProperty("eye_view", out var eyeView) && eyeView.GetBoolean())
         {
             // The player's own eye, 8.7 cm up, with the look's own focus rule for it (a few body heights ahead).
             _look?.Set("Observe", false);
+            SetView("eye");
             _camera.CullMask = 0xFFFFFu & ~HiddenBodyLayer;
             _mirror = _world.Player.EyeCamera;
             Mirror();
@@ -276,34 +454,40 @@ public partial class LookCaptureHarness : Node
             FrameHudRig(entry, hudView.GetInt32());
             return;
         }
-        var position = Vec(entry.GetProperty("position_m"));
-        var lookAt = Vec(entry.GetProperty("look_at_m"));
+        var position = focused?.Position ?? Vec(entry.GetProperty("position_m"));
+        var lookAt = focused?.LookAt ?? Vec(entry.GetProperty("look_at_m"));
         _camera.GlobalPosition = position;
         _camera.LookAt(lookAt, Mathf.Abs((lookAt - position).Normalized().Dot(Vector3.Up)) > 0.99f ? Vector3.Forward : Vector3.Up);
         _camera.Fov = (float)entry.GetProperty("fov_deg").GetDouble();
         _camera.Near = 0.005f;
         _camera.Far = 50f;
+        // A camera worked out from the island (a flight) sees as far as the game's cameras do there (the look's FarPlaneM, where it has one).
+        if (entry.TryGetProperty("derived", out _)) _camera.Far = _look?.GetType().GetProperty("FarPlaneM")?.GetValue(_look) is float far ? far : 100f;
         var hideBody = entry.TryGetProperty("hide_player_body", out var hide) && hide.GetBoolean();
         _camera.CullMask = hideBody ? 0xFFFFFu & ~HiddenBodyLayer : 0xFFFFFu;
-        var focus = entry.TryGetProperty("focus_m", out var focusElement) ? Vec(focusElement) : lookAt;
+        var focus = entry.TryGetProperty("focus_m", out var focusElement) ? Vec(focusElement) : focused?.LookAt ?? lookAt;
         // A camera may ask for the observe view (a very tight tilt-shift band); older looks have no such switch and ignore it.
         _look?.Set("Observe", entry.TryGetProperty("observe", out var observe) && observe.GetBoolean());
         if (_look != null && _look.HasMethod("FrameCamera")) _look.Call("FrameCamera", _camera, focus);
     }
 
     /// <summary>
-    /// The founder's observe playtest was in the HUD's F3 and F4 views, which no fixed camera shows: the rig is placed by the
-    /// real HUD (pivot on the player, spring arm, lens), and the look's own focus rule for that camera (FocusPointFor, which
-    /// includes whatever the HUD handed it) sets the depth of field, so a change to either shows in the frame.
+    /// The founder plays in the HUD's views, which no fixed camera shows: the rig is placed by the real HUD (the eye, the shoulder
+    /// arm, or the diorama's pivot, spring arm and lens), and the look's own focus rule for that camera (FocusPointFor, which
+    /// includes whatever the HUD handed it) and that view's blur set the depth of field, so a change to either shows in the frame.
     /// </summary>
     private void FrameHudRig(JsonElement entry, int mode)
     {
         _hud ??= _world.FindChildren("*", "CanvasLayer", true, false).OfType<RoomHud>().FirstOrDefault()
             ?? throw new InvalidOperationException("the room has no HUD to mirror for hud_view");
         _look?.Set("Observe", entry.TryGetProperty("observe", out var observe) && observe.GetBoolean());
-        _camera.CullMask = 0xFFFFFu;
+        // The eye hides the player's own body, as the HUD does in F1.
+        _camera.CullMask = mode == 0 ? 0xFFFFFu & ~HiddenBodyLayer : 0xFFFFFu;
         _hud.SetViewMode(mode);
-        _mirror = _hud.DioramaCamera;
+        if (mode == 2 && entry.TryGetProperty("hud_pitch_deg", out var pitch))
+            _hud.OrbitDiorama(new Vector2(0f, Mathf.DegToRad((float)pitch.GetDouble() - _hud.DioramaPitchDeg) / RoomHud.MouseRadiansPerPixel));
+        SetView(HudViews[Math.Clamp(mode, 0, 3)]);
+        _mirror = GetViewport().GetCamera3D() ?? _hud.DioramaCamera;
         Mirror();
     }
 
@@ -334,8 +518,10 @@ public partial class LookCaptureHarness : Node
         return image;
     }
 
-    private async Task<Dictionary<string, object>> Measure(int frames)
+    private async Task<Dictionary<string, object>> Measure(int frames, JsonElement entry = default)
     {
+        var flying = entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("flight", out _);
+        var costs = new List<(FrameCost Before, FrameCost After)>(frames);
         var wall = new List<double>(frames);
         var gpu = new List<double>(frames);
         var cpu = new List<double>(frames);
@@ -345,17 +531,25 @@ public partial class LookCaptureHarness : Node
         if (_target == null) RenderingServer.ViewportSetMeasureRenderTime(rid, true);
         await NextFrame();
         var last = Time.GetTicksUsec();
+        var started = last;
+        var cost = CostNow(rid);
         for (var i = 0; i < frames; i++)
         {
+            if (flying) Fly(entry, (Time.GetTicksUsec() - started) / 1e6);
             await NextFrame();
             var now = Time.GetTicksUsec();
             wall.Add((now - last) / 1000.0);
             last = now;
+            var next = CostNow(rid);
+            costs.Add((cost, next));
+            cost = next;
             gpu.Add(RenderingServer.ViewportGetMeasuredRenderTimeGpu(rid));
             cpu.Add(RenderingServer.ViewportGetMeasuredRenderTimeCpu(rid));
             drawCalls.Add(Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame));
             primitives.Add(Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame));
         }
+        // A slow frame: over the 16.7 ms of 60 frames a second, and well over this view's own median.
+        var threshold = Math.Max(16.7, 2.5 * Percentile(wall, 0.50));
         return new Dictionary<string, object>
         {
             ["frames"] = frames,
@@ -370,6 +564,11 @@ public partial class LookCaptureHarness : Node
             ["draw_calls_mean"] = Round(drawCalls.Average()),
             ["primitives_mean"] = Round(primitives.Average()),
             ["video_mem_mib"] = Round(Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed) / 1048576.0),
+            ["spike_threshold_ms"] = Round(threshold),
+            ["spikes"] = wall.Select((ms, i) => (ms, i)).Where(f => f.ms > threshold).Select(f => Spike(f.i, f.ms, costs[f.i].Before, costs[f.i].After)).ToList(),
+            ["frames_over_25_ms"] = wall.Count(ms => ms > 25.0),
+            ["gc_collections"] = new[] { costs[^1].After.Gen0 - costs[0].Before.Gen0, costs[^1].After.Gen1 - costs[0].Before.Gen1, costs[^1].After.Gen2 - costs[0].Before.Gen2 },
+            ["pipeline_compilations"] = costs[^1].After.Pipelines - costs[0].Before.Pipelines,
         };
     }
 
@@ -393,7 +592,7 @@ public partial class LookCaptureHarness : Node
         // The cameras file may name the sweep's camera, hours and dates ("sweep"); --sweep-camera overrides the camera.
         var sweep = root.TryGetProperty("sweep", out var configured) ? configured : default;
         var cameraId = Arg("sweep-camera", sweep.ValueKind == JsonValueKind.Object && sweep.TryGetProperty("camera", out var named) ? named.GetString()! : "ceiling_corner");
-        var entry = root.GetProperty("cameras").EnumerateArray().First(c => c.GetProperty("id").GetString() == cameraId);
+        var entry = Entries(root).First(c => c.GetProperty("id").GetString() == cameraId);
         Frame(entry);
         // The sweep shows the day as it goes: the lamps switch themselves with the light.
         _look.GetType().GetMethod("SetLamps")?.Invoke(_look, new object?[] { null });
@@ -436,7 +635,7 @@ public partial class LookCaptureHarness : Node
             result["note"] = "this build has no grain and vignette effect to check";
             return result;
         }
-        Frame(root.GetProperty("cameras")[0]);
+        Frame(Entries(root).First());
         post.Enabled = true;
         for (var i = 0; i < 30; i++) await NextFrame();
         var with = Grab();
@@ -501,8 +700,8 @@ public partial class LookCaptureHarness : Node
     private Dictionary<string, object>? _postCheck;
     private Dictionary<string, object>? _lightChecks;
 
-    private static JsonElement CameraEntry(JsonElement root, string id) =>
-        root.GetProperty("cameras").EnumerateArray().First(c => c.GetProperty("id").GetString() == id);
+    private JsonElement CameraEntry(JsonElement root, string id) =>
+        Entries(root).First(c => c.GetProperty("id").GetString() == id);
 
     private static JsonElement LightConfig(JsonElement root) => root.TryGetProperty("light_checks", out var c) && c.ValueKind == JsonValueKind.Object ? c : default;
 
@@ -760,6 +959,9 @@ public partial class LookCaptureHarness : Node
             ["screen_space_aa"] = (_target != null ? _target.ScreenSpaceAA : GetViewport().ScreenSpaceAA).ToString(),
             ["use_taa"] = _target != null ? _target.UseTaa : GetViewport().UseTaa,
             ["cameras"] = _results,
+            ["memory_end"] = MemoryNow(),
+            ["memory_breakdown"] = MemoryBreakdown(),
+            ["derive_notes"] = _deriveNotes.Distinct().ToList(),
         };
         if (_look != null && _look.HasMethod("DescribeLook")) report["look"] = _look.Call("DescribeLook").AsString();
         report["look_problems"] = problems;

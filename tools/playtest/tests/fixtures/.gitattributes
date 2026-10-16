@@ -1,0 +1,2 @@
+# Byte-exact: the fixture is what build_fixture.py writes (UTF-8, LF) and a test compares the bytes; Git never converts it.
+* -text

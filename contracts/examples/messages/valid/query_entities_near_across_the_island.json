@@ -1,0 +1,19 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0034",
+  "room_id": "garage_example",
+  "op": "entities.list",
+  "args": {
+    "filter": {
+      "near": {
+        "center_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "radius_m": 150
+      }
+    }
+  }
+}

@@ -49,6 +49,8 @@ These are the primitives every scenario (dragon fight, cozy village, spaceport) 
 
 ## Scale and physics decision
 
+**Update, 13 October 2026: the world is 10x.** After walking an experiment, the founder chose to magnify the room ten times into the island around the same 10 cm body: "I MUCH prefer the island at this scale." The body, the Gubble and everything sized for the body (trees, cottages, plants, paths, water depths) keep their size; the room's landforms become ten times larger, so a garage becomes an island of about 67 × 77 m. One unit is still one metre. The plan is [runs/RUN-2-TEN-TIMES.md](runs/RUN-2-TEN-TIMES.md).
+
 Keep **1 world unit = 1 metre** and keep all authored and captured dimensions in metres. The capture pipeline produces real-metre assets, the existing controllers and body-profile contract are metric, and nothing has to be rescaled. The player body profile becomes roughly 0.10 m tall, 0.02 m radius, 0.087 m eye height, 0.15 m reach; exact values are tuned in S1.
 
 Two things are decisions, not assumptions:
@@ -196,4 +198,5 @@ Details are in [the Run 1 status page](runs/RUN-1-STATUS.md).
 
 - [Capture-to-Godot pipeline design](pipeline/ROOM-CAPTURE-PIPELINE.md): the MCP/skill, method recommendations, and the garage test case.
 - [Cleanup plan](CLEANUP-PLAN.md): what is deleted, kept, or generalized, and the questions that gate deletion.
+- [Held for later: how good ideas spread, and how agents meet safely](ideas/SHARED-IMPROVEMENT.md): the founder's notes of 9 October on verifying fun at scale and on agents meeting with proof of ownership and trust. Not a plan.
 - Historical: [earlier world vision](history/WORLD-VISION.md), [earlier roadmap](history/ROADMAP.md), [earlier backlog](history/BACKLOG.md).

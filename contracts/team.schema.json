@@ -1,0 +1,462 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/team.schema.json",
+  "title": "EnFractal team: the team file, the vitals store and the expertise store",
+  "description": "A team is one person and their Gubble (docs/game/MECHANICS.md section 2): one folder on disk, user://teams/<team_id>/, that the companion surface never sees (no tool, field or resource reaches it). Three documents live there, each named by its schema: the team file (enfractal.team, team.json), one vitals store per mode (enfractal.player_modes version 2, modes/<mode>/vitals.json) and one expertise store for the team (enfractal.glow_progress version 3, expertise.json); the island saves sit beside them under the mode (contracts/README.md, \"Teams and the save layout\"). The host writes them atomically (docs/engine/persistence-notes.md); nothing a request carries sets them, and the machine's switches (\"Let my AI see\", \"Let the Gubble use fire\", \"Play the intro\", the numbers option) stay in the machine's settings file. The Gubble is bound to the team for life, never to a drawing; the drawing is a costume. Written by the teams packet (M3) and the menu (M7); the vitals by the energy packet (M1); Trust by M8.",
+  "type": "object",
+  "required": [
+    "schema"
+  ],
+  "properties": {
+    "schema": {
+      "enum": [
+        "enfractal.team",
+        "enfractal.player_modes",
+        "enfractal.glow_progress"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "enfractal.team"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/team"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "enfractal.player_modes"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/vitals_store"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "enfractal.glow_progress"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/expertise_store"
+      }
+    }
+  ],
+  "$defs": {
+    "team": {
+      "description": "The team file (team.json): what belongs to the team, whatever the mode or the island.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "version",
+        "team_id",
+        "created_utc",
+        "profile",
+        "knacks",
+        "gubble",
+        "trust"
+      ],
+      "properties": {
+        "schema": {
+          "const": "enfractal.team"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "team_id": {
+          "description": "Its folder's name.",
+          "$ref": "common.schema.json#/$defs/team_id"
+        },
+        "created_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "profile": {
+          "description": "The person: a profile, not an avatar.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "display_name",
+            "costume"
+          ],
+          "properties": {
+            "display_name": {
+              "description": "Untrusted text, shown on the team card.",
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 40
+                }
+              ],
+              "minLength": 1
+            },
+            "costume": {
+              "description": "The drawn character worn (assets/characters/<id>): a look on the one shared body, changed any day, keeping everything.",
+              "$ref": "common.schema.json#/$defs/token"
+            }
+          }
+        },
+        "knacks": {
+          "description": "The knacks chosen (the rules pack's knacks table) and their ranks: one slot at creation, more at the summits. Only the player sets them (knack.set, or the menu); ranks are earned.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "slots_open",
+            "chosen"
+          ],
+          "properties": {
+            "slots_open": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
+            },
+            "chosen": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "slot",
+                  "knack",
+                  "rank"
+                ],
+                "properties": {
+                  "slot": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3
+                  },
+                  "knack": {
+                    "$ref": "common.schema.json#/$defs/token"
+                  },
+                  "rank": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3
+                  }
+                }
+              }
+            },
+            "earned": {
+              "description": "The ranks earned by knacks in no slot now, above rank 1, by knack id: a knack swapped out keeps its rank here, and set back into a slot returns at it, so a free swap never costs an earned rank. Optional: absent, every knack out of a slot is at rank 1 (a team file from before it reads as it is). A knack in a slot keeps its rank in chosen, never here.",
+              "type": "object",
+              "maxProperties": 32,
+              "propertyNames": {
+                "$ref": "common.schema.json#/$defs/token"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 3
+              }
+            }
+          }
+        },
+        "gubble": {
+          "description": "The Gubble: its name and its aura's colour. Its expertise is the expertise store; it has no level.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "colour"
+          ],
+          "properties": {
+            "name": {
+              "description": "Untrusted text, shown only.",
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 40
+                }
+              ],
+              "minLength": 1
+            },
+            "colour": {
+              "$ref": "common.schema.json#/$defs/color_hex"
+            }
+          }
+        },
+        "trust": {
+          "description": "How freely the Gubble may act unasked: computed by the host from receipts and consequence facts (M8), counted only in Challenge and Live, never spent, never written by the AI or any request, and reset only by the player (trust.reset). 0 is base.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "count"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": -1000000,
+              "maximum": 1000000
+            }
+          }
+        }
+      }
+    },
+    "vitals_store": {
+      "description": "The vitals store (modes/<mode>/vitals.json): one per team and mode, with the pool. Version 2 of the kernel's enfractal.player_modes, whose version 1 kept the three modes in one file (user://single_player/progression/player_modes_v1.json, read for migration only). written_utc lets the host catch up time away (hearts heal, the pool wakes half full).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "version",
+        "team_id",
+        "mode",
+        "written_utc",
+        "vitals"
+      ],
+      "properties": {
+        "schema": {
+          "const": "enfractal.player_modes"
+        },
+        "version": {
+          "type": "integer",
+          "const": 2
+        },
+        "team_id": {
+          "$ref": "common.schema.json#/$defs/team_id"
+        },
+        "mode": {
+          "enum": [
+            "creative",
+            "challenge",
+            "live"
+          ]
+        },
+        "written_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "vitals": {
+          "$ref": "#/$defs/vitals"
+        }
+      }
+    },
+    "vitals": {
+      "description": "One mode's body: health in points (whole quarters of the pack's health_per_quarter), the maximum as a field (the hearts bought), the bar, the climbs, the recoveries, the Fractals and the pool.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "health",
+        "max_health",
+        "stamina",
+        "max_stamina",
+        "challenges",
+        "recoveries",
+        "fractals",
+        "pips"
+      ],
+      "properties": {
+        "health": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 720
+        },
+        "max_health": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 720
+        },
+        "stamina": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4.8
+        },
+        "max_stamina": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 4.8
+        },
+        "challenges": {
+          "description": "The climbs completed, by the host's 64-hex ids (version 1's); their count stays in the journal (decision L).",
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "recoveries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "fractals": {
+          "description": "Fractals found in this mode and how they were spent at camps: found counts every one picked up; unspent is what is in hand; hearts and bands what was bought (a heart each, a band past the first each).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "found",
+            "unspent",
+            "hearts",
+            "bands"
+          ],
+          "properties": {
+            "found": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "unspent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "hearts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 29
+            },
+            "bands": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 19
+            },
+            "typed": {
+              "description": "Typed Fractals only (the rules pack's flag): the unspent ones by kind.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "heart",
+                "band"
+              ],
+              "properties": {
+                "heart": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                "band": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                }
+              }
+            }
+          }
+        },
+        "pips": {
+          "description": "The pool, in whole pips (in Creative the shadow pool).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 40
+        }
+      }
+    },
+    "expertise_store": {
+      "description": "The expertise store (expertise.json): one per team, across modes (expertise travels; it cannot be farmed, each a one-time condition the host verifies). Version 3 of the kernel's enfractal.glow_progress, whose version 2 kept one record per mode (user://single_player/progression/glow_trial_v1.json and its .challenge and .live siblings, merged as their union). Keyed by ability, so Bloom's, Bubbles' and Fire's lists join Glow's without a new version. Only the host writes it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "version",
+        "team_id",
+        "abilities",
+        "touch",
+        "sound_volume",
+        "muted"
+      ],
+      "properties": {
+        "schema": {
+          "const": "enfractal.glow_progress"
+        },
+        "version": {
+          "type": "integer",
+          "const": 3
+        },
+        "team_id": {
+          "$ref": "common.schema.json#/$defs/team_id"
+        },
+        "abilities": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 16,
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/expertise"
+          }
+        },
+        "touch": {
+          "description": "Glow's touch for new glows (glow.configure).",
+          "enum": [
+            "plain",
+            "air",
+            "ember",
+            "frost",
+            "chime"
+          ]
+        },
+        "sound_volume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "muted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "expertise": {
+      "description": "One ability's expertise: verified uses, the expertise learned (the code's discoveries, at most five an ability) and the hints delivered.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "successful_casts",
+        "discoveries",
+        "delivered_hints"
+      ],
+      "properties": {
+        "successful_casts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "discoveries": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/token"
+          }
+        },
+        "delivered_hints": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/token"
+          }
+        }
+      }
+    }
+  }
+}

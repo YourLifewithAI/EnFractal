@@ -83,23 +83,25 @@ public static class RoomWater
     /// solid, lies between its surface and the point is not the point's water (dry ground under a raised basin): dry too.
     /// Water with no ground within BedSearchM under it is deep. The body asks this once a tick at its feet.
     /// </summary>
-    public static Column At(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM = SearchM, float belowM = 0.05f, Rid exclude = default)
+    /// <para>
+    /// throughRoof: for a body already in this water (a swimmer, a diver), ground over the point is a roof (a shelf it is
+    /// under), not the bed: the bed is then looked for under the point (Codex's reviews of diving).
+    /// </para>
+    public static Column At(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM = SearchM, float belowM = 0.05f, Rid exclude = default, bool throughRoof = false)
     {
         if (!point.IsFinite()) return Column.Dry;
         var surface = Surface(space, point + Vector3.Up * aboveM, point + Vector3.Down * belowM);
         if (surface is not { } level) return Column.Dry;
         var top = new Vector3(point.X, level, point.Z);
         // Bodies ask every tick: the query, its exclusions and its answers are disposed at once rather than left to the finalizer.
-        using var bed = PhysicsRayQueryParameters3D.Create(top + Vector3.Up * BedLookAboveM, top + Vector3.Down * BedSearchM, RoomBuilder.WorldLayer);
+        // The exclusions go to Create itself (given none, it makes an empty Godot array of its own) and are freed here (S12).
         var excluded = new Godot.Collections.Array<Rid>();
-        if (exclude.IsValid)
-        {
-            excluded.Add(exclude);
-            bed.Exclude = excluded;
-        }
+        using var excludedArray = (Godot.Collections.Array)excluded;
+        if (exclude.IsValid) excluded.Add(exclude);
+        using var bed = PhysicsRayQueryParameters3D.Create(top + Vector3.Up * BedLookAboveM, top + Vector3.Down * BedSearchM, RoomBuilder.WorldLayer, excluded);
         bed.HitBackFaces = false;
         float? bedHit;
-        using (var hit = space.IntersectRay(bed)) bedHit = hit.Count > 0 ? hit["position"].AsVector3().Y : null;
+        using (var hit = space.IntersectRay(bed)) bedHit = hit.Count > 0 ? hit[HitPosition].AsVector3().Y : null;
         if (bedHit == null)
         {
             // A ray exactly through a shared vertex or edge of the ground's triangles can slip between them: look again a hair aside.
@@ -107,7 +109,14 @@ public static class RoomWater
             bed.From += aside;
             bed.To += aside;
             using var again = space.IntersectRay(bed);
-            bedHit = again.Count > 0 ? again["position"].AsVector3().Y : null;
+            bedHit = again.Count > 0 ? again[HitPosition].AsVector3().Y : null;
+        }
+        if (throughRoof && bedHit is { } roof && roof > point.Y + BedToleranceM && roof <= level - RimM)
+        {
+            bed.From = new Vector3(point.X, point.Y + BedToleranceM, point.Z);
+            bed.To = new Vector3(point.X, level - BedSearchM, point.Z);
+            using var under = space.IntersectRay(bed);
+            bedHit = under.Count > 0 ? under[HitPosition].AsVector3().Y : null;
         }
         if (bedHit is not { } bedY) return new Column(true, level, level - BedSearchM);
         if (bedY > level - RimM || bedY > point.Y + BedToleranceM) return Column.Dry;
@@ -117,12 +126,16 @@ public static class RoomWater
     private static float? Surface(PhysicsDirectSpaceState3D space, Vector3 from, Vector3 to)
     {
         if (!from.IsFinite() || !to.IsFinite()) return null;
-        using var query = PhysicsRayQueryParameters3D.Create(from, to, Layer);
+        using var query = PhysicsRayQueryParameters3D.Create(from, to, Layer, NoExclusions);
         query.CollideWithAreas = true;
         query.CollideWithBodies = false;
         // The surface is a sheet: found from either side.
         query.HitBackFaces = true;
         using var hit = space.IntersectRay(query);
-        return hit.Count > 0 ? hit["position"].AsVector3().Y : null;
+        return hit.Count > 0 ? hit[HitPosition].AsVector3().Y : null;
     }
+
+    /// <summary>No exclusions, and a ray answer's key, made once (S12).</summary>
+    private static readonly Godot.Collections.Array<Rid> NoExclusions = new();
+    private static readonly Variant HitPosition = "position";
 }
