@@ -102,9 +102,6 @@ public partial class LookCaptureHarness : Node
             AddChild(_world);
             for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
-            // The room-to-island intro plays on a landscape whenever the profile allows it, and a capture's fresh profile does: a
-            // review capture shows the island, never the intro's shell. Found by name, so the harness still captures older commits.
-            if (_world.GetNodeOrNull("RoomIntro") is { } intro && intro.HasMethod("Skip")) intro.Call("Skip");
             _look = _world.Look;
             await SkipIntro();
             AttachPondLife();
