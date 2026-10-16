@@ -47,13 +47,15 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - the Bubble as the founder redesigned it (decisions 55 to 60; the kernel's Kernel/Bubble) is hosted abstractly, with the
   kernel's refusals in its order and its receipts: effect.start of Bubbles casts one player-sized bubble at a spot and the
   place decides (on the player a carry, the companion's previewed first, its ghost shown and the same cast committed a moment
-  later; elsewhere a bubble to walk into, `player_steps_into`; the box world has no water, so never a boat); nature.cast still
+  later; elsewhere a bubble to walk into, `player_steps_into`, judged where it forms, resting on what is under its spot, so one
+  that would form round the player is on them; the box world has no water, so never a boat); nature.cast still
   names bubble_carry (on the player naming its preview_id, or at a point) and bubble_boat (refused: no water), and refuses
   bubble_lift (Lift is a lead); one bubble at a time, a recast popping it, no pause after a pop; bubbles count toward the
   room's effect cap at any effect's start; a committed bubble is transient with an effect: id, popped by goal.stop of the
   Gubble, effect.stop, the dive key (`player_pops_bubble`) or its timer, and its receipt says carried and ended;
 - goal.set lead (the smart ask's steering): the Gubble leads a bubble (target: its effect: id, never an avatar) to a spot
-  (position_m), set by the player or the companion; the job ends on `goal_arrived` (the bubble at the spot), `goal_blocked`
+  (position_m inside the island: the kernel's InsideIsland, the room's bounds without a sea, the top and the bottom round an
+  island), set by the player or the companion; the job ends on `goal_arrived` (the bubble at the spot), `goal_blocked`
   (target_unreachable), or the bubble popping first (target_not_found); the Gubble's own stop or a new goal pops the bubble it
   leads; the goal.set receipt says how the lead ended. A spot higher than the bubble's is a lift (data.lift, lift_price); the
   mock keeps no pool, so a lift is never refused for pips here. The mock has no physics: a bubble neither drifts nor deflates;
@@ -141,6 +143,7 @@ BUBBLE_STEP_IN_CLEARANCE_M = 0.02
 BUBBLE_MAX = 1  # one bubble at a time (decision 59): a recast pops the one there
 BUBBLE_MAX_GHOSTS = 8
 BUBBLE_LIFT_ABOVE_DRIFT_M = 0.1  # a lead's spot this much higher than the bubble is a lift (BubbleLaws.LiftAboveDriftM)
+ISLAND_SLACK_M = 0.02  # a spot this far past the room's bounds still counts as inside them (the kernel's CommandHost.IslandSlackM)
 BUBBLE_GHOST_LEAD = "The player is still seeing the bubble's ghost; cast it again in a moment."
 BUBBLE_PREVIEW_AGAIN = "Preview this bubble again before casting: the place, the player or the time has changed."
 BUBBLE_GHOST_FIRST = "A bubble on the player is previewed first: preview this cast so the player sees its ghost, then cast it again."
@@ -1898,6 +1901,7 @@ class MockHost(JournalMixin, TrustMixin):
         if job is not None and job["state"] == "running":
             job["state"] = "cancelled"
             self._task_ended(goal["job_id"], "cancelled")
+            self._trust_job_ended(goal["job_id"], "cancelled")
             # A lead's end pops the bubble it led (decision 60; the kernel's LeadCancelled).
             led = self._led_bubble(goal["job_id"])
             if led is not None:
@@ -2008,6 +2012,7 @@ class MockHost(JournalMixin, TrustMixin):
             message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
             job["result"] = self._fail(job["principal"], message, error)
         self._task_ended(goal["job_id"], job["state"])
+        self._trust_job_ended(goal["job_id"], job["state"])
         self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
         return job["state"]
 
@@ -2156,7 +2161,7 @@ class MockHost(JournalMixin, TrustMixin):
         centre = [_r(v) for v in (body.position if own else args["area"]["center_m"])]
         if not own:
             # A spot: inside the room, within the Gubble's reach, and in the team's sight now (where the wisp will float).
-            if SEA_EXTENSION not in self.room.get("extensions", {}) and not _inside(centre, self.room_bounds):
+            if not self._inside_island(centre):
                 raise HostError("out_of_bounds", "That spot is outside the room.", field_path="$.args.area.center_m")
             distance = math.dist(body.position, centre)
             if distance > ability.reach_m:
@@ -2364,6 +2369,38 @@ class MockHost(JournalMixin, TrustMixin):
     def _bubble_holding(self) -> MockBubble | None:
         return next((b for b in self.bubbles.values() if b.holding), None)
 
+    def _inside_island(self, point: list[float]) -> bool:
+        """The kernel's InsideIsland, one rule for every cast, effect and lead, the body's own: without a sea, inside the room's
+        bounds; round an island the sea has no edge, so only the top and the bottom hold. Within ISLAND_SLACK_M either way."""
+        if SEA_EXTENSION not in self.room.get("extensions", {}):
+            return _inside(point, self.room_bounds, ISLAND_SLACK_M)
+        return self.room_bounds["min_m"][1] - ISLAND_SLACK_M <= point[1] <= self.room_bounds["max_m"][1] + ISLAND_SLACK_M
+
+    def _walk_in_centre(self, spot: list[float], radius: float) -> list[float]:
+        """The kernel's WalkInCentre (ClearOfGround): a bubble to walk into rests on what is under its spot, the floor or the top of a
+        thing whose footprint holds it, found as the kernel's ray finds it (from 2r over the spot down to 1 cm under it); a spot
+        inside a box rests on its top."""
+        start = spot[1] + 2 * radius
+        tops = [self.room_bounds["min_m"][1]]
+        for entity in self.entities.values():
+            if entity.removed or entity.id.startswith("avatar:"):
+                continue
+            box = entity.bounds()
+            if box["min_m"][0] <= spot[0] <= box["max_m"][0] and box["min_m"][2] <= spot[2] <= box["max_m"][2]:
+                tops.append(box["max_m"][1])
+        hits = [top for top in tops if spot[1] - 0.01 <= top <= start]
+        y = spot[1] + radius
+        if hits and max(hits) + radius + 0.005 > y:
+            y = max(hits) + radius + 0.005
+        return [spot[0], y, spot[2]]
+
+    @staticmethod
+    def _clear_of_the_player(centre: list[float], radius: float, feet: list[float]) -> bool:
+        """The kernel's ClearOfThePlayer: the body's middle farther from the bubble's centre than its radius, the step-in clearance
+        and the body's own radius; walking in is then the player's own consent."""
+        middle = [feet[0], feet[1] + perception.BODY_HEIGHT_M / 2, feet[2]]
+        return math.dist(middle, centre) > radius + BUBBLE_STEP_IN_CLEARANCE_M + perception.BODY_RADIUS_M
+
     def _bubble_cast(self, principal: str, message: dict, apply: bool) -> dict:
         """The kernel's BubbleCast, its refusals in its order. A preview of a cast on the player shows the ghost (its preview_id);
         the prediction before a commit checks the ghost (before any hold); the commit forms the bubble and answers its receipt."""
@@ -2396,7 +2433,7 @@ class MockHost(JournalMixin, TrustMixin):
         if duration > ability.duration_max_s:
             raise HostError("invalid_args", "That duration is more than this island allows.", field_path="$.args.duration_s",
                             allowed=ability.duration_max_s)
-        if SEA_EXTENSION not in self.room.get("extensions", {}) and not _inside(centre, self.room_bounds):
+        if not self._inside_island(centre):
             raise HostError("out_of_bounds", "Choose a point inside this island.", field_path="$.args.center_m")
         gubble = self.entities.get(GUBBLE)
         if gubble is None or gubble.removed or math.dist(gubble.position, centre) > ability.reach_m:
@@ -2418,7 +2455,8 @@ class MockHost(JournalMixin, TrustMixin):
         elif boat:
             # The box world has no water: the kernel's ShallowWaterAt finds none either.
             raise HostError("invalid_args", BUBBLE_NO_WATER, field_path="$.args.center_m")
-        elif math.dist(feet, centre) <= radius + BUBBLE_STEP_IN_CLEARANCE_M:
+        elif not self._clear_of_the_player(self._walk_in_centre(centre, radius), radius, feet):
+            # Judged where it forms (a point under a surface rests on it), before any price: the kernel's ClearOfThePlayer.
             raise HostError("invalid_args", BUBBLE_ON_THE_PLAYER, field_path="$.args.center_m")
         now = self.clock.now()
         # One bubble at a time: this one replaces the one there, so only the effects count toward the room's cap.
@@ -2476,7 +2514,11 @@ class MockHost(JournalMixin, TrustMixin):
         if body is None or body.removed:
             raise HostError("not_ready", "The player's body is not in the room yet.", retryable=True)
         radius = BUBBLE_CARRY_RADIUS_DEFAULT_M
-        target = self.avatars[PLAYER] if math.dist(body.position, spot) <= radius + BUBBLE_ENVELOP_REACH_M else None
+        # On the player: their feet within reach of the spot, or a bubble to walk into that would form round them (the kernel's
+        # PlaceTheBubble judges the walk-in where it forms), so a carry, the companion's previewed first.
+        on_them = (math.dist(body.position, spot) <= radius + BUBBLE_ENVELOP_REACH_M
+                   or not self._clear_of_the_player(self._walk_in_centre(spot, radius), radius, body.position))
+        target = self.avatars[PLAYER] if on_them else None
         kind = "carry" if target is not None else "walk_in"
         duration = plan["duration_s"]
         signature = ("effect.start:" + plan["ability"].capability, tuple(spot), radius, duration, target or "")
@@ -2514,7 +2556,7 @@ class MockHost(JournalMixin, TrustMixin):
         if bubble is None or (not player and not self._approving and not self._team_sees_spot(bubble.centre, principal, GUBBLE)):
             raise _not_found("$.args.target")
         spot = [_r(v) for v in args["position_m"]]
-        if SEA_EXTENSION not in self.room.get("extensions", {}) and not _inside(spot, self.room_bounds):
+        if not self._inside_island(spot):
             raise HostError("out_of_bounds", "That spot is outside the island.", field_path="$.args.position_m")
         lift = spot[1] - bubble.centre[1] > BUBBLE_LIFT_ABOVE_DRIFT_M
         data = {"actor": actor, "goal": "lead", "bubble": bubble.id, "position_m": spot, "lift": lift}

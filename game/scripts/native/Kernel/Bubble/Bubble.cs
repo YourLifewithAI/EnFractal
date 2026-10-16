@@ -53,6 +53,8 @@ internal sealed class Bubble
     public double RiderLostS { get; set; }
     /// <summary>The Gubble's lead (goal.set lead) taking it to a spot, or null: a bubble moves only while it is led.</summary>
     public BubbleLead? Lead { get; set; }
+    /// <summary>The lead that last moved it while it held the player (kept after that lead ended): it carried them where they are.</summary>
+    public BubbleLead? CarriedBy { get; set; }
 
     /// <summary>The receipt's word for how it ended.</summary>
     public static string EndWord(BubbleEnd end) => end switch
@@ -85,6 +87,8 @@ internal sealed class BubbleLead
     /// <summary>The lift has begun to rise (charged then, once), and the height it rises to (its rest height, at most LiftRiseM up).</summary>
     public bool Rising { get; set; }
     public float RiseToY { get; set; }
-    /// <summary>How long it has wanted to move toward the spot and could not.</summary>
+    /// <summary>How long it has wanted to move toward the spot and could not (or, rising, to rise and could not).</summary>
     public double BlockedS { get; set; }
+    /// <summary>It carried the player into fire that hurt them, and the journal has that consequence fact (one per lead).</summary>
+    public bool HarmNoted { get; set; }
 }

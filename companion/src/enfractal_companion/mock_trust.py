@@ -4,7 +4,8 @@
   computed only from what happened, and counted in Challenge and Live only.
 - Clean initiative, +1: a committed command of the Gubble's that changes the world (WORLD_OPS, and goal.set only for WORLD_GOALS;
   the founder, 16 October: "only things that impact the world") opens a 60 s window; a window that closes with no consequence fact
-  in it gains, at most once in two minutes. Directional goals, stops, notes and checkpoints never gain. The mock simulates no nature, so it
+  in it gains, at most once in two minutes. A fetch or a lead opens its window only when its job succeeds; one that fails or is
+  stopped gains nothing. Directional goals, stops, notes and checkpoints never gain. The mock simulates no nature, so it
   writes no consequence facts of its own; the -3 is the kernel's.
 - receipt.mark and trust.reset are the player's alone: the companion is refused before any handler runs (player-only ops). A
   mark names a receipt of the Gubble's from this room's session, each once: +2 for yes, -2 for not that.
@@ -86,10 +87,14 @@ class TrustEntry:
     spoiled: bool = False
     settled: bool = False
     mark: str | None = None
+    job_id: str | None = None  # a fetch's or a lead's job: its window waits for it (the kernel's Entry.JobId)
+    pending: bool = False  # its job still runs: the window has not opened
+    job_failed: bool = False  # its job ended without succeeding: it gains nothing
+    opened_at: float | None = None  # when its window opened: its commit, or its job's success
 
     @property
     def closes(self) -> float:
-        return self.at + CLEAN_WINDOW_S
+        return (self.at if self.opened_at is None else self.opened_at) + CLEAN_WINDOW_S
 
 
 def _what(op: str, capability: str | None, rules) -> str:
@@ -156,19 +161,35 @@ class TrustMixin:
         self._settle_trust()
         entries = self._trust_entries
         entries.pop(message["action_id"], None)
+        initiative = changes_the_world(op, args.get("goal") if op == "goal.set" else None)
+        # A fetch or a lead changes the world only when its job succeeds: its window waits for the job (_trust_job_ended).
+        job = result.get("job_id") if op == "goal.set" and initiative else None
         entries[message["action_id"]] = TrustEntry(message["action_id"], op, _what(op, capability, self.rules), _place(args),
-                                                   self.clock.now(), self._trust_counts(),
-                                                   changes_the_world(op, args.get("goal") if op == "goal.set" else None))
+                                                   self.clock.now(), self._trust_counts(), initiative, job_id=job, pending=job is not None)
         while len(entries) > MAX_REMEMBERED:
             entries.popitem(last=False)
+        ended = self.jobs.get(job) if job is not None else None
+        if ended is not None and ended["state"] != "running":
+            self._trust_job_ended(job, ended["state"])
+
+    def _trust_job_ended(self, job_id: str, state: str) -> None:
+        """A goal's job ended (the kernel's TrustLedger.JobEnded): a fetch's or a lead's window opens now if it succeeded, and it
+        gains nothing if it failed or was stopped."""
+        for entry in self._trust_entries.values():
+            if entry.pending and entry.job_id == job_id:
+                entry.pending = False
+                if state == "succeeded":
+                    entry.opened_at = self.clock.now()
+                else:
+                    entry.job_failed = True
 
     def _settle_trust(self) -> None:
         """Every window closed by now settles once: clean and counted, it gains, at most once in GAIN_SPACING_S."""
         now = self.clock.now()
-        closed = sorted((e for e in self._trust_entries.values() if not e.settled and e.closes <= now), key=lambda e: e.closes)
+        closed = sorted((e for e in self._trust_entries.values() if not e.settled and not e.pending and e.closes <= now), key=lambda e: e.closes)
         for entry in closed:
             entry.settled = True
-            if entry.spoiled or not entry.counted or not entry.initiative:
+            if entry.spoiled or not entry.counted or not entry.initiative or entry.job_failed:
                 continue
             if self._trust_last_gain is None or entry.closes - self._trust_last_gain >= GAIN_SPACING_S:
                 self._trust_last_gain = entry.closes

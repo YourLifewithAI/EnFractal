@@ -15,9 +15,12 @@ namespace EnFractal.Native.Kernel;
 /// <item><b>Clean initiative, +1.</b> Every command on the Gubble's connection is its own idea (decision 5), an approved suggestion
 /// too (decision 45): when one that changes the world commits (Trust.ChangesTheWorld; the founder, 16 October: "only things that
 /// impact the world"), a 60 s window opens; a window that closes with no consequence fact in it gains, at most once in two minutes.
-/// Directional goals (follow, stay, come, go_to, look and point), stops, notes and checkpoints never gain.</item>
-/// <item><b>Consequence facts, -3.</b> The Gubble's fire hurting the player (CommandHostConsequences) and, since M8, the Gubble's
-/// fire burning a build: one fact per fire for each.</item>
+/// A fetch or a lead opens its window only when its job succeeds (fetched, arrived): one that fails or is stopped gains nothing, and
+/// a consequence fact while it runs spoils it. Directional goals (follow, stay, come, go_to, look and point), stops, notes and
+/// checkpoints never gain.</item>
+/// <item><b>Consequence facts, -3.</b> The Gubble's fire hurting the player (CommandHostConsequences), the Gubble's fire burning a
+/// build (M8; one fact per fire for each), and the Gubble's lead carrying the player into fire that hurts them, whoever lit it (one
+/// fact per lead).</item>
 /// <item><b>The player's marks, +2 and -2.</b> receipt.mark ("yes, like that" or "not that") on a receipt of the Gubble's from this
 /// session, each receipt once; trust.reset back to base. Both player-only, never held, never exposed to the companion.</item>
 /// <item><b>Counted in Challenge and Live only</b> (team.schema.json); marks in Creative still teach (the journal keeps them).</item>
@@ -98,12 +101,33 @@ public partial class CommandHost
             _ => null,
         };
         SettleTrust();
+        var initiative = Trust.ChangesTheWorld(op, op == "goal.set" ? Str(args, "goal") : null);
+        // A fetch or a lead changes the world only when its job succeeds: its window waits for the job (TrustGoalFinished).
+        var job = op == "goal.set" && initiative ? result["job_id"]?.GetValue<string>() : null;
         _trustLedger.Note(new TrustLedger.Entry
         {
             ActionId = Str(root, "action_id")!, Op = op, Capability = capability, What = TrustWhat(op, capability), Place = TrustPlace(op, args),
-            At = Clock(), Counted = TrustCounts, Initiative = Trust.ChangesTheWorld(op, op == "goal.set" ? Str(args, "goal") : null),
-            ApprovedBy = result["approved_by"]?.GetValue<string>(),
+            At = Clock(), Counted = TrustCounts, Initiative = initiative, ApprovedBy = result["approved_by"]?.GetValue<string>(), JobId = job, Pending = job != null,
         });
+        if (job == null) return;
+        if (!_trustWatchesJobs)
+        {
+            GoalFinished += TrustGoalFinished;
+            _trustWatchesJobs = true;
+        }
+        // A job that already ended inside its own command (a refusal on the spot) settles as it ended.
+        if (_jobs.TryGetValue(CompanionPrincipal, out var jobs) && jobs.Find(j => j.Id == job) is { State: not "running" } ended)
+            _trustLedger.JobEnded(job, ended.State == "succeeded", Clock());
+    }
+
+    /// <summary>Whether Trust hears the goal jobs' ends (subscribed once, at the first fetch or lead of the Gubble's).</summary>
+    private bool _trustWatchesJobs;
+
+    /// <summary>A goal job ended (GoalFinished): a fetch's or a lead's window opens if it succeeded, and gains nothing otherwise.</summary>
+    private void TrustGoalFinished(string actor, string jobId, string state)
+    {
+        try { _trustLedger.JobEnded(jobId, state == "succeeded", Clock()); }
+        catch (Exception error) when (error is not OutOfMemoryException) { GD.Print("COMMAND_HOST Trust could not note a goal's end: " + error.GetType().Name); }
     }
 
     /// <summary>What a mark's line calls a command: the ability or goal, in plain words from the host's own table.</summary>

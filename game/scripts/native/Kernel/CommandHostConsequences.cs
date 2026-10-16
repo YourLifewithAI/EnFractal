@@ -22,7 +22,8 @@ namespace EnFractal.Native.Kernel;
 ///   words ("The Gubble's fire burned you near ..."), naming only places the team knows. journal.read with kind
 ///   "consequence" reads the lessons back; the journal is the AI's memory.
 /// - Trust (M8, CommandHostTrust): each new consequence fact costs Trust and spoils the windows of clean initiative open over
-///   it; since M8 a build the Gubble's fire burns writes one too (one fact per fire, updated in place as it burns more).
+///   it; since M8 a build the Gubble's fire burns writes one too (one fact per fire, updated in place as it burns more), and so
+///   does the Gubble's lead carrying the player into fire that hurts them, whoever lit it (one fact per lead, NoteLeadHarm).
 /// </summary>
 public partial class CommandHost
 {
@@ -111,9 +112,13 @@ public partial class CommandHost
 
     // ---- the feedback ----
 
-    /// <summary>A fire hurt the player: when it is the Gubble's, the Gubble's notice and the journal's consequence fact.</summary>
+    /// <summary>
+    /// A fire hurt the player: when the Gubble's lead carried them into it, that lead's consequence fact, whoever lit the fire
+    /// (NoteLeadHarm); when the fire is the Gubble's, the Gubble's notice and the fire's consequence fact.
+    /// </summary>
     private void NoteFireHarm(NatureFire fire, PlayerHarm harm, Vector3 at)
     {
+        NoteLeadHarm(at);
         if (fire.Principal != CompanionPrincipal) return;
         if (_openNotice != null && _notices.Contains(_openNotice) && _openNotice["fire_revision"]!.GetValue<int>() == fire.Revision)
         {
@@ -232,6 +237,26 @@ public partial class CommandHost
 
     private static string ConsequenceLine(string? place, bool recovered) =>
         "The Gubble's fire burned you" + (place == null ? "" : " near " + Quoted(place)) + (recovered ? " until you had to recover." : ".");
+
+    /// <summary>
+    /// The W2 review's minor: the Gubble's lead carried the player, in the bubble that still holds them, into fire that hurts them,
+    /// whoever lit it. One consequence fact per lead, in the game's own words ("The Gubble's bubble carried you into fire near
+    /// ..."), saved with the journal at once; like every new consequence fact it costs Trust and spoils the windows open over it, the
+    /// lead's own (still running or just arrived) among them, so the lead earns nothing. A lead the player ordered is theirs.
+    /// </summary>
+    private void NoteLeadHarm(Vector3 at)
+    {
+        if (GubbleLeadHoldingThePlayer() is not { HarmNoted: false } lead) return;
+        lead.HarmNoted = true;
+        var place = NearestKnownPlace(at);
+        var directedBy = _trustLedger.Find(lead.ActionId)?.ApprovedBy ?? CompanionPrincipal;
+        AddHistory(Fact("consequence", LeadHarmPrefix + (place == null ? "" : " near " + Quoted(place)) + ".", CompanionPrincipal, directedBy, null, null, at));
+        NoteTrustConsequence();
+        SaveTeam();
+    }
+
+    /// <summary>The start of a lead's consequence fact (the mock simulates no fire, so writes none).</summary>
+    public const string LeadHarmPrefix = "The Gubble's bubble carried you into fire";
 
     /// <summary>The name of the thing the team knows nearest a place, within ConsequencePlaceM; null when it knows none there.</summary>
     private string? NearestKnownPlace(Vector3 at)

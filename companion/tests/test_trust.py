@@ -135,6 +135,33 @@ class TrustOnTheMock(unittest.TestCase):
         self.assertTrue(mock_trust.changes_the_world("goal.set", "fetch") and mock_trust.changes_the_world("goal.set", "lead"))
         self.assertFalse(any(mock_trust.changes_the_world("goal.set", g) for g in ("follow", "stay", "come", "go_to", "look_at", "point_at", "wander")))
 
+    def test_a_fetch_or_a_lead_earns_only_when_its_job_succeeds(self):
+        """The W2 review's minor 4, as the kernel's TrustLedger.JobEnded: a fetch or a lead changes the world only when its job
+        succeeds, so its window opens then; a job that fails or is stopped gains nothing."""
+        self.challenge()
+        fetch = {"actor": GUBBLE, "goal": "fetch", "target": "obj:book"}
+        stopped = self.send(COMPANION, "goal.set", fetch)
+        self.assertTrue(stopped["ok"], stopped)
+        self.send(PLAYER, "goal.stop", {"actor": GUBBLE})
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 0, "a fetch stopped at once fetched nothing")
+        def bubble() -> str:
+            return self.send(PLAYER, "effect.start", {"capability": "bubbles", "params": {}, "area": {"center_m": IN_THE_OPEN, "radius_m": 0.5},
+                                                      "duration_s": 60})["data"]["bubble"]
+
+        blocked = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble(), "position_m": [0.9, 0.0, 1.0]})
+        self.assertTrue(blocked["ok"], blocked)
+        self.assertEqual(self.host.goal_blocked(GUBBLE, self.host.policy.unreachable_after_s), "failed")
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 0, "a lead that could not get there moved nothing")
+        arriving = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble(), "position_m": [0.9, 0.0, 1.0]})
+        self.later(30)
+        self.assertEqual(self.host.goal_arrived(GUBBLE), "succeeded")
+        self.later(31)
+        self.assertEqual(self.host.trust_count, 0, "its window opened on arrival, so is still open")
+        self.later(30)
+        self.assertEqual((arriving["ok"], self.host.trust_count), (True, mock_trust.CLEAN_INITIATIVE), "a lead that arrives gains once its window closes clean")
+
     def test_creative_counts_nothing_and_a_mark_there_still_teaches(self):
         stay = self.gubble_glows()
         self.later(61)

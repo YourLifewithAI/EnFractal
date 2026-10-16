@@ -21,14 +21,16 @@ namespace EnFractal.Native.Kernel;
 /// - One at a time (decision 59): a recast pops the one already there, and there is no pause after a pop. Bubbles count toward the
 ///   room's effect cap, at a bubble's cast and at any effect's start (PlanEffect).
 /// - Consent: a carry on the player's avatar is previewed first (the ghost the player sees); a Gubble's commits at least
-///   BubbleLaws.GhostLeadS after it. A bubble at a point never forms round the player: it holds them only once they walk in. A boat
-///   holds them once they step aboard, and an empty bubble or boat never moves under or onto them.
+///   BubbleLaws.GhostLeadS after it. A bubble at a point never forms round the player, judged where it forms (a point under a
+///   surface rests on it): effect.start makes such a spot a carry (the ghost first), nature.cast at a point refuses it; it holds them
+///   only once they walk in. A boat holds them once they step aboard, and an empty bubble or boat never moves under or onto them.
 /// - The exit: the dive key (the body) or X (the player's goal.stop) pops it at any moment, whoever cast it and whoever leads it;
 ///   leaving a boat by the dive key or by walking off its rim. Nothing the companion sends can hold a player in.
 /// - The deflate: a bubble that pops in the air, by the player, its timer or anything else, lets the body down slowly (the body's
 ///   ride, SmallPlayerController.Bubble.cs), so a carry never ends in a fall, and Lift rises anywhere.
 /// - Moving: a bubble moves only while the Gubble leads it (goal.set lead, decision 57), like a balloon on a string; it moves the
-///   player only while it holds them. A bubble that holds the player rises to its hover and over rising ground.
+///   player only while it holds them. A bubble that holds the player rises to its hover; it keeps its height otherwise, rising
+///   ground lifting it at most BubbleLaws.DriftStepM: only a lift (a lead to a higher spot, paid at the rise) raises it.
 /// - The price: the pack's cost for what the place made of it, by principal, through the guard at commit (CommandHostEnergy): a
 ///   bubble to walk into is the Bubbles price, a carry on the player bubble_carry's, a boat bubble_boat's; a lift is bubble_lift's,
 ///   charged when it starts to rise. A preview, a pop and a refusal cost nothing. No expertise gate.
@@ -200,7 +202,9 @@ public partial class CommandHost
     /// <summary>
     /// Where the Bubble lands decides what it is (decision 56): a spot on the player (their feet within the bubble's radius and
     /// BubbleLaws.EnvelopReachM) is a carry round them; water is a boat, beside them, never under them; anywhere else a bubble that
-    /// waits for them to walk in, which by then is clear of them.
+    /// waits for them to walk in. The walk-in is judged where it forms (WalkInCentre: a spot under a surface rests on it), not where
+    /// it was aimed: one that would form round the player (ClearOfThePlayer) is on them, so a carry, the Gubble's shown first as its
+    /// ghost (the W2 review's blocker: aimed under the feet of a player on a box, it formed round them on the box top).
     /// </summary>
     private (BubbleKind Kind, string? Target, float Radius, float? Surface) PlaceTheBubble(Vector3 spot, string path)
     {
@@ -212,7 +216,23 @@ public partial class CommandHost
                 throw new Refusal("invalid_args", "The player stands there: cast the boat beside them, and they step aboard.", path);
             return (BubbleKind.Boat, null, BubbleLaws.BoatRadiusDefaultM, surface);
         }
+        if (!ClearOfThePlayer(WalkInCentre(spot, BubbleLaws.CarryRadiusDefaultM), BubbleLaws.CarryRadiusDefaultM))
+            return (BubbleKind.Carry, PlayerAvatar, BubbleLaws.CarryRadiusDefaultM, null);
         return (BubbleKind.Carry, null, BubbleLaws.CarryRadiusDefaultM, null);
+    }
+
+    /// <summary>Where a bubble to walk into forms for a spot: resting on what is under it (a spot inside a box rests on its top).</summary>
+    private Vector3 WalkInCentre(Vector3 spot, float radius) => ClearOfGround(spot + Vector3.Up * radius, radius);
+
+    /// <summary>
+    /// Whether a bubble round this centre is clear of the player's body: its middle farther than the bubble's radius, the step-in
+    /// clearance and the body's own radius (the rule a led empty bubble keeps too). Walking in is then the player's own consent.
+    /// </summary>
+    private bool ClearOfThePlayer(Vector3 centre, float radius)
+    {
+        var body = Player!;
+        var middle = body.GlobalPosition + Vector3.Up * (body.BodyHeightM * 0.5f);
+        return middle.DistanceTo(centre) > radius + BubbleLaws.StepInClearanceM + body.BodyRadiusM;
     }
 
     /// <summary>
@@ -243,7 +263,7 @@ public partial class CommandHost
                 allowed: new JsonArray(KernelJson.Num(least), KernelJson.Num(most)));
         if (duration > ability.DurationMaxS)
             throw new Refusal("invalid_args", "That duration is more than this island allows.", "$.args.duration_s", allowed: JsonValue.Create(ability.DurationMaxS));
-        if (!Room.Bounds.Grow(0.02f).HasPoint(center)) throw new Refusal("out_of_bounds", "Choose a point inside this island.", "$.args.center_m");
+        if (!InsideIsland(center)) throw new Refusal("out_of_bounds", "Choose a point inside this island.", "$.args.center_m");
         if (Companion == null || !IsInstanceValid(Companion) || Companion.GlobalPosition.DistanceTo(center) > ability.ReachM)
             throw new Refusal("out_of_bounds", "Bring the Gubble closer before casting.", "$.args.center_m", retryable: true, allowed: JsonValue.Create(ability.ReachM));
         if (!TeamSeesSpot(center, principal)) throw new Refusal("target_not_found", "The team must see the place the Gubble will affect.", "$.args.center_m");
@@ -265,8 +285,9 @@ public partial class CommandHost
             if (LevelGap(feet, center) <= radius + BubbleLaws.StepInClearanceM)
                 throw new Refusal("invalid_args", "The player stands there: cast the boat beside them, and they step aboard.", "$.args.center_m");
         }
-        // A bubble at a point never forms round the player: walking in is their consent, so it waits beside them.
-        else if (feet.DistanceTo(center) <= radius + BubbleLaws.StepInClearanceM)
+        // A bubble at a point never forms round the player: walking in is their consent, so it waits beside them. Judged where it
+        // forms (a point under a surface rests on it), before the guard, so a refusal costs nothing.
+        else if (!ClearOfThePlayer(WalkInCentre(center, radius), radius))
             throw new Refusal("invalid_args", "The player stands there: cast the carry on the player (it is previewed first), or beside them so they can step in.", "$.args.center_m");
         // One bubble at a time: this one replaces the one there, so only the effects count toward the room's cap.
         if (_effects.Count >= EffectLimit)
@@ -325,7 +346,7 @@ public partial class CommandHost
         var sweep = SweepRadius(body);
         var at = kind == BubbleKind.Boat ? new Vector3(center.X, surface!.Value + BubbleLaws.BoatDeckAboveWaterM, center.Z)
             : target != null ? ClearOfGround(body.GlobalPosition + Vector3.Up * (body.BodyHeightM * 0.5f), sweep)
-            : ClearOfGround(center + Vector3.Up * radius, radius);
+            : WalkInCentre(center, radius);
         var bubble = new Bubble
         {
             // 'effect:' and 26 lowercase base32 characters (130 random bits): opaque, never a counter.
@@ -559,7 +580,8 @@ public partial class CommandHost
 
     /// <summary>
     /// The bubbles' tick, from _PhysicsProcess (tests call it): time runs out (the host's clock), the walk-in and the step aboard, the
-    /// hover, and the lead (its drift, its lift, its arrival) swept against the world, and a body that left its bubble.
+    /// hover, and the lead (its drift, its lift, its arrival, a rise or a drift that stays blocked) swept against the world, and a body
+    /// that left its bubble.
     /// </summary>
     public void AdvanceBubbles(double delta)
     {
@@ -609,7 +631,7 @@ public partial class CommandHost
             UpdateBubbleReceipt(bubble, "carried", true);
         }
         var lead = LiveLead(bubble);
-        // A bubble moves only while the Gubble leads it; one that holds the player still rises to its hover and over rising ground.
+        // A bubble moves only while the Gubble leads it; one that holds the player still rises to its hover.
         if (!bubble.Holding && lead == null)
         {
             bubble.Velocity = Vector3.Zero;
@@ -617,8 +639,12 @@ public partial class CommandHost
         }
         var sweep = SweepRadius(body);
         var hover = bubble.Holding ? BubbleLaws.CarryHoverM : 0f;
+        // It keeps its height, like a balloon on its string: rising ground lifts it at most the drift's own step (DriftStepM) above
+        // the height it formed, took the player or was lifted at (BaseY); higher ground blocks its drift. Only a lift, paid when it
+        // starts to rise, raises that height (decision 58; the W2 review's major: a held carry rode a 52 degree ramp up 0.73 m free).
         var targetY = bubble.BaseY + hover;
-        if (GroundBelow(bubble.Center, BubbleLaws.LiftRiseM + 1f) is { } ground) targetY = Math.Max(targetY, ground + sweep + hover);
+        if (GroundBelow(bubble.Center, BubbleLaws.LiftRiseM + 1f) is { } ground)
+            targetY = Math.Max(targetY, Math.Min(ground + sweep + hover, bubble.BaseY + hover + BubbleLaws.DriftStepM));
         var rate = BubbleLaws.CarryRiseMps * dt;
         var level = Vector2.Zero;
         var held = false;
@@ -647,9 +673,12 @@ public partial class CommandHost
         bubble.Velocity = (moved - bubble.Center) / dt;
         var wanted = level.Length();
         var went = LevelGap(moved, bubble.Center);
+        var climbed = risen.Y - bubble.Center.Y;
         bubble.Center = moved;
+        // The lead that moves it while it holds the player carried them there (a consequence fact if that hurts them, NoteLeadHarm).
+        if (lead != null && bubble.Holding) bubble.CarriedBy = lead;
         if (LookHook != null && IsInstanceValid(LookHook)) LookHook.MoveBubble(bubble.Id, moved);
-        if (lead != null) AfterLeadStep(bubble, lead, dt, wanted, went, held, Math.Abs(targetY - moved.Y) <= BubbleLaws.LeadArriveRiseM);
+        if (lead != null) AfterLeadStep(bubble, lead, dt, wanted, went, held, Math.Abs(targetY - moved.Y) <= BubbleLaws.LeadArriveRiseM, rise.Y, climbed);
     }
 
     private void StepBoat(Bubble bubble, SmallPlayerController body, float dt)
@@ -700,10 +729,25 @@ public partial class CommandHost
             bubble.Center = moved;
             if (LookHook != null && IsInstanceValid(LookHook)) LookHook.MoveBubble(bubble.Id, moved);
         }
-        AfterLeadStep(bubble, lead, dt, wanted, went, held, settled: true);
+        AfterLeadStep(bubble, lead, dt, wanted, went, held, settled: true, riseWanted: 0, riseWent: 0);
     }
 
     private static float LevelGap(Vector3 a, Vector3 b) => new Vector2(a.X - b.X, a.Z - b.Z).Length();
+
+    /// <summary>The island's play-space margin: a spot this far past the room's bounds still counts as inside them.</summary>
+    public const float IslandSlackM = 0.02f;
+
+    /// <summary>
+    /// The island's bounds for a spot, one rule for every cast, effect and lead, the body's own (SmallPlayerController.BoundsHoldSides):
+    /// without a sea, inside the room's bounds; round an island the sea has no edge, so only the top and the bottom hold (a boat may
+    /// be cast and led out on the open sea, as a body swims there). Within IslandSlackM either way.
+    /// </summary>
+    private bool InsideIsland(Vector3 point)
+    {
+        var bounds = Room.Bounds.Grow(IslandSlackM);
+        if (Room.Sea == null) return bounds.HasPoint(point);
+        return point.IsFinite() && point.Y >= bounds.Position.Y && point.Y <= bounds.End.Y;
+    }
 
     // ---- the world: collision and water ----
 

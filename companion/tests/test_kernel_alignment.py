@@ -361,6 +361,8 @@ class MechanicsMatchTheKernel(unittest.TestCase):
                              ("BUBBLE_MAX_GHOSTS", "MaxGhosts"), ("BUBBLE_LIFT_ABOVE_DRIFT_M", "LiftAboveDriftM")):
             with self.subTest(number=kernel):
                 self.assertEqual(getattr(mock_host, mock), law(kernel))
+        # One rule for the island's bounds (the W2 review's minor 8): the mock's margin is the kernel's InsideIsland's.
+        self.assertEqual(mock_host.ISLAND_SLACK_M, float(_match(KERNEL / "Kernel" / "Bubble" / "CommandHostBubble.cs", r"\bconst float IslandSlackM = ([0-9.]+)f;")))
         # One bubble at a time and no pause after a pop (decision 59): the pause's number and words are gone from both hosts.
         self.assertEqual(mock_host.BUBBLE_MAX, 1)
         self.assertFalse(hasattr(mock_host, "BUBBLE_POP_RESPECT_S") or hasattr(mock_host, "BUBBLE_POP_RESPECT"))

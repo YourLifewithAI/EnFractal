@@ -201,8 +201,9 @@ public partial class CommandHost
         var centre = self ? Companion.GlobalPosition : KernelJson.ReadVector(area.GetProperty("center_m"));
         if (!self)
         {
-            // A spot: inside the room, within the Gubble's reach, and in the team's sight now (where the wisp will float).
-            if (Room.Sea == null && !Room.Bounds.Grow(0.001f).HasPoint(centre))
+            // A spot: inside the island (InsideIsland, the one rule for casts, effects and leads), within the Gubble's reach, and in the
+            // team's sight now (where the wisp will float).
+            if (!InsideIsland(centre))
                 throw new Refusal("out_of_bounds", "That spot is outside the room.", "$.args.area.center_m");
             var distance = Companion.GlobalPosition.DistanceTo(centre);
             if (distance > ability.ReachM)

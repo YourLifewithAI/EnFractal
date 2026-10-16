@@ -29,6 +29,8 @@ public partial class NatureTest
         await TestTrustBands();
         await TestLessonApplied();
         await TestTrustIsNeverTheCompanions();
+        await TestAPreviewOrAHoldIsNoInitiative();
+        await TestAFetchEarnsOnlyWhenItSucceeds();
     }
 
     private JsonObject GubbleStays(string? actionId = null) =>
@@ -109,6 +111,24 @@ public partial class NatureTest
         ledger.Note(Act("f", 400));
         ledger.Reset();
         Check(ledger.Settle(t0.AddSeconds(900)).Count == 0 && ledger.LastGain == null && ledger.Find("f") != null, "the player's reset closes every open window with no gain; the receipts can still be marked");
+        // A fetch or a lead (the W2 review's minor 4): its window waits for its job, opens when the job succeeds, and a job that
+        // fails or is stopped gains nothing; a consequence while the job runs spoils it.
+        var jobs = new TrustLedger();
+        TrustLedger.Entry Goal(string id, double at) =>
+            new() { ActionId = id, Op = "goal.set", Capability = "lead", What = "bubble lead", At = t0.AddSeconds(at), Counted = true, JobId = "job-" + id, Pending = true };
+        jobs.Note(Goal("fails", 0));
+        jobs.Note(Goal("spoiled", 0));
+        var waiting = jobs.Settle(t0.AddSeconds(100)).Count;
+        jobs.JobEnded("job-fails", false, t0.AddSeconds(5));
+        jobs.Consequence(t0.AddSeconds(10));
+        jobs.JobEnded("job-spoiled", true, t0.AddSeconds(20));
+        jobs.Note(Goal("arrives", 30));
+        jobs.JobEnded("job-arrives", true, t0.AddSeconds(100));
+        var early = jobs.Settle(t0.AddSeconds(150)).Select(s => s.Entry.ActionId).ToList();
+        var late = jobs.Settle(t0.AddSeconds(161)).Select(s => $"{s.Entry.ActionId}:{(s.Gained ? "+1" : "0")}").ToList();
+        Check(waiting == 0 && early.SequenceEqual(new[] { "fails", "spoiled" }) && late.SequenceEqual(new[] { "arrives:+1" }),
+            $"a goal's window waits for its job: a failed job gains nothing, a consequence while it ran spoils it, a success opens the window then " +
+            $"({waiting} settled while running; {string.Join(" ", early)} settled by 150 s; {string.Join(" ", late)})");
     }
 
     // ---- item 1: clean initiative, spaced; consequences ----
@@ -369,5 +389,47 @@ public partial class NatureTest
             $"the player's journal reads Trust in words, never the number; the aura's accessor reads band {_host.TrustBand}: \"{line}\"");
         var status = Send(Query("player.status", new JsonObject()), Companion);
         Check(Ok(status) && status["data"]?["trust"] == null, "player.status carries no Trust until the contract says so (the change request)");
+    }
+
+    // ---- the W2 review's minor 6: only a committed command of the Gubble's is initiative (ObserveTrustCommand's filters) ----
+
+    private async Task TestAPreviewOrAHoldIsNoInitiative()
+    {
+        await EnergyWorld("trust-preview");
+        var remembered = _host.TrustRemembered;
+        var previewed = Send(Command(NextId("gubble-build"), "creation.place", new JsonObject
+        {
+            ["source"] = Source("Gubble's previewed post"), ["placement"] = new JsonObject { ["position_m"] = new JsonArray(0.8, 0, -0.45) },
+        }, preview: true), Companion);
+        var shed = Build("Held shed", 1.5, 1.2);
+        var held = Send(Command(NextId("remove"), "entity.remove", new JsonObject { ["target"] = shed }, expectedRevision: _host.Revision), Companion);
+        Later(61);
+        var markPreview = Mark(previewed["action_id"]!.GetValue<string>(), "yes");
+        var markHeld = Mark(held["action_id"]!.GetValue<string>(), "yes");
+        Check(Ok(previewed) && previewed["preview"]?.GetValue<bool>() == true && Code(held) == "approval_required" && _host.TrustRemembered == remembered &&
+            _host.TrustCount == 0 && Code(markPreview) == "target_not_found" && Code(markHeld) == "target_not_found",
+            $"a preview of the Gubble's, or a command of its held for the player's click, is no initiative and no receipt to mark ({_host.TrustRemembered - remembered} remembered, " +
+            $"Trust {_host.TrustCount}, marks {Code(markPreview)} and {Code(markHeld)})");
+    }
+
+    // ---- the W2 review's minor 4: a fetch earns Trust only when its job succeeds ----
+
+    private async Task TestAFetchEarnsOnlyWhenItSucceeds()
+    {
+        await EnergyWorld("trust-fetch");
+        JsonObject Fetch() => Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Companion);
+        var stopped = Fetch();
+        var x = Send(Command(NextId("x"), "goal.stop", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }), Player);
+        Later(61);
+        Check(Ok(stopped) && Ok(x) && _host.TrustCount == 0, $"the Gubble's fetch stopped at once fetched nothing, so earns nothing ({Code(stopped) ?? "ok"}, Trust {_host.TrustCount})");
+        _now += TimeSpan.FromSeconds(200);
+        var fetched = Fetch();
+        Later(30);
+        var arrived = _host.ReportArrival(CommandHost.CompanionAvatarId);
+        Later(31);
+        var midWindow = _host.TrustCount;
+        Later(30);
+        Check(Ok(fetched) && arrived == "succeeded" && midWindow == 0 && _host.TrustCount == TrustLaws.CleanInitiative,
+            $"a fetch's window opens when its job succeeds and gains when it closes clean ({arrived}; {midWindow} at 31 s after, {_host.TrustCount} at 61 s)");
     }
 }
