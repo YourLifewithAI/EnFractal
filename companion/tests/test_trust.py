@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import unittest
 
-from support import COMPANION, GUBBLE, PLAYER, FakeClock, command, contract_problems, new_host, query
+from support import COMPANION, GUBBLE, IN_THE_OPEN, PLAYER, FakeClock, command, contract_problems, glow, new_host, query
 
 from enfractal_companion import mock_trust
 from enfractal_companion.mock_host import MECHANICS_HOSTED
@@ -39,6 +39,13 @@ class TrustOnTheMock(unittest.TestCase):
 
     def challenge(self):
         self.assertTrue(self.send(PLAYER, "world.set_mode", {"mode": "challenge"})["ok"])
+
+    def gubble_glows(self) -> str:
+        """A command of the Gubble's that changes the world: a Glow of its own in the open (the cheapest initiative on the mock)."""
+        result = self.host.handle(COMPANION, glow(f"glow-{self.n}", at=IN_THE_OPEN))
+        self.n += 1
+        self.assertTrue(result["ok"], result)
+        return result["action_id"]
 
     def gubble_stays(self, action_id=None) -> str:
         result = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "stay"}, action_id)
@@ -96,15 +103,15 @@ class TrustOnTheMock(unittest.TestCase):
 
     def test_clean_initiative_gains_once_in_two_minutes(self):
         self.challenge()
-        self.gubble_stays()
+        self.gubble_glows()
         self.later(30)
         self.assertEqual(self.host.trust_count, 0, "the window is still open")
         self.later(31)
         self.assertEqual(self.host.trust_count, 1, "a clean window gains one")
-        self.gubble_stays()
+        self.gubble_glows()
         self.later(61)
         self.assertEqual(self.host.trust_count, 1, "a second gain within two minutes of the last is none")
-        self.gubble_stays()
+        self.gubble_glows()
         self.later(61)
         self.assertEqual(self.host.trust_count, 2)
         self.send(COMPANION, "goal.stop", {"actor": GUBBLE})
@@ -112,12 +119,28 @@ class TrustOnTheMock(unittest.TestCase):
         self.later(200)
         self.assertEqual(self.host.trust_count, 2, "a stop or a note is no action")
 
+    def test_directional_commands_gain_nothing_and_can_still_be_marked(self):
+        # The founder, 16 October: Trust shouldn't be impacted by simple directional commands, only things that impact the world.
+        self.challenge()
+        moves = [self.gubble_stays(),
+                 self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "follow"})["action_id"],
+                 self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "go_to", "position_m": IN_THE_OPEN})["action_id"]]
+        self.later(200)
+        self.assertEqual(self.host.trust_count, 0, "a stay, a follow and a go_to gain nothing")
+        self.gubble_glows()
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 1, "a Glow of the Gubble's own changes the world and gains")
+        self.assertTrue(self.mark(moves[2], "yes")["ok"], "a directional command's receipt can still be marked")
+        self.assertEqual(self.host.trust_count, 3)
+        self.assertTrue(mock_trust.changes_the_world("goal.set", "fetch") and mock_trust.changes_the_world("goal.set", "lead"))
+        self.assertFalse(any(mock_trust.changes_the_world("goal.set", g) for g in ("follow", "stay", "come", "go_to", "look_at", "point_at", "wander")))
+
     def test_creative_counts_nothing_and_a_mark_there_still_teaches(self):
-        stay = self.gubble_stays()
+        stay = self.gubble_glows()
         self.later(61)
         self.assertTrue(self.mark(stay, "not_that")["ok"])
         self.assertEqual(self.host.trust_count, 0)
-        self.assertIn("You marked the Gubble's move: not that.", self.lessons())
+        self.assertIn("You marked the Gubble's glow near \"Rug\": not that.", self.lessons())
 
     def test_the_bands_and_the_reset_are_words_the_ai_reads(self):
         self.challenge()
@@ -125,7 +148,7 @@ class TrustOnTheMock(unittest.TestCase):
             self.assertTrue(self.mark(self.gubble_stays(), "yes")["ok"])
         self.assertEqual((self.host.trust_count, self.host.trust_band), (6, 1))
         self.assertEqual(self.lessons()[0], "Trust grew: you trust the Gubble a little.")
-        self.gubble_stays()
+        self.gubble_glows()
         reset = self.send(PLAYER, "trust.reset", {})
         self.assertTrue(reset["ok"] and reset["transient"] and "data" not in reset, reset)
         self.assertEqual(self.host.trust_count, 0)

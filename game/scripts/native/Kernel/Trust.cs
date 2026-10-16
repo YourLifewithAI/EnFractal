@@ -39,6 +39,21 @@ public static class TrustLaws
     public const float LessonPlaceM = 2.0f;
     /// <summary>The Gubble's commands the host remembers this session, for the windows and the marks; the oldest go first.</summary>
     public const int MaxRemembered = 1024;
+    /// <summary>
+    /// The founder, 16 October: "Trust shouldn't be impacted by simple directional commands, only things that impact the world." The
+    /// Gubble's commands that change the world, and so open a window of clean initiative: its magic, its changes to things and builds,
+    /// nature's changes and an undo of them, a lock. goal.set opens one only for the goals in WorldGoals; the directional goals (follow,
+    /// stay, come, go_to, look_at, point_at, wander), stops, notes and checkpoints never do. The player-only ops (glow.configure,
+    /// the item ops, wish.submit) never reach here from the Gubble. Any receipt of the Gubble's can still be marked.
+    /// </summary>
+    public static readonly HashSet<string> WorldOps = new(StringComparer.Ordinal)
+    {
+        "nature.cast", "nature.trail", "nature.repair", "room.undo", "effect.start", "effect.adjust",
+        "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
+        "creation.place", "creation.revise", "creation.activate", "protect.lock",
+    };
+    /// <summary>The goals that change the world: a fetch carries a thing, a lead moves a bubble (and the player in it).</summary>
+    public static readonly HashSet<string> WorldGoals = new(StringComparer.Ordinal) { "fetch", "lead" };
 }
 
 /// <summary>Trust's pure rules: the band, the words (never a number on screen), the discounted own-idea price.</summary>
@@ -47,6 +62,9 @@ public static class Trust
     public const int Bound = 1_000_000;
 
     public static int Clamp(long count) => (int)Math.Clamp(count, -Bound, Bound);
+
+    /// <summary>Whether a command of the Gubble's changes the world (TrustLaws.WorldOps, and goal.set only for TrustLaws.WorldGoals).</summary>
+    public static bool ChangesTheWorld(string op, string? goal) => op == "goal.set" ? goal != null && TrustLaws.WorldGoals.Contains(goal) : TrustLaws.WorldOps.Contains(op);
 
     /// <summary>The band, 0 to 3: what the bands at 5, 15 and 30 open (the discount, the early warning, the aura's mark).</summary>
     public static int Band(int count)
@@ -111,6 +129,8 @@ public sealed class TrustLedger
         public DateTime At { get; init; }
         /// <summary>Whether Trust counted when it committed (Challenge and Live): only those gain.</summary>
         public bool Counted { get; init; }
+        /// <summary>Whether it changed the world (Trust.ChangesTheWorld): only those open a window that can gain. Every one can be marked.</summary>
+        public bool Initiative { get; init; } = true;
         /// <summary>The player when the player's click committed it (an approved suggestion, decision 45), else null.</summary>
         public string? ApprovedBy { get; init; }
         public bool Spoiled { get; internal set; }
@@ -164,7 +184,7 @@ public sealed class TrustLedger
         {
             entry.Settled = true;
             var clean = !entry.Spoiled;
-            var gained = clean && entry.Counted && (LastGain is not { } last || (entry.Closes - last).TotalSeconds >= TrustLaws.GainSpacingS);
+            var gained = clean && entry.Counted && entry.Initiative && (LastGain is not { } last || (entry.Closes - last).TotalSeconds >= TrustLaws.GainSpacingS);
             if (gained) LastGain = entry.Closes;
             outcome.Add((entry, clean, gained));
         }
