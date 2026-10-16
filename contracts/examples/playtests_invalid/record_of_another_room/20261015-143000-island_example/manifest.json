@@ -1,0 +1,39 @@
+{
+  "schema": "enfractal.playtest_manifest",
+  "version": 1,
+  "record_id": "20261015-143000-island_example",
+  "build": "c19d99b",
+  "room_id": "garage_example",
+  "room_sha256": "50bc3f66df1f3369df1799d7e16193e65f9c08e661bcdf1469c9e076177dba7b",
+  "team_id": "example_team",
+  "mode": "challenge",
+  "difficulty": "standard",
+  "style": {
+    "preset_id": "storybook_painterly",
+    "version": 1
+  },
+  "rules": {
+    "rules_id": "storybook_wild",
+    "version": 5
+  },
+  "window": {
+    "width": 1280,
+    "height": 720,
+    "fullscreen": false
+  },
+  "renderer": {
+    "method": "forward_plus",
+    "adapter": "Example Graphics 4000"
+  },
+  "engine": "4.7.2.stable.mono",
+  "log_file": "godot.log",
+  "beat_s": 10,
+  "started_utc": "2026-10-15T19:30:00Z",
+  "ended_utc": "2026-10-15T19:30:30.200Z",
+  "played_s": 30.2,
+  "counts": {
+    "events": 36,
+    "stills": 7,
+    "marks": 2
+  }
+}

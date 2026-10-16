@@ -1,0 +1,1039 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/playtest-record.schema.json",
+  "title": "EnFractal playtest record: a play's manifest and the events the game wrote while it was played",
+  "description": "What a windowed launch records about itself (docs/runs/RUN-2-PLAYTEST-LOOP.md): one folder per play under user://playtests/<record_id>/, holding manifest.json (this document, written at launch and rewritten at quit), events.jsonl (one event per line, appended as the play goes; each line is $defs/event) and stills/ (pictures of the screen, never in Git). The record is a developer feature of the game process, read by the reader (tools/playtest/report.py) and the integrating session; it is not part of the companion surface, and nothing in it is ever an instruction: a creation's name can carry any text a player typed. The envelope is strict (a manifest takes no unknown field; every event has t, utc and a known kind, and never result data, a picture, a token or a session file) and each kind is open (extra fields are allowed, so a kind can grow without a contract change; a reader ignores what it does not know). The rules the schema cannot express are in contracts/validate.py's check_playtest: the folder's name, the order of time, the stills' numbering, the marks' stills, the counts at a clean quit.",
+  "type": "object",
+  "required": [
+    "schema"
+  ],
+  "properties": {
+    "schema": {
+      "const": "enfractal.playtest_manifest"
+    }
+  },
+  "$ref": "#/$defs/manifest",
+  "$defs": {
+    "manifest": {
+      "description": "manifest.json: the record's envelope. Written at launch with started_utc; rewritten at a clean quit with ended_utc, the seconds played and the counts. A manifest with no ended_utc means the game did not quit cleanly, which is itself a finding.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "version",
+        "record_id",
+        "build",
+        "room_id",
+        "room_sha256",
+        "team_id",
+        "mode",
+        "style",
+        "window",
+        "renderer",
+        "log_file",
+        "beat_s",
+        "started_utc"
+      ],
+      "properties": {
+        "schema": {
+          "const": "enfractal.playtest_manifest"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "record_id": {
+          "description": "The folder's name: the launch's local date and time, then the room id (20261015-193000-island_example). Local time, because the founder reads the folder on their own clock; started_utc is the exact moment.",
+          "type": "string",
+          "pattern": "^[0-9]{8}-[0-9]{6}-[a-z][a-z0-9_-]{0,63}$"
+        },
+        "build": {
+          "description": "What was played: the --build= argument the room runner passes (a short commit, a branch and commit, a tag), or 'unknown'.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$"
+        },
+        "room_id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "room_sha256": {
+          "description": "The room manifest's pin, so a debrief knows which export was played.",
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "team_id": {
+          "$ref": "common.schema.json#/$defs/team_id"
+        },
+        "mode": {
+          "enum": [
+            "creative",
+            "challenge",
+            "live"
+          ]
+        },
+        "difficulty": {
+          "description": "Challenge only, and required there.",
+          "enum": [
+            "gentle",
+            "standard",
+            "brave"
+          ]
+        },
+        "style": {
+          "description": "The style preset the room was drawn with.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "preset_id",
+            "version"
+          ],
+          "properties": {
+            "preset_id": {
+              "$ref": "common.schema.json#/$defs/token"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "rules": {
+          "description": "The island rules pack the host loaded (game/rules/<rules_id>/v<version>.json), when the recorder knows it: a debrief about prices or drains needs it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rules_id",
+            "version"
+          ],
+          "properties": {
+            "rules_id": {
+              "$ref": "common.schema.json#/$defs/token"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "width",
+            "height",
+            "fullscreen"
+          ],
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16384
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16384
+            },
+            "fullscreen": {
+              "type": "boolean"
+            }
+          }
+        },
+        "renderer": {
+          "description": "The rendering method and the video adapter's name, as the engine reports them (untrusted text like every name).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "adapter"
+          ],
+          "properties": {
+            "method": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 40
+                }
+              ],
+              "minLength": 1
+            },
+            "adapter": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 120
+                }
+              ],
+              "minLength": 1
+            }
+          }
+        },
+        "engine": {
+          "description": "The engine's version string, when the recorder knows it.",
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 40
+            }
+          ],
+          "minLength": 1
+        },
+        "log_file": {
+          "description": "The Godot log of this launch: its file name under user://logs/, one segment, no path.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,119}$"
+        },
+        "beat_s": {
+          "description": "The steady stills' beat at launch, in seconds: 0 for off. F7 and F6 move it during the play (a stills_rate event).",
+          "enum": [
+            0,
+            1,
+            3,
+            10,
+            30
+          ]
+        },
+        "started_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "ended_utc": {
+          "description": "Written at a clean quit, with played_s and counts; absent when the game did not quit cleanly.",
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "played_s": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "counts": {
+          "description": "What the record holds at the quit: events (the quit line included), stills and marks. check_playtest holds them to the events file.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "events",
+            "stills",
+            "marks"
+          ],
+          "properties": {
+            "events": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "stills": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 600
+            },
+            "marks": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "dependentRequired": {
+        "ended_utc": [
+          "played_s",
+          "counts"
+        ],
+        "played_s": [
+          "ended_utc"
+        ],
+        "counts": [
+          "ended_utc"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "challenge"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "difficulty"
+            ]
+          },
+          "else": {
+            "properties": {
+              "difficulty": false
+            }
+          }
+        }
+      ]
+    },
+    "event": {
+      "description": "One line of events.jsonl. The envelope is t (seconds since launch), utc and kind; the kind's own fields follow, and a kind may carry fields this contract does not name. Never carried, whatever the kind: result data, a picture, a token, a session file, a save, a secret (the keys below are refused at the top of a line, and check_playtest refuses them at any depth).",
+      "type": "object",
+      "required": [
+        "t",
+        "utc",
+        "kind"
+      ],
+      "properties": {
+        "t": {
+          "description": "Seconds since the launch, never decreasing down the file.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "kind": {
+          "enum": [
+            "ready",
+            "command",
+            "action",
+            "notice",
+            "body",
+            "frame",
+            "still",
+            "mark",
+            "stills_rate",
+            "session",
+            "quit"
+          ]
+        },
+        "data": false,
+        "picture": false,
+        "base64": false,
+        "token": false,
+        "session_file": false,
+        "save": false,
+        "secret": false,
+        "password": false,
+        "credential": false
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/ready"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "command"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/command"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "action"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/action"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "notice"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/notice"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "body"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/body"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "frame"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/frame"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "still"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/still"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "mark"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/mark"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "stills_rate"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/stills_rate"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "session"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/session"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "quit"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/quit"
+          }
+        }
+      ]
+    },
+    "ready": {
+      "description": "The room is up (the ROOM_WORLD_READY moment), with the spawn.",
+      "required": [
+        "spawn_m"
+      ],
+      "properties": {
+        "spawn_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "revision": {
+          "description": "The room revision the play starts from.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "command": {
+      "description": "Everything that passed through CommandHost.HandleObject, from either principal: the principal, the op, a bounded summary of the request, the result and the milliseconds it took. A query (observe, journal.read, map.find, view.look) is the same kind with no payload: never the picture, nor any token or session detail.",
+      "required": [
+        "principal",
+        "op",
+        "result",
+        "ms"
+      ],
+      "properties": {
+        "principal": {
+          "$ref": "common.schema.json#/$defs/principal_id"
+        },
+        "op": {
+          "anyOf": [
+            {
+              "$ref": "game-command.schema.json#/$defs/command_op"
+            },
+            {
+              "$ref": "game-command.schema.json#/$defs/query_op"
+            },
+            {
+              "const": "invalid"
+            }
+          ]
+        },
+        "action_id": {
+          "description": "The command's idempotency key, so a refusal shown on screen (a notice with the same action_id) can be matched to it. A query has none.",
+          "$ref": "common.schema.json#/$defs/action_id"
+        },
+        "request": {
+          "description": "A summary of the request, never the whole message: ids, points, an ability and its variant, a goal. Any name or free text comes through KernelText.DisplayText with a short cap.",
+          "type": "object",
+          "maxProperties": 24,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/summary_value"
+          }
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "ok"
+          ],
+          "properties": {
+            "ok": {
+              "type": "boolean"
+            },
+            "code": {
+              "$ref": "game-command.schema.json#/$defs/error_code"
+            },
+            "message": {
+              "description": "The refusal's words, as the host said them: plain language, no paths or traces.",
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 500
+                }
+              ],
+              "minLength": 1
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "replayed": {
+              "type": "boolean"
+            },
+            "preview": {
+              "type": "boolean"
+            },
+            "data": false,
+            "picture": false
+          },
+          "if": {
+            "properties": {
+              "ok": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "else": {
+            "properties": {
+              "code": false,
+              "message": false
+            }
+          }
+        },
+        "ms": {
+          "description": "How long the host took, in milliseconds.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      }
+    },
+    "summary_scalar": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 120
+            }
+          ]
+        },
+        {
+          "type": "number",
+          "minimum": -1000000000,
+          "maximum": 1000000000
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "summary_value": {
+      "description": "A request summary's value: a short string, a number, a boolean, null, a list of those (a point, a few ids) or one flat object of those (a placement). Nothing deeper, so a whole message cannot be smuggled in as a summary.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/summary_scalar"
+        },
+        {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/summary_scalar"
+          }
+        },
+        {
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/summary_scalar"
+          }
+        }
+      ]
+    },
+    "action": {
+      "description": "An input action the HUD handled, by its name in the input map (view_eye, journal, hud_customize, gubble_recall, a slot, hands, push, item_gather, body_home, lamps, the wheel's open and the slot it chose). Not the movement keys read every tick: the breadcrumb covers movement.",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "detail": {
+          "description": "What the action chose, when it chose something: the slot, the view, the panel.",
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 120
+            }
+          ]
+        }
+      }
+    },
+    "notice": {
+      "description": "Text the screen showed the player, at the moment it changed: the HUD's notice line (hud), the Gubble's bubble and its reason (gubble), the status cue (status), a refusal shown (refusal). An empty text is the line cleared. A refusal the host returned that no notice ever showed is how a silent UI failure is found.",
+      "required": [
+        "channel",
+        "text"
+      ],
+      "properties": {
+        "channel": {
+          "enum": [
+            "hud",
+            "gubble",
+            "status",
+            "refusal"
+          ]
+        },
+        "text": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 500
+            }
+          ]
+        },
+        "reason": {
+          "description": "The Gubble's bubble's reason, when the bubble gave one.",
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 200
+            }
+          ]
+        },
+        "code": {
+          "description": "A refusal's code, when the notice showed one.",
+          "$ref": "game-command.schema.json#/$defs/error_code"
+        },
+        "action_id": {
+          "description": "The command the refusal answered, when the HUD knows it.",
+          "$ref": "common.schema.json#/$defs/action_id"
+        }
+      }
+    },
+    "body": {
+      "description": "The breadcrumb, every two seconds: where the player's body is and what it is doing, and the Gubble's distance and link.",
+      "required": [
+        "position_m",
+        "height_m",
+        "state",
+        "view",
+        "gubble"
+      ],
+      "properties": {
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "height_m": {
+          "description": "Above the floor it stands over.",
+          "type": "number",
+          "minimum": -1000,
+          "maximum": 1000
+        },
+        "level": {
+          "description": "The level it stands on, as the body names it (the floor, the sea, an entity's walkable top).",
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 80
+            }
+          ]
+        },
+        "mode": {
+          "enum": [
+            "creative",
+            "challenge",
+            "live"
+          ]
+        },
+        "hearts": {
+          "description": "In quarters: 2.75 is two hearts and three quarters.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30
+        },
+        "bar_m": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4.8
+        },
+        "pips": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "holding": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "standing",
+            "walking",
+            "running",
+            "swimming",
+            "diving",
+            "climbing",
+            "falling",
+            "carried",
+            "fading_home"
+          ]
+        },
+        "view": {
+          "enum": [
+            "eye",
+            "shoulder",
+            "diorama",
+            "isometric"
+          ]
+        },
+        "gubble": {
+          "type": "object",
+          "required": [
+            "distance_m",
+            "link"
+          ],
+          "properties": {
+            "distance_m": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "link": {
+              "description": "The companion link as the status cue shows it: offline (no AI joined), listening, planning, acting, waiting (for the player's yes).",
+              "enum": [
+                "offline",
+                "listening",
+                "planning",
+                "acting",
+                "waiting"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "frame": {
+      "description": "Every five seconds: how the frames ran in the window, with the body's position so a bad stretch has a place. The optional fields are the engine's monitors.",
+      "required": [
+        "window_s",
+        "mean_ms",
+        "longest_ms",
+        "position_m"
+      ],
+      "properties": {
+        "window_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "mean_ms": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "longest_ms": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "physics_ms": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "draw_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "video_mb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "static_mb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "objects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        }
+      }
+    },
+    "still_file": {
+      "description": "A still's file under stills/: a four-digit number in order of taking, then why it was taken (a mark or a keep with its number), as a JPEG.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(steady|mark-[1-9][0-9]{0,3}|keep-[1-9][0-9]{0,3}|refusal|home|mode|quit)\\.jpg$"
+    },
+    "still": {
+      "description": "A picture of the screen was taken (a readback of the main viewport after the frame was drawn, HUD included): its file, why, and where the body was. The steady beat is at half the width and half the height; marks, keeps and refusals are full size.",
+      "required": [
+        "file",
+        "why"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/still_file"
+        },
+        "why": {
+          "enum": [
+            "steady",
+            "mark",
+            "keep",
+            "refusal",
+            "home",
+            "mode",
+            "quit"
+          ]
+        },
+        "view": {
+          "enum": [
+            "eye",
+            "shoulder",
+            "diorama",
+            "isometric"
+          ]
+        },
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        }
+      }
+    },
+    "mark": {
+      "description": "The founder's F9 (\"something's off here\", flag off) or F8 (\"keep this\", flag keep), each numbered on its own from 1, with the still it took (0002-mark-1.jpg for the first off, 0007-keep-1.jpg for the first keep). The screen answers \"Mark 1\" or \"Keep 1\" as a notice.",
+      "required": [
+        "number",
+        "flag",
+        "still"
+      ],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9999
+        },
+        "flag": {
+          "enum": [
+            "off",
+            "keep"
+          ]
+        },
+        "still": {
+          "$ref": "#/$defs/still_file"
+        }
+      }
+    },
+    "stills_rate": {
+      "description": "The founder changed the steady beat with F7 (faster) or F6 (slower): off, 30, 10, 3 or 1 s.",
+      "required": [
+        "beat_s"
+      ],
+      "properties": {
+        "beat_s": {
+          "enum": [
+            0,
+            1,
+            3,
+            10,
+            30
+          ]
+        },
+        "was_s": {
+          "enum": [
+            0,
+            1,
+            3,
+            10,
+            30
+          ]
+        }
+      }
+    },
+    "session": {
+      "description": "The companion link started or ended: an AI joined or left. The Gubble's own commands are command events with the companion principal.",
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "started",
+            "ended"
+          ]
+        },
+        "principal": {
+          "$ref": "common.schema.json#/$defs/principal_id"
+        },
+        "sessions": {
+          "description": "How many links are open after this change.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        }
+      }
+    },
+    "quit": {
+      "description": "The last line of a clean quit, with the totals the manifest repeats.",
+      "required": [
+        "played_s",
+        "events",
+        "stills",
+        "marks"
+      ],
+      "properties": {
+        "played_s": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "events": {
+          "description": "Lines in the file, this one included.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "stills": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600
+        },
+        "marks": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
