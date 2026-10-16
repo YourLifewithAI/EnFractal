@@ -112,6 +112,40 @@ public partial class PlayHudTest
         host.ConfigureGlowProgress(new LocalGlowProgressStore(ProjectSettings.GlobalizePath(HudGlowProfile)));
     }
 
+    /// <summary>
+    /// What the pair learned in Bubbles and Fire is listed by its plain name (M11), and nothing more while their lists are not final:
+    /// no words, no smudge for what is to come, no hint, nothing at all for an ability with nothing learned.
+    /// </summary>
+    private async Task TestOtherExpertiseJournal()
+    {
+        var host = CommandHost.Of(_world)!;
+        _hud.OpenJournal();
+        _hud.Journal.OpenPage(JournalPages.Discoveries);
+        await Frames(1);
+        var fresh = _hud.JournalText;
+        var smudges = _hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge);
+        Check(!fresh.Contains("Bubbles", StringComparison.Ordinal) && !fresh.Contains("Fire", StringComparison.Ordinal) && !fresh.Contains("First fire", StringComparison.Ordinal),
+            "with nothing learned in Bubbles or Fire, the Discoveries page says nothing of them");
+        host.ConfigureGlowProgress(new HudGlowStore(GlowProgress.Restore(11, new[] { "lantern" }, new[] { "lantern_self" }, "plain", 0.35, false, new[]
+        {
+            ExpertiseRecord.Restore(ExpertiseLists.BubblesList, 0, new[] { ExpertiseLists.BubbleCarry, ExpertiseLists.BubbleLift }, Array.Empty<string>()),
+            ExpertiseRecord.Restore(ExpertiseLists.FireList, 0, new[] { ExpertiseLists.FirstFire, ExpertiseLists.WillOWisp }, Array.Empty<string>()),
+        })));
+        _hud.Journal.OpenPage(JournalPages.Discoveries);
+        await Frames(JournalRefreshFrames);
+        var text = _hud.JournalText;
+        Check(text.Contains("Bubbles\nBubble carry\nBubble lift", StringComparison.Ordinal) && text.Contains("Fire\nFirst fire\nWill-o'-wisp", StringComparison.Ordinal) &&
+              !text.Contains("Bubble boat", StringComparison.Ordinal) && !text.Contains("Campfire", StringComparison.Ordinal) && !text.Contains("Fireline", StringComparison.Ordinal) &&
+              !text.Contains("Snuff", StringComparison.Ordinal),
+            "a learned expertise is listed by its plain name under its ability, and one not learned is not named");
+        Check(_hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge) == smudges && _hud.Journal.Lines.Count(line => line.Text == "A thought from the Gubble") == 0 &&
+              NoGlowSpoilers(text),
+            "and Bubbles and Fire add no smudge and no hint (the page holds the Glow smudges it did, and no thought from the Gubble)");
+        _hud._UnhandledInput(Press(Key.Escape));
+        await Frames(60);
+        host.ConfigureGlowProgress(new LocalGlowProgressStore(ProjectSettings.GlobalizePath(HudGlowProfile)));
+    }
+
     private static bool NoGlowSpoilers(string text) =>
         !text.Contains("Torch", StringComparison.Ordinal) && !text.Contains("Bioluminesce", StringComparison.Ordinal) &&
         !text.Contains("Constellation", StringComparison.Ordinal) && !text.Contains("Skylight", StringComparison.Ordinal) &&

@@ -12,6 +12,20 @@
       "delivered_hints": [
         "lantern_self"
       ]
+    },
+    "bubbles": {
+      "successful_casts": 0,
+      "discoveries": [
+        "bubble_carry"
+      ],
+      "delivered_hints": []
+    },
+    "fire": {
+      "successful_casts": 0,
+      "discoveries": [
+        "first_fire"
+      ],
+      "delivered_hints": []
     }
   },
   "touch": "ember",

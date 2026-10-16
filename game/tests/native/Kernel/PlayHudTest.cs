@@ -101,6 +101,7 @@ public partial class PlayHudTest : Node
             await TestWearingCharacters();
             await TestDrawnGubble();
             await TestGlowJournalLearned();
+            await TestOtherExpertiseJournal();
             // The two views last: they move the player about the room and leave the Gubble where it was.
             await TestShelvedViewKeys();
             await TestShoulderRange();
