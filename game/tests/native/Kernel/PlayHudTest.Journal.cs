@@ -353,8 +353,10 @@ public partial class PlayHudTest
             Check(host.IslandHeld && modeName.Text == "Paused" && modeHelp.Text.Contains("This island is paused.", StringComparison.Ordinal) && modeHelp.Text.Contains(heldWords, StringComparison.Ordinal) &&
                   !modeHelp.Text.Contains("Explore freely", StringComparison.Ordinal) && line.Text.StartsWith("Paused · ", StringComparison.Ordinal) && !line.Text.Contains("Creative", StringComparison.Ordinal),
                 $"held: the Nature page says the island is paused and why, with nothing about Creative ({modeName.Text}; {line.Text})");
-            Check(!_hud.FindChild("MagicPanel", true, false)!.FindChildren("*", "Label", true, false).OfType<Label>().Any(l => l.IsVisibleInTree() && l.Text.Contains("Creative", StringComparison.Ordinal)),
-                "and no visible label of the panel mentions Creative");
+            var naturePage = modeName.GetParent();
+            var natureLabels = naturePage.FindChildren("*", "Label", true, false).OfType<Label>().ToArray();
+            Check(natureLabels.Length >= 5 && !natureLabels.Any(l => l.Text.Contains("Creative", StringComparison.Ordinal)),
+                $"and no label on the Nature page mentions Creative ({natureLabels.Length} labels read)");
             _hud.ToggleMagicPanel();
             await Frames(4);
 
