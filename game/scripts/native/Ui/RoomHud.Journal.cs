@@ -58,6 +58,8 @@ public partial class RoomHud
         _movingGlow = null;
         if (Customizing) ToggleCustomization();
         if (MagicPanelOpen) SetMagicPanelOpen(false);
+        // The book pulsed to be opened (decision 53): it is, and it is quiet until the Fractals in hand next reach five.
+        StopJournalPulse();
         _book.Open();
     }
 

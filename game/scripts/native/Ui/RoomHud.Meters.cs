@@ -6,10 +6,10 @@ using EnFractal.Native.Ui;
 namespace EnFractal.Native;
 
 /// <summary>
-/// The three meters (docs/game/MECHANICS.md sections 1, 4 and 5; the mechanics round's packet M2): hearts in quarters and the bar
-/// under them, always visible in the panel at the upper left (which holds nothing else since decision 66: the title, the state lines and
-/// the buttons are in the H help), and the pips trailing the Gubble, or, while it is out of frame, a small row of them under the bar
-/// (decision 38: hearts, then stamina, then pips). They are drawn, not written: no
+/// The three meters (docs/game/MECHANICS.md sections 1, 4 and 5; the mechanics round's packet M2): hearts in quarters, the bar under
+/// them and the pips as a row under the bar, always visible in the panel at the upper left (which holds nothing else since decision
+/// 66: the title, the state lines and the buttons are in the H help). The pips are that row always, and nothing round the Gubble
+/// (decision 51, which replaced decision 38's row that showed only while the Gubble was out of frame). They are drawn, not written: no
 /// numbers unless the player's own setting "Show numbers on the meters" is on (it lives in the machine's profile, off by default,
 /// as the other switches do). Everything is read from the host (Vitals, BodyRules, Mode), never kept here; the HUD asks no
 /// command for it and changes nothing.
@@ -17,7 +17,8 @@ namespace EnFractal.Native;
 ///   refill but never refuse, with a faint "needs N" where an ability costs more than the shadow holds.
 /// - Elsewhere the price of an ability is what the player pays (the ordered price, by principal): dots on the wheel and the key
 ///   hints, and "needs N" while the pool is short of it.
-/// Cost: a frame compares a few numbers and redraws a meter only when one changed; the pips redraw while they are in view.
+/// Cost: a frame compares a few numbers and redraws a meter only when one changed (the pips' row among them: nothing follows the
+/// Gubble any more, so no meter redraws on its own).
 /// </summary>
 public partial class RoomHud
 {
@@ -27,8 +28,7 @@ public partial class RoomHud
 
     public HeartsMeter Hearts => _hearts;
     public StaminaBar Bar => _bar;
-    public PipsTrail Pips => _pips;
-    /// <summary>The pips as a row under the bar while the Gubble is out of frame (drawn only then).</summary>
+    /// <summary>The pips as a row under the hearts and the bar, always (decision 51).</summary>
     public PipsMarker PipsRow => _pipsMarker;
     public Label HeartsNumbers => _heartsNumbers;
     public Label BarNumbers => _barNumbers;
@@ -39,7 +39,6 @@ public partial class RoomHud
     private VBoxContainer _meterBox = null!;
     private HeartsMeter _hearts = null!;
     private StaminaBar _bar = null!;
-    private PipsTrail _pips = null!;
     private PipsMarker _pipsMarker = null!;
     private Label _heartsNumbers = null!;
     private Label _barNumbers = null!;
@@ -61,7 +60,7 @@ public partial class RoomHud
         return value.VariantType == Variant.Type.Bool && value.AsBool();
     }
 
-    /// <summary>The hearts, the bar and the pips' row in the upper-left panel; the pips' layer under every panel.</summary>
+    /// <summary>The hearts, the bar and the pips' row in the upper-left panel.</summary>
     private void BuildMeters(Node column)
     {
         MeterNumbers = LoadMeterNumbers(ProfilePath);
@@ -80,14 +79,9 @@ public partial class RoomHud
         barRow.AddChild(_bar);
         _barNumbers = new Label { Name = "BarNumbers", Visible = false, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         barRow.AddChild(_barNumbers);
-        // Under the bar, the pips' marker: hearts, then stamina, then pips. It keeps its room whether it is drawn or not.
+        // Under the bar, the pips' row: hearts, then stamina, then pips, always (decision 51).
         _pipsMarker = new PipsMarker { Name = "PipsMarker", SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin };
         _meterBox.AddChild(_pipsMarker);
-        // The pips ride on the whole screen at the Gubble's place, under every panel (the first child draws first).
-        _pips = new PipsTrail { Name = "GubblePips" };
-        AddChild(_pips);
-        MoveChild(_pips, 0);
-        _pips.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
     }
 
     /// <summary>The price beside the Gubble's first key in the H help's buttons: dots, or "needs N" (faint in Creative).</summary>
@@ -198,8 +192,8 @@ public partial class RoomHud
         if (host == null || !IsInstanceValid(host) || IntroPlaying)
         {
             if (_meterBox.Visible) _meterBox.Visible = _meterPanel.Visible = false;
-            _pips.Follow(null, 0, delta);
             _pipsMarker.Present(false, delta);
+            TickJournalPulse(null, delta);
             return;
         }
         if (!_meterBox.Visible) _meterBox.Visible = _meterPanel.Visible = true;
@@ -226,8 +220,6 @@ public partial class RoomHud
             _bar.Set(staminaM, maxM, rowM, bandM, creative, slowed);
             var aura = Companion.AuraColor ?? Companion.AppearanceColor;
             var pipsNumbers = MeterNumbers && hasPool ? MeterMath.PipsNumbers(MeterWords.Name(host, "pips"), pips, maxPips) : "";
-            _pips.SetPool(pips, maxPips, shadow, aura);
-            _pips.SetNumbers(pipsNumbers);
             _pipsMarker.SetPool(pips, maxPips, shadow, aura);
             _pipsMarker.SetNumbers(pipsNumbers);
             _heartsNumbers.Visible = _barNumbers.Visible = MeterNumbers;
@@ -238,43 +230,11 @@ public partial class RoomHud
                 _barNumbers.Text = MeterMath.BarNumbers(MeterWords.Name(host, "stamina"), staminaM, maxM);
             }
         }
-        FollowGubble(delta);
+        _pipsMarker.Present(true, delta);
         TickSpendHint(host, delta);
+        TickJournalPulse(host, delta);
     }
 
-    /// <summary>An empty pool refused a cast: the pips blink wherever they are drawn, trailing the Gubble or in the row under the bar.</summary>
-    private void FlashPipMeters()
-    {
-        _pips.Flash();
-        _pipsMarker.Flash();
-    }
-
-    /// <summary>
-    /// The pips at the Gubble's place on screen: over its head, with its height on screen as their scale. When it is out of view
-    /// (behind the camera, off the screen, hidden, or seen through its own eyes) they cannot trail it, so the row under the stamina
-    /// bar is drawn instead (decision 38); in view, it is not.
-    /// </summary>
-    private void FollowGubble(double delta)
-    {
-        Vector2? anchor = null;
-        var bodyPx = 0f;
-        var camera = GetViewport().GetCamera3D();
-        if (camera != null && Companion != null && IsInstanceValid(Companion) && Companion.IsInsideTree() && Companion.Visible && !GubbleViewOpen)
-        {
-            var feet = Companion.GlobalPosition;
-            var head = feet + Vector3.Up * Companion.BodyHeightM;
-            if (!camera.IsPositionBehind(head))
-            {
-                var top = camera.UnprojectPosition(head);
-                var screen = GetViewport().GetVisibleRect();
-                if (screen.Grow(60).HasPoint(top))
-                {
-                    anchor = top;
-                    bodyPx = Mathf.Abs(camera.UnprojectPosition(feet).Y - top.Y);
-                }
-            }
-        }
-        _pips.Follow(anchor, bodyPx, delta);
-        _pipsMarker.Present(anchor == null, delta);
-    }
+    /// <summary>An empty pool refused a cast: the pips in the row under the bar blink.</summary>
+    private void FlashPipMeters() => _pipsMarker.Flash();
 }

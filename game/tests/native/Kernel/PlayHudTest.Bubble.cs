@@ -191,7 +191,7 @@ public partial class PlayHudTest
         Tap();
         await Frames(3);
         Check(_hud.Cue.State == "refused" && _hud.Cue.Reason == "The Gubble needs a moment" && _hud.Cue.Icon == GubbleMagic.BubbleIcon && notice.Text == CommandHost.EnergyExhaustedMessage &&
-              _hud.SelectedBubble == id && host.ActiveBubble is { LedToM: null } && host.Vitals.Pips == 2 && _hud.Pips.FlashLeftS > 0,
+              _hud.SelectedBubble == id && host.ActiveBubble is { LedToM: null } && host.Vitals.Pips == 2 && _hud.PipsRow.FlashLeftS > 0,
             $"a lift the pool cannot pay is refused with the host's words, the Gubble shakes its head and the pips blink; the bubble stays chosen and nothing moves: \"{_hud.Cue.Reason}\" / \"{notice.Text}\"");
         var farAway = new Vector3(40f, 0.1f, 40f);
         _hud.Ask(new GubbleMagic.Ask(GubbleMagic.AskRule.LeadBubble, new GubbleMagic.Aim(true, farAway, null, false)));

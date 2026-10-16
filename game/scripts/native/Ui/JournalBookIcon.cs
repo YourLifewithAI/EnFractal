@@ -7,12 +7,31 @@ namespace EnFractal.Native.Ui;
 /// The closed journal in its dock at the lower right: the same leather cover the book shows in flight (DrawCover), with its key
 /// beneath it, named from the input map. It never takes the keyboard focus, so Space and Enter (ui_accept) can never press it:
 /// only a click or the journal's own key opens the book.
+/// It can pulse (decision 53 of docs/game/MECHANICS.md: the journal pulses when five Fractals are in hand and a spend is
+/// possible): the book breathes a few per cent larger and a warm halo behind it swells and fades. The HUD says when (SetPulsing)
+/// and calls Animate each frame while it pulses; the cover and the key beneath it are not drawn again for it (a halo drawn once
+/// and a scale and a fade set each frame), so a pulse costs a few property writes and allocates nothing.
 /// </summary>
 public partial class JournalBookIcon : Button
 {
+    /// <summary>One breath of the pulse, in seconds (provisional: slow enough to be calm, quick enough to be seen from the corner of the eye).</summary>
+    public const float PulsePeriodS = 1.6f;
+    /// <summary>How much larger the book is at the top of a breath, as a share of its size (provisional).</summary>
+    public const float PulseGrowth = 0.07f;
+    /// <summary>The halo's faintest and brightest at the bottom and the top of a breath (provisional).</summary>
+    public const float HaloLow = 0.25f, HaloHigh = 1f;
+
     /// <summary>The journal key's name as the player's controls say it now ("J").</summary>
     public Func<string> KeyLabel { get; set; } = () => "";
+    /// <summary>Whether the book is pulsing now.</summary>
+    public bool Pulsing { get; private set; }
+    /// <summary>Where in its breath the pulse is: 0 at the bottom, 1 at the top (0 at rest).</summary>
+    public float PulseLevel { get; private set; }
+    /// <summary>The halo behind the book (shown only while it pulses).</summary>
+    public Control? Halo => _halo;
     private string _shownKey = "";
+    private double _pulseClock;
+    private JournalHalo? _halo;
 
     public override void _Ready()
     {
@@ -23,7 +42,44 @@ public partial class JournalBookIcon : Button
             AddThemeStyleboxOverride(state, new StyleBoxEmpty());
         MouseEntered += QueueRedraw;
         MouseExited += QueueRedraw;
+        // Behind the cover (a child draws over its parent, so the halo is drawn under it), clicks pass through it.
+        _halo = new JournalHalo { Name = "JournalPulseHalo", Visible = false, MouseFilter = MouseFilterEnum.Ignore, ShowBehindParent = true };
+        AddChild(_halo);
+        _halo.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         ShowKey();
+    }
+
+    /// <summary>The book breathes from its middle, wherever the dock's size ends up.</summary>
+    public override void _Notification(int what)
+    {
+        if (what == NotificationResized) PivotOffset = Size * 0.5f;
+    }
+
+    /// <summary>Start or stop the pulse. Stopped, the book is at rest at once: its size, no halo.</summary>
+    public void SetPulsing(bool on)
+    {
+        if (on == Pulsing) return;
+        Pulsing = on;
+        _pulseClock = 0;
+        PulseLevel = 0;
+        Scale = Vector2.One;
+        if (_halo != null) _halo.Visible = on;
+        if (on)
+        {
+            PivotOffset = Size * 0.5f;
+            Animate(0);
+        }
+    }
+
+    /// <summary>One frame of the pulse: a breath of 1.6 s, the book and its halo set from where in it the pulse is. Nothing happens at rest.</summary>
+    public void Animate(double delta)
+    {
+        if (!Pulsing) return;
+        _pulseClock += delta;
+        var phase = (float)(_pulseClock % PulsePeriodS) / PulsePeriodS;
+        PulseLevel = 0.5f - 0.5f * Mathf.Cos(phase * Mathf.Tau);
+        Scale = new Vector2(1f + PulseGrowth * PulseLevel, 1f + PulseGrowth * PulseLevel);
+        if (_halo != null) _halo.Modulate = new Color(1f, 1f, 1f, HaloLow + (HaloHigh - HaloLow) * PulseLevel);
     }
 
     public override void _Process(double delta)
@@ -104,5 +160,25 @@ public partial class JournalBookIcon : Button
             canvas.DrawRect(new Rect2(75, 133, 8, 10), new Color("854635"));
         }
         canvas.DrawSetTransform(Vector2.Zero);
+    }
+}
+
+/// <summary>
+/// The glow behind the pulsing book: a few warm, translucent rings round the cover, drawn once (and again if the dock is resized).
+/// The pulse only changes its fade (Modulate), so a pulse does not draw it again.
+/// </summary>
+public partial class JournalHalo : Control
+{
+    public override void _Notification(int what)
+    {
+        if (what == NotificationResized) QueueRedraw();
+    }
+
+    public override void _Draw()
+    {
+        // The cover's middle, as the dock draws it (13, 3 and Size - (26, 24)): the rings spread from there.
+        var middle = new Vector2(Size.X * 0.5f, 3 + (Size.Y - 24) * 0.5f);
+        for (var ring = 0; ring < 6; ring++)
+            DrawCircle(middle, Size.X * (0.34f + 0.06f * ring), new Color(0.98f, 0.78f, 0.38f, 0.075f));
     }
 }

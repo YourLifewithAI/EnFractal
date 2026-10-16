@@ -16,7 +16,7 @@ namespace EnFractal.Tests.Kernel;
 /// scenarios run on the code before the meters and on the code after. Run it with a scratch profile (APPDATA elsewhere), never
 /// while someone plays: the window must not be open beside an "EnFractal*" window.
 ///
-/// User arguments (after "--"): --out=DIR [--tag=before|after] [--scenarios=play_challenge,play_creative,wheel,journal,marker,spend,probe]
+/// User arguments (after "--"): --out=DIR [--tag=before|after] [--scenarios=play_challenge,play_creative,wheel,journal,marker,spend,pulse,probe]
 /// [--room=ID|DIR] [--hour=15] [--date=2026-10-06]. The probe scenario prints the team's discovered map after a walk (it needs
 /// no window and also runs headless).
 /// </summary>
@@ -78,6 +78,7 @@ public partial class PlayHudTestCapture : Node
                     case "journal_pages": await JournalPages(); break;
                     case "marker": await Marker(); break;
                     case "spend": await Spend(); break;
+                    case "pulse": await Pulse(); break;
                     case "probe": await Probe(); break;
                     case "alloc": await Alloc(); break;
                     case "dump": await Dump(); break;
@@ -265,8 +266,8 @@ public partial class PlayHudTestCapture : Node
     }
 
     /// <summary>
-    /// The pips as a row under the bar (the follow-up, decision 38): first person, turned away from the Gubble, so it is behind the eye;
-    /// in Challenge with a Glow spent, with the numbers on, in Creative's shadow pool, and for comparison in frame, trailing the Gubble.
+    /// The pips as a row under the bar, always (decision 51): first person, turned away from the Gubble and facing it (the row is the
+    /// same in both); in Challenge with a Glow spent, with the numbers on, and in Creative's shadow pool.
     /// </summary>
     private async Task Marker()
     {
@@ -334,6 +335,36 @@ public partial class PlayHudTestCapture : Node
         host.PlayerMode("creative");
     }
 
+    /// <summary>
+    /// The journal's book pulsing in its dock (decision 53): six Fractals in hand, the Gubble in frame with the pips in their row under the
+    /// bar; one frame at the bottom of a breath and one at the top, then the book opened (the pulse over) and closed again (still quiet).
+    /// </summary>
+    private async Task Pulse()
+    {
+        var host = Host;
+        var body = PlayerVitals.Of(100f, 100f, 0.4f, 0.4f, Array.Empty<string>(), 0, new PlayerFractals(6, 6, 0, 0), PlayerVitals.UnsetPool);
+        host.ConfigurePlayerVitals(new CaptureStore(PlayerModesProfile.Fresh.Select("challenge").WithCurrent(body)));
+        host.PlayerMode("challenge");
+        await Stage();
+        host.ApplyPlayerDamage(30f, PlayerDamageSource.Fall);
+        await Cast(1);
+        await Frames(60);
+        var dock = _hud.Book.Dock;
+        GD.Print($"PLAY_HUD_CAPTURE pulse: pulsing {_hud.JournalPulsing}, row shown {_hud.PipsRow.Shown}");
+        for (var guard = 0; guard < 400 && dock.PulseLevel > 0.03f; guard++) await NextFrame();
+        await Save("pulse_low");
+        for (var guard = 0; guard < 400 && dock.PulseLevel < 0.97f; guard++) await NextFrame();
+        await Save("pulse_high");
+        _hud.OpenJournal();
+        await Frames(80);
+        _hud.CloseJournal();
+        await Frames(90);
+        GD.Print($"PLAY_HUD_CAPTURE pulse after the book was opened: pulsing {_hud.JournalPulsing}");
+        await Save("pulse_after_open");
+        host.ConfigurePlayerVitals(new CaptureStore(PlayerModesProfile.Fresh));
+        host.PlayerMode("creative");
+    }
+
     /// <summary>The journal's index and its character page, open at the spread.</summary>
     private async Task Journal()
     {
@@ -380,21 +411,20 @@ public partial class PlayHudTestCapture : Node
         }
         for (var k = 0; k <= 4; k++) Blit(Native.Ui.MeterTextures.HeartPixels(k), Native.Ui.MeterTextures.HeartPx, 10 + k * 150, 10);
         Blit(Native.Ui.MeterTextures.HeartPixels(4, grey: true), Native.Ui.MeterTextures.HeartPx, 760, 10);
-        // The pips as the Gubble's aura tints them: a pip you have, a spent one, a shadow's.
+        // The pips as the Gubble's aura tints them: a pip you have, a spent one.
         var aura = new Color("a18cc3").Lightened(0.15f);
         Blit(PipPixels(0), Native.Ui.MeterTextures.PipPx, 10, 190, aura);
         Blit(PipPixels(1), Native.Ui.MeterTextures.PipPx, 190, 190, Colors.White);
-        Blit(PipPixels(2), Native.Ui.MeterTextures.PipPx, 370, 190, Colors.White);
         // The shadow pool in the row under the bar (PipsMarker): a pip you have, then a spent one, in the grey of Creative's hearts and bar.
-        Blit(PipPixels(0), Native.Ui.MeterTextures.PipPx, 550, 190, Native.Ui.PipsMarker.GreyHave);
-        Blit(PipPixels(1), Native.Ui.MeterTextures.PipPx, 730, 190, Native.Ui.PipsMarker.GreySpent);
+        Blit(PipPixels(0), Native.Ui.MeterTextures.PipPx, 370, 190, Native.Ui.PipsMarker.GreyHave);
+        Blit(PipPixels(1), Native.Ui.MeterTextures.PipPx, 550, 190, Native.Ui.PipsMarker.GreySpent);
         if (_out.Length > 0) sheet.SavePng(System.IO.Path.Combine(_out, $"{_tag}_meter_pictures.png"));
         GD.Print("PLAY_HUD_CAPTURE_FRAME " + System.IO.Path.Combine(_out, $"{_tag}_meter_pictures.png"));
     }
 
     private static byte[] PipPixels(int kind)
     {
-        var texture = kind switch { 0 => Native.Ui.MeterTextures.PipFull, 1 => Native.Ui.MeterTextures.PipSpent, _ => Native.Ui.MeterTextures.PipShadow };
+        var texture = kind switch { 0 => Native.Ui.MeterTextures.PipFull, _ => Native.Ui.MeterTextures.PipSpent };
         using var image = texture.GetImage();
         image.Convert(Image.Format.Rgba8);
         return image.GetData();
@@ -417,8 +447,7 @@ public partial class PlayHudTestCapture : Node
         var camera = _world.GetViewport().GetCamera3D();
         var companion = _world.Companion;
         var aura = companion.AuraColor ?? companion.AppearanceColor;
-        var pips = _hud.Pips;
-        GD.Print($"ALLOC pips.Follow {Bytes(() => pips.Follow(new Vector2(500, 300), 40, 0.016))} B");
+        var pips = _hud.PipsRow;
         GD.Print($"ALLOC minimap.Tick {Bytes(() => _hud.Map.Tick(host, _world.Player.GlobalPosition, 0.3f, companion.GlobalPosition, aura, 0.016))} B");
         GD.Print($"ALLOC camera {Bytes(() => { var vp = _hud.GetViewport(); var c = vp.GetCamera3D(); var r = vp.GetVisibleRect(); var p = c.UnprojectPosition(companion.GlobalPosition); var b = c.IsPositionBehind(companion.GlobalPosition); })} B");
         GD.Print($"ALLOC vitals {Bytes(() => { var v = host.Vitals; var r = host.BodyRules; var q = r.Quarters(v); var m = r.MaxQuarters(v); var s = host.StaminaSlowed; var mode = host.Mode; var rows = host.Rules; var a = companion.AuraColor ?? companion.AppearanceColor; })} B");

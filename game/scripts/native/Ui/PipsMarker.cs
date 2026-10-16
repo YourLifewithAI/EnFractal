@@ -4,15 +4,13 @@ using Godot;
 namespace EnFractal.Native.Ui;
 
 /// <summary>
-/// The Gubble's pips as a marker under the stamina bar (docs/game/MECHANICS.md sections 1 and 5, decision 38, the founder on 15
-/// October: "a marker under the stamina bar. That goes hearts on top, then stamina, then pips"). While the Gubble is out of frame
-/// its pips cannot trail it (PipsTrail draws nothing then), so they sit here as a small row of the same dots: a pip you have in
-/// the Gubble's aura colour, a spent one a ring, the shadow pool of Creative in its soft grey. Back in frame the marker draws
-/// nothing and the pips trail the Gubble as before. With the player's numbers option on it reads like the trailing pips do:
-/// "Pips 6/8" beside the dots.
-/// The row's room is kept whether it is drawn or not, so the status panel under it never moves when the Gubble walks in and out
-/// of frame; it takes none at all on an island with no pool. It redraws only when what it shows changes (its pool, its numbers,
-/// whether it is shown, and the blink of a refused cast).
+/// The Gubble's pips as a row under the hearts and the stamina bar, always (docs/game/MECHANICS.md sections 1 and 5, decision 51,
+/// the founder on 15 October: "The pips are a row under the hearts and the bar, always; nothing round the Gubble"; it replaces
+/// decision 38's marker that was drawn only while the Gubble was out of frame, and the dots that hovered round the Gubble are
+/// gone): a pip you have in the Gubble's aura colour, a spent one a ring, the shadow pool of Creative in its soft grey. With the
+/// player's numbers option on it reads "Pips 6/8" beside the dots.
+/// It takes no room on an island with no pool. It redraws only when what it shows changes (its pool, its numbers, whether the
+/// HUD shows it, and the blink of a refused cast), so a row that waits costs a comparison.
 /// </summary>
 public partial class PipsMarker : Control
 {
@@ -22,8 +20,8 @@ public partial class PipsMarker : Control
     public const float PitchPx = PipPx + GapPx;
     /// <summary>Pips in one row: the pool's ceiling of 40 is two rows.</summary>
     public const int PerRow = 20;
-    /// <summary>The blink of a refused cast lasts as long as the trailing pips' (PipsTrail.FlashS).</summary>
-    public const double FlashS = PipsTrail.FlashS;
+    /// <summary>How long a refused cast's flash lasts: the pool blinks to say it is empty.</summary>
+    public const double FlashS = 0.6;
     /// <summary>The shadow pool's pips: the grey of the grey hearts and the grey bar (their fill, StaminaBar.GreyFill), and a dimmer ring.</summary>
     public static readonly Color GreyHave = new("a8b0b0");
     public static readonly Color GreySpent = new(0.66f, 0.69f, 0.69f, 0.9f);
@@ -34,7 +32,7 @@ public partial class PipsMarker : Control
     public int MaxPips { get; private set; }
     public bool Shadow { get; private set; }
     public Color Aura { get; private set; } = new("a18cc3");
-    /// <summary>Whether the marker is drawn now: the Gubble is out of frame and the island has a pool.</summary>
+    /// <summary>Whether the row is drawn now: the HUD shows its meters and the island has a pool.</summary>
     public bool Shown { get; private set; }
     public double FlashLeftS { get; private set; }
     /// <summary>The pool in numbers ("Pips 6/8"), drawn beside the dots only while the player's numbers option is on; empty otherwise.</summary>
@@ -76,8 +74,8 @@ public partial class PipsMarker : Control
     }
 
     /// <summary>
-    /// Each frame: whether the marker is drawn (the Gubble is out of frame) and the time that passed, for the blink. Redraws on a
-    /// change only, so a marker that waits costs a comparison; a blink redraws at each flip.
+    /// Each frame: whether the row is drawn (the HUD shows its meters) and the time that passed, for the blink. Redraws on a change
+    /// only, so a row that waits costs a comparison; a blink redraws at each flip.
     /// </summary>
     public void Present(bool shown, double delta)
     {
@@ -128,8 +126,8 @@ public partial class PipsMarker : Control
         {
             var rect = new Rect2(Slot(i), size);
             var has = i < Pips;
-            // The shadow pool, in the grey of Creative's hearts and bar (the trailing pips' dark discs would vanish on the dark panel):
-            // a pip you have a filled grey dot, one spent a grey ring; never the aura's colour, for nothing is spent for real.
+            // The shadow pool, in the grey of Creative's hearts and bar: a pip you have a filled grey dot, one spent a grey ring;
+            // never the aura's colour, for nothing is spent for real.
             if (Shadow) DrawTextureRect(has ? MeterTextures.PipFull : MeterTextures.PipSpent, rect, false, has ? GreyHave : GreySpent);
             else if (has) DrawTextureRect(MeterTextures.PipFull, rect, false, tint);
             else DrawTextureRect(MeterTextures.PipSpent, rect, false, ringTint);

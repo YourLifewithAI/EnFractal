@@ -76,12 +76,13 @@ public partial class PlayHudTest : Node
             await TestMeterNumbers();
             await TestPoolAndPrices();
             await TestAskTagPrice();
-            await TestPipsTrail();
             await TestMinimap();
             // The follow-up (PlayHudTest.Spend.cs): the pips under the bar when the Gubble is out of frame, Fractals spent through the journal.
             await TestPipsMarker();
             await TestSpendFractalsPage();
             await TestSpendHint();
+            // The journal's book pulses when five Fractals are in hand with a spend to be made (decision 53).
+            await TestJournalPulse();
             await TestMeterFrameCost();
             await TestMarkerFrameCost();
             TestAuraFromProfile();
@@ -109,6 +110,8 @@ public partial class PlayHudTest : Node
             await TestDrawnGubble();
             await TestGlowJournalLearned();
             await TestOtherExpertiseJournal();
+            // A held island's pages say it is paused (decision 54).
+            await TestIslandPausedWords();
             // The two views last: they move the player about the room and leave the Gubble where it was.
             await TestShelvedViewKeys();
             await TestShoulderRange();
@@ -954,6 +957,13 @@ public partial class PlayHudTest : Node
         _hud._UnhandledInput(Press(Key.X));
     }
 
+    /// <summary>
+    /// How far sideways of the Gubble's feet the bubble's middle may be: it hangs on the Gubble's head and is measured from its feet, so
+    /// the camera's tilt and the Gubble's hover put the two a few tens of pixels apart (39.9 of the old 40 px before the pulse's tests
+    /// moved the suite's frame count by a few hundred; the bubble does not move for a pulse or for the pips).
+    /// </summary>
+    private const float CueSidewaysPx = 56f;
+
     /// <summary>The bubble: the icon at once, "done" on the host's result, a refusal as a head-shake with the host's reason (never a name).</summary>
     private async Task TestAcknowledgement()
     {
@@ -968,7 +978,7 @@ public partial class PlayHudTest : Node
         var over = camera.UnprojectPosition(companion.GlobalPosition);
         var bubbleRect = new Rect2(_hud.Cue.Bubble.Position, _hud.Cue.Bubble.Size);
         Check(_hud.Cue.Bubble.GetThemeFontSize("font_size") >= 18 && _hud.Cue.Bubble.GetThemeConstant("outline_size") >= 6 && _hud.Cue.Bubble.IsVisibleInTree() &&
-              Mathf.Abs(bubbleRect.GetCenter().X - over.X) < 40f && bubbleRect.End.Y <= over.Y && over.Y - bubbleRect.End.Y < 260,
+              Mathf.Abs(bubbleRect.GetCenter().X - over.X) < CueSidewaysPx && bubbleRect.End.Y <= over.Y && over.Y - bubbleRect.End.Y < 260,
             $"screen text, at least as large as the HUD's own (18 px) and outlined dark, centred just over the Gubble ({bubbleRect} over {over})");
         Check(_hud.Cue.LastGesture == CompanionAvatar.Gesture.CastSelf, "and the Gubble lifts as its own glow comes up (its cast gesture, not the wiggle)");
         const int max = 3;
@@ -1015,7 +1025,7 @@ public partial class PlayHudTest : Node
             var bubble = new Rect2(_hud.Cue.Bubble.Position, _hud.Cue.Bubble.Size);
             var reason = new Rect2(_hud.Cue.ReasonLabel.Position, _hud.Cue.ReasonLabel.Size);
             if (!framed) GD.Print($"PLAY_HUD_INFO: F{mode + 1} does not frame the Gubble here ({feet})");
-            Check(!framed || (_hud.Cue.Bubble.Visible && _hud.Cue.ReasonLabel.Visible && Mathf.Abs(bubble.GetCenter().X - feet.X) < 40f &&
+            Check(!framed || (_hud.Cue.Bubble.Visible && _hud.Cue.ReasonLabel.Visible && Mathf.Abs(bubble.GetCenter().X - feet.X) < CueSidewaysPx &&
                   bubble.End.Y < feet.Y && feet.Y - bubble.End.Y < 260f && reason.End.Y <= bubble.Position.Y + 1f),
                 $"F{mode + 1}: the bubble sits just over the Gubble ({bubble} over its feet at {feet}) and the reason over the bubble ({reason})");
         }

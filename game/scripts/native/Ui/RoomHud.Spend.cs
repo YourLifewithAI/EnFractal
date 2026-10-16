@@ -8,16 +8,25 @@ namespace EnFractal.Native;
 /// own. The journal's Character page offers the two buttons at the camp, and a button sends the player's own command through
 /// the host's one command path like every other player action here (Gather, Hands); the host decides, and its words (the new heart,
 /// or its child-friendly refusal) are the HUD's notice and the page's foot. A short hint points to the journal when the player
-/// stands at the camp with enough in hand.
+/// stands at the camp with enough in hand, and the journal's book in its dock pulses (decision 53) from the moment five are in
+/// hand and a spend is possible until the count falls under five or the book is opened.
 /// </summary>
 public partial class RoomHud
 {
     /// <summary>The hint is looked for this often (a few times a second is plenty for a player who stands still at the camp).</summary>
     public const double SpendHintEveryS = 0.25;
+    /// <summary>The pulse looks at the Fractals in hand this often (the same few times a second as the hint; opening the book ends it at once).</summary>
+    public const double JournalPulseEveryS = SpendHintEveryS;
     private double _spendHintAge;
     private bool _spendHintShown;
+    private double _pulseAge;
+    private bool _pulseArmed;
+    private bool _fiveInHand;
     private object? _campRoom;
     private Vector3 _campAt;
+
+    /// <summary>Whether the journal's book is pulsing in its dock now (decision 53: five Fractals in hand and a spend possible, the book not yet opened).</summary>
+    public bool JournalPulsing => _book != null && _book.Dock.Pulsing;
 
     /// <summary>The words of the last spend hint (empty until one was given), and how many have been given, for the suite.</summary>
     public string SpendHint { get; private set; } = "";
@@ -82,5 +91,48 @@ public partial class RoomHud
         if (JournalOpen || host.IslandHeld) return;
         SpendHintCount++;
         _noticeText = SpendHint = FractalSpend.HintWords(host, K(Act.Journal));
+    }
+
+    // ---- the journal's pulse (decision 53) ----
+
+    /// <summary>
+    /// Each frame (from the meters' update; host null while the intro plays or no host is attached). The book pulses from the
+    /// moment the Fractals in hand pay for a spend that can still be made (FractalSpend.CanAfford: five, below the caps; at the
+    /// camp or not, for the book is how the player finds out) and stops when the count falls under five, when the book is opened
+    /// (at once, however it was opened), or when the island is held (its spends are refused). It does not come back when the book
+    /// is closed again: the next pulse is the next time the count reaches five. The Fractals are looked at a few times a second,
+    /// allocating nothing; the breath itself is a few property writes a frame.
+    /// </summary>
+    private void TickJournalPulse(Kernel.CommandHost? host, double delta)
+    {
+        if (_book == null) return;
+        if (host == null || IntroPlaying)
+        {
+            // Not yet playing: nothing pulses, and the count in hand now (the intro over) is a pulse to come.
+            _pulseArmed = false;
+            _fiveInHand = false;
+        }
+        else
+        {
+            if (JournalOpen) _pulseArmed = false;
+            _pulseAge += delta;
+            if (_pulseAge >= JournalPulseEveryS)
+            {
+                _pulseAge = 0;
+                var spendable = !host.IslandHeld && FractalSpend.CanAfford(host);
+                if (!spendable) _pulseArmed = false;
+                else if (!_fiveInHand && !JournalOpen) _pulseArmed = true;
+                _fiveInHand = spendable;
+            }
+        }
+        _book.Dock.SetPulsing(_pulseArmed);
+        _book.Dock.Animate(delta);
+    }
+
+    /// <summary>The book was opened: the pulse is over for these Fractals.</summary>
+    private void StopJournalPulse()
+    {
+        _pulseArmed = false;
+        _book?.Dock.SetPulsing(false);
     }
 }

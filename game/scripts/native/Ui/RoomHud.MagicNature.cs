@@ -36,7 +36,7 @@ public partial class RoomHud
         // The mode is not changed in play (the mechanics round, decision 21: switching modes means switching saves, chosen at the
         // menu): the page says which this save is, and that is all.
         _modeName = WrapMagicLabel(""); _modeName.Name = "ModeName"; page.AddChild(_modeName);
-        _modeHelp = WrapMagicLabel(""); page.AddChild(_modeHelp);
+        _modeHelp = WrapMagicLabel(""); _modeHelp.Name = "ModeHelp"; page.AddChild(_modeHelp);
         _weatherHelp = WrapMagicLabel(""); _weatherHelp.Name = "WeatherReadout"; page.AddChild(_weatherHelp);
         MagicHeading(page, "FLOWERS");
         _flowerTrail = new CheckButton { Name = "FlowerTrailToggle", Text = "Leave a flower trail" };
@@ -150,16 +150,26 @@ public partial class RoomHud
     private void RefreshNaturePage()
     {
         if (Host is not { } host) return;
-        _modeName.Text = ModeWords(host.Mode) + (host.Mode == "challenge" ? " · " + char.ToUpperInvariant(host.Difficulty[0]) + host.Difficulty[1..] : "");
+        // A held island (decision 54) is paused: the page says so, not what the host happens to play (Creative) and what that allows.
+        var held = host.IslandHeld;
         var stamina = MeterWords.Name(host, "stamina");
-        _modeHelp.Text = host.Mode == "creative" ? $"Explore freely. Climbing uses no {stamina.ToLowerInvariant()}, and falls and fire do not hurt you." :
-            $"Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · {stamina} {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}%\nClimbing capacity {host.Vitals.MaxStamina:0.00} m. Climbing uses {stamina.ToLowerInvariant()}. Falls and fire can hurt. Completed climbs can extend your capacity.";
-        if (host.VitalsNotice.Length > 0) _modeHelp.Text += "\n" + host.VitalsNotice;
+        if (held)
+        {
+            _modeName.Text = IslandPaused.Name;
+            _modeHelp.Text = IslandPaused.Heading + ". " + IslandPaused.Words(host);
+        }
+        else
+        {
+            _modeName.Text = ModeWords(host.Mode) + (host.Mode == "challenge" ? " · " + char.ToUpperInvariant(host.Difficulty[0]) + host.Difficulty[1..] : "");
+            _modeHelp.Text = host.Mode == "creative" ? $"Explore freely. Climbing uses no {stamina.ToLowerInvariant()}, and falls and fire do not hurt you." :
+                $"Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · {stamina} {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}%\nClimbing capacity {host.Vitals.MaxStamina:0.00} m. Climbing uses {stamina.ToLowerInvariant()}. Falls and fire can hurt. Completed climbs can extend your capacity.";
+            if (host.VitalsNotice.Length > 0) _modeHelp.Text += "\n" + host.VitalsNotice;
+        }
         _weatherHelp.Text = $"{WeatherWords(host.NatureWeather.Pattern)} · Wind {host.NatureWeather.WindMps.Length():0.00} m/s\nThe weather changes naturally across the island.";
         _flowerTrail.SetPressedNoSignal(host.Nature.TrailEnabled);
         _flowerTrail.Disabled = !host.NatureConfigured;
         // The wallet's counts, in every mode (a gathered log or stone is in it): repairs spend it outside Creative.
-        _natureMaterials.Text = (host.Mode == "creative" ? "Repairs are free in Creative mode.\n" : "") + "In your wallet: " + MaterialWords(host.Nature.Wallet);
+        _natureMaterials.Text = (host.Mode == "creative" && !held ? "Repairs are free in Creative mode.\n" : "") + "In your wallet: " + MaterialWords(host.Nature.Wallet);
         var previous = _repairChoice.Selected >= 0 && _repairChoice.Selected < _repairIds.Count ? _repairIds[_repairChoice.Selected] : null;
         var ids = host.Nature.Objects.Values.Where(item => item.Creation && item.Burn > 0).Select(item => item.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
         if (!_repairIds.SequenceEqual(ids) || _repairChoice.ItemCount == 0)
@@ -190,7 +200,7 @@ public partial class RoomHud
     {
         _repairCost.Text = "";
         if (Host is not { } host || _repairChoice.Selected < 0 || _repairChoice.Selected >= _repairIds.Count || !host.Nature.Objects.TryGetValue(_repairIds[_repairChoice.Selected], out var item)) return;
-        _repairCost.Text = host.Mode == "creative" ? "This repair uses no materials in Creative mode." : "Repair quote (one unit per original part): " + MaterialWords(item.RepairCost);
+        _repairCost.Text = host.IslandHeld ? "" : host.Mode == "creative" ? "This repair uses no materials in Creative mode." : "Repair quote (one unit per original part): " + MaterialWords(item.RepairCost);
     }
 
     private static string MaterialWords(IReadOnlyDictionary<string, int> materials) => string.Join(" · ", materials.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item =>

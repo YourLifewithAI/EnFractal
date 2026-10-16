@@ -288,8 +288,16 @@ public static class JournalPages
         // The Fractals in hand and, at the camp, the two ways to spend them (decision 41: the player's own command, no key of its own).
         // High on the page, so the buttons are in view when the book opens on it.
         lines.AddRange(FractalSpend.Lines(host));
+        // A held island (decision 54) is paused: the page says so in place of describing the mode the host happens to play (Creative),
+        // its pool and its wallet.
+        var held = host.IslandHeld;
+        if (held)
+        {
+            lines.Add(Heading(IslandPaused.Heading));
+            lines.Add(Text(IslandPaused.Words(host)));
+        }
         // The read-only player.status query: the mode and this mode's vitals, as the host keeps them.
-        var status = host.PlayerQuery("player.status")["data"] as JsonObject;
+        var status = held ? null : host.PlayerQuery("player.status")["data"] as JsonObject;
         if (status != null)
         {
             var mode = status["mode"]?.GetValue<string>() ?? "creative";
@@ -314,8 +322,8 @@ public static class JournalPages
                     (energy["shadow"]?.GetValue<bool>() == true ? " · a shadow pool here: it drains and refills, and never says no" : "")));
             if (status["wallet"] is JsonObject wallet) lines.Add(Text("In your wallet: " + WalletWords(wallet)));
         }
-        var held = host.HeldName(CommandHost.PlayerAvatar) ?? "";
-        lines.Add(Text("Carrying: " + (held.Length == 0 ? "empty hands" : KernelJson.DisplayText(held, 60))));
+        var carried = host.HeldName(CommandHost.PlayerAvatar) ?? "";
+        lines.Add(Text("Carrying: " + (carried.Length == 0 ? "empty hands" : KernelJson.DisplayText(carried, 60))));
         lines.Add(Heading("Your companion"));
         lines.Add(Title(CompanionName(host)));
         lines.Add(Text("Floats after you, over water and up cliffs, and fetches the things you find."));

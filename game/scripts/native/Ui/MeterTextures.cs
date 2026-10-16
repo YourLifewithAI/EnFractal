@@ -5,7 +5,7 @@ namespace EnFractal.Native.Ui;
 
 /// <summary>
 /// The meters' small pictures, drawn once in software the first time they are needed and kept: each heart (nought to four quarters
-/// in red, and the full grey one Creative shows) and the three kinds of pip (a pip you have, a spent one, the shadow's). A meter then
+/// in red, and the full grey one Creative shows) and the two kinds of pip (a pip you have and a spent one; the shadow pool tints the same two grey). A meter then
 /// draws each of its parts as one picture instead of a handful of polygons, which is what keeps them inside the frame's budget
 /// (docs/runs/RUN-2-MECHANICS.md section 9): the cost of a draw is mostly the calls.
 /// </summary>
@@ -17,7 +17,7 @@ public static class MeterTextures
 
     private static Texture2D[]? _hearts;
     private static Texture2D? _greyHeart;
-    private static Texture2D? _pipFull, _pipSpent, _pipShadow;
+    private static Texture2D? _pipFull, _pipSpent;
 
     // The hearts sit on the status panel's dark teal: an empty one is a dark red with a muted red rim, so it still reads as a place for a quarter.
     private static readonly Color RedBack = new(0.30f, 0.09f, 0.09f, 0.85f);
@@ -49,9 +49,6 @@ public static class MeterTextures
 
     /// <summary>A spent pip: a ring, tinted.</summary>
     public static Texture2D PipSpent => _pipSpent ??= RenderPip(filled: false, ring: true);
-
-    /// <summary>A pip of the shadow pool: a soft dark disc with a faint ring, never tinted.</summary>
-    public static Texture2D PipShadow => _pipShadow ??= RenderShadowPip();
 
     private static Texture2D[] BuildHearts()
     {
@@ -151,25 +148,6 @@ public static class MeterTextures
         return Make(PipPx, pixels);
     }
 
-    private static Texture2D RenderShadowPip()
-    {
-        var pixels = new byte[PipPx * PipPx * 4];
-        var middle = PipPx / 2f;
-        var radius = PipPx / 2f - 3f;
-        for (var y = 0; y < PipPx; y++)
-            for (var x = 0; x < PipPx; x++)
-            {
-                var d = new Vector2(x + 0.5f - middle, y + 0.5f - middle).Length();
-                var disc = Mathf.Clamp(radius + 0.5f - d, 0f, 1f) * 0.30f;
-                var rim = Mathf.Clamp(1.2f - Mathf.Abs(d - (radius - 1f)), 0f, 1f) * 0.42f;
-                // Premultiplied: a dark disc under a pale rim.
-                var a = rim + disc * (1 - rim);
-                var light = rim;
-                Store(pixels, (y * PipPx + x) * 4, light, light, light, a);
-            }
-        return Make(PipPx, pixels);
-    }
-
     /// <summary>Premultiplied colour written as the straight bytes an image holds.</summary>
     private static void Store(byte[] pixels, int at, float r, float g, float b, float a)
     {
@@ -192,7 +170,7 @@ public static class MeterTextures
     {
         if (_hearts != null) foreach (var heart in _hearts) heart.Dispose();
         _hearts = null;
-        foreach (var texture in new[] { _greyHeart, _pipFull, _pipSpent, _pipShadow }) texture?.Dispose();
-        (_greyHeart, _pipFull, _pipSpent, _pipShadow) = (null, null, null, null);
+        foreach (var texture in new[] { _greyHeart, _pipFull, _pipSpent }) texture?.Dispose();
+        (_greyHeart, _pipFull, _pipSpent) = (null, null, null);
     }
 }

@@ -11,13 +11,13 @@ using Godot;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// The mechanics round's follow-up to the meters (the founder's answers of 15 October, docs/game/MECHANICS.md decisions 38 and 41),
-/// in the real room with the real HUD, headless. The Gubble's pips are a small row under the stamina bar while it is out of frame
-/// (hearts, then the bar, then pips), the shadow pool in its grey, "6/8" with the numbers option, and they trail the Gubble again
-/// when it is back in frame. Fractals are spent at will through the journal's Character page, with no key of their own: the page
-/// shows the Fractals in hand and, at the camp, the two buttons with their prices; away it says to go back; a spend through it
-/// grows the hearts or the bar the meters draw; a refusal is the host's own words, shown as the notice; the companion's connection
-/// cannot spend them; a short hint at the camp points to the journal.
+/// The mechanics round's follow-up to the meters (the founder's answers of 15 October, docs/game/MECHANICS.md decisions 41 and 51),
+/// in the real room with the real HUD, headless. The Gubble's pips are a small row under the hearts and the stamina bar, always
+/// (hearts, then the bar, then pips), whether the Gubble is in frame or not, and nothing round the Gubble: the shadow pool in its
+/// grey, "6/8" with the numbers option. Fractals are spent at will through the journal's Character page, with no key of their
+/// own: the page shows the Fractals in hand and, at the camp, the two buttons with their prices; away it says to go back; a spend
+/// through it grows the hearts or the bar the meters draw; a refusal is the host's own words, shown as the notice; the companion's
+/// connection cannot spend them; a short hint at the camp points to the journal.
 /// </summary>
 public partial class PlayHudTest
 {
@@ -42,7 +42,7 @@ public partial class PlayHudTest
         return false;
     }
 
-    // ---- the pips under the bar when the Gubble is out of frame ----
+    // ---- the pips under the bar, always (decision 51) ----
 
     private async Task TestPipsMarker()
     {
@@ -63,10 +63,15 @@ public partial class PlayHudTest
         await Frames(8);
         var spot = FloorNearGubble(0.3f);
         var column = _hud.FindChild("Meters", true, false)!.GetParent<Control>();
+        var camera = _hud.GetViewport().GetCamera3D();
+        bool GubbleInFrame() => !camera.IsPositionBehind(companion.GlobalPosition) && _hud.GetViewport().GetVisibleRect().HasPoint(camera.UnprojectPosition(companion.GlobalPosition));
 
-        // In frame the pips trail the Gubble, as ever, and the row under the bar is not drawn.
-        Check(_hud.Pips.Following && !marker.Shown && marker.MaxPips == 8 && marker.Pips == 8 && marker.Rows == 1,
-            $"the Gubble in frame: its pips trail it and the row under the bar is not drawn ({marker.Shown}, {_hud.Pips.Following})");
+        // With the Gubble in frame the row is drawn, as it is at every other time; and nothing is drawn round the Gubble.
+        Check(GubbleInFrame() && marker.Shown && marker.MaxPips == 8 && marker.Pips == 8 && marker.Rows == 1,
+            $"the Gubble in frame: the row under the bar is drawn all the same ({marker.Shown}, {marker.Pips} of {marker.MaxPips})");
+        var markers = _hud.FindChildren("*", "Control", true, false).OfType<PipsMarker>().ToArray();
+        Check(markers.Length == 1 && markers[0] == marker && _hud.FindChild("GubblePips", true, false) == null,
+            $"and that is the only place the pips are drawn: one row in the whole HUD, none laid over the Gubble ({markers.Length})");
         var layoutInFrame = column.GetCombinedMinimumSize();
         var hearts = _hud.Hearts.GetGlobalRect();
         var bar = _hud.Bar.GetGlobalRect();
@@ -75,43 +80,45 @@ public partial class PlayHudTest
               Mathf.Abs(row.Position.X - bar.Position.X) < 1f,
             $"the stack reads hearts on top, then the stamina bar, then the pips (hearts to {hearts.End.Y:0}, bar {bar.Position.Y:0} to {bar.End.Y:0}, pips from {row.Position.Y:0})");
         Check(marker.GetParent() == _hud.Hearts.GetParent().GetParent() && marker.GetIndex() == _hud.Bar.GetParent().GetIndex() + 1,
-            "the marker is the status panel's third row, straight under the bar's");
+            "the row is the status panel's third row, straight under the bar's");
 
-        // Turned away, the Gubble is behind the eye: the pips leave it and sit under the bar.
+        // Turned away, the Gubble is behind the eye: the same row, the same panel.
         await Face(player, player.GlobalPosition - companion.GlobalPosition);
         await Frames(6);
-        Check(!_hud.Pips.Following && marker.Shown && marker.Pips == 8 && marker.MaxPips == 8 && !marker.Shadow && marker.Aura.IsEqualApprox(companion.AuraColor ?? companion.AppearanceColor) &&
+        Check(!GubbleInFrame() && marker.Shown && marker.Pips == 8 && marker.MaxPips == 8 && !marker.Shadow && marker.Aura.IsEqualApprox(companion.AuraColor ?? companion.AppearanceColor) &&
               marker.Numbers == "",
-            "turned away from the Gubble the pips are the row under the bar: eight, in its colour, no numbers");
+            "turned away from the Gubble the row is still there: eight pips, in its colour, no numbers");
         Check(column.GetCombinedMinimumSize().IsEqualApprox(layoutInFrame) && marker.GetCombinedMinimumSize().Y >= PipsMarker.PitchPx,
-            $"and nothing in the panel moves for it: the row's room is kept whether it is drawn or not ({layoutInFrame} both ways)");
+            $"and nothing in the panel moves between the two ({layoutInFrame} both ways)");
         // The pool is the host's: two pips spent (a Glow is two for an order) and the row says six.
         CastGlow(host, spot);
         await Frames(4);
-        Check(host.Vitals.Pips == 6 && marker.Pips == 6 && marker.MaxPips == 8 && _hud.Pips.Pips == 6,
-            $"a Glow spends two pips and the row shows six of eight ({marker.Pips}/{marker.MaxPips}), as the trail does");
+        Check(host.Vitals.Pips == 6 && marker.Pips == 6 && marker.MaxPips == 8,
+            $"a Glow spends two pips and the row shows six of eight ({marker.Pips}/{marker.MaxPips})");
 
-        // The numbers option reads like the trailing pips do: "Pips 6/8".
+        // The numbers option: "Pips 6/8" beside the dots.
         var plainWidth = marker.GetCombinedMinimumSize().X;
         _hud.SetMeterNumbers(true);
         await Frames(4);
-        Check(marker.Numbers == "Pips 6/8" && marker.Numbers == _hud.Pips.Numbers && marker.GetCombinedMinimumSize().X > plainWidth + 20,
-            $"with the numbers option on the row reads \"{marker.Numbers}\", as the trailing pips do ({_hud.Pips.Numbers})");
+        Check(marker.Numbers == "Pips 6/8" && marker.GetCombinedMinimumSize().X > plainWidth + 20,
+            $"with the numbers option on the row reads \"{marker.Numbers}\" beside the dots");
         var layoutWithNumbers = column.GetCombinedMinimumSize();
 
-        // Back in frame the pips trail the Gubble again and the row is not drawn; the panel is the same size.
+        // Back in frame: the row, with its numbers, and the panel the same size.
         await Face(player, companion.GlobalPosition - player.GlobalPosition);
         await Frames(6);
-        Check(_hud.Pips.Following && !marker.Shown && column.GetCombinedMinimumSize().IsEqualApprox(layoutWithNumbers) && _hud.Pips.Numbers == "Pips 6/8",
-            "facing the Gubble again: the pips trail it (with their numbers over them) and the row under the bar is not drawn");
+        Check(GubbleInFrame() && marker.Shown && column.GetCombinedMinimumSize().IsEqualApprox(layoutWithNumbers) && marker.Numbers == "Pips 6/8",
+            "facing the Gubble again: the row is the same (with its numbers) and the panel is the same size");
 
-        // The Gubble's visibility, not the camera alone: hidden, the pips cannot trail it, so the row is drawn.
+        // The Gubble hidden or shown makes no difference either, nor does the third-person view.
         companion.Visible = false;
         await Frames(4);
-        Check(!_hud.Pips.Following && marker.Shown, "a Gubble that is not shown has its pips in the row under the bar");
+        Check(marker.Shown && marker.Pips == 6, "a Gubble that is not shown: the row is drawn");
         companion.Visible = true;
-        await Frames(4);
-        Check(_hud.Pips.Following && !marker.Shown, "and shown again, they are back round it");
+        _hud.SetViewMode(1);
+        await Frames(6);
+        Check(marker.Shown && marker.Pips == 6 && column.GetCombinedMinimumSize().IsEqualApprox(layoutWithNumbers), "and in the third-person view too");
+        _hud.SetViewMode(0);
         _hud.SetMeterNumbers(false);
 
         // Creative: the shadow pool, in its soft grey, the same way.
@@ -121,7 +128,7 @@ public partial class PlayHudTest
         Check(marker.Shown && marker.Shadow && marker.Pips == marker.MaxPips && marker.MaxPips == 8 && host.BodyRules.ShadowPool && marker.Numbers == "",
             "in Creative the row is the shadow pool, the same dots in their grey, and it never reads as spent for real");
 
-        // An empty pool's refusal blinks the pips wherever they are drawn.
+        // An empty pool's refusal blinks the row.
         host.PlayerMode("challenge");
         await Face(player, companion.GlobalPosition - player.GlobalPosition);
         FreshBodies(host);
@@ -131,7 +138,7 @@ public partial class PlayHudTest
         Check(host.Vitals.Pips == 0 && marker.Pips == 0, "(the pool is empty)");
         _hud._UnhandledInput(Press(Key.Key1));
         await Frames(3);
-        Check(_hud.Pips.FlashLeftS > 0 && marker.FlashLeftS > 0, "1 with no pips blinks the trailing pips and the row under the bar together");
+        Check(marker.FlashLeftS > 0, "1 with no pips blinks the row under the bar");
         _hud.StopGubble();
         await Frames(50);
         Check(marker.FlashLeftS == 0, "and the blink ends on its own");
@@ -355,12 +362,117 @@ public partial class PlayHudTest
         await Frames(10);
     }
 
+    // ---- the journal pulses when a spend is due (decision 53) ----
+
+    /// <summary>
+    /// The book in its dock pulses from the moment five Fractals are in hand with a spend to be made, wherever the player stands,
+    /// until the count falls under five or the book is opened; it then stays quiet until the count next reaches five.
+    /// </summary>
+    private async Task TestJournalPulse()
+    {
+        var host = CommandHost.Of(_world)!;
+        var player = _world.Player;
+        var home = player.GlobalPosition;
+        var dock = _hud.Book.Dock;
+        _hud.SetViewMode(1);
+        FreshBodies(host);
+        host.ConfigurePlayerVitals(BodyHolding(4));
+        host.PlayerMode("challenge");
+        Check(StandAwayFromCamp(host), "(the player stands away from the camp, holding four Fractals)");
+        await Frames(40);
+        Check(!_hud.JournalPulsing && !dock.Pulsing && dock.Halo is { Visible: false } && dock.Scale == Vector2.One && dock.PulseLevel == 0,
+            "four Fractals in hand: the journal rests in its dock, no pulse, no halo");
+
+        // The fifth: the book pulses, wherever the player stands (the book is how they find out they can spend).
+        host.ConfigurePlayerVitals(BodyHolding(5));
+        host.PlayerMode("challenge");
+        await Frames(30);
+        Check(_hud.JournalPulsing && dock.Pulsing && dock.Visible && dock.Halo is { Visible: true } && !host.PlayerAtCamp(),
+            "five Fractals in hand with a spend to be made: the journal's book pulses in its dock, away from the camp too");
+        // It breathes: in a breath of 1.6 s its level runs from the bottom to the top and back, the book a few per cent larger at the
+        // top and the halo brighter.
+        var levels = new List<float>();
+        var scales = new List<float>();
+        var halo = new List<float>();
+        for (var i = 0; i < 100; i++)
+        {
+            await Frames(1);
+            levels.Add(dock.PulseLevel);
+            scales.Add(dock.Scale.X);
+            halo.Add(dock.Halo!.Modulate.A);
+        }
+        Check(levels.Max() > 0.97f && levels.Min() < 0.03f && scales.Min() >= 1f - 1e-4f && Mathf.Abs(scales.Max() - (1f + JournalBookIcon.PulseGrowth)) < 0.005f && dock.Scale.X == dock.Scale.Y &&
+              halo.Min() >= JournalBookIcon.HaloLow - 1e-3f && halo.Min() < JournalBookIcon.HaloLow + 0.05f && halo.Max() > JournalBookIcon.HaloHigh - 0.05f && halo.Max() <= 1f + 1e-4f,
+            $"it breathes: the level runs {levels.Min():0.00} to {levels.Max():0.00} in a breath, the book up to {scales.Max():0.000} of its size and the halo from {halo.Min():0.00} to {halo.Max():0.00}");
+
+        // More than five is still a spend; under five it stops, and the book is at rest at once.
+        host.ConfigurePlayerVitals(BodyHolding(12));
+        host.PlayerMode("challenge");
+        await Frames(30);
+        Check(_hud.JournalPulsing, "twelve in hand: it goes on pulsing");
+        host.ConfigurePlayerVitals(BodyHolding(4));
+        host.PlayerMode("challenge");
+        await Frames(30);
+        Check(!_hud.JournalPulsing && !dock.Pulsing && dock.Halo is { Visible: false } && dock.Scale == Vector2.One && dock.PulseLevel == 0 && dock.Halo.Modulate.A >= 0f,
+            "the count falls under five: the pulse stops and the book rests at its own size");
+        // With every heart and band bought there is nothing to spend them on, and the book rests.
+        var capped = PlayerVitals.Of(600f, 600f, 4.0f, 4.0f, Array.Empty<string>(), 0, new PlayerFractals(180, 10, 25, 9), PlayerVitals.UnsetPool);
+        host.ConfigurePlayerVitals(new MeterStore(PlayerModesProfile.Fresh.Select("challenge").WithCurrent(capped)));
+        host.PlayerMode("challenge");
+        await Frames(30);
+        Check(!FractalSpend.CanAfford(host) && !_hud.JournalPulsing, "ten Fractals in hand with every heart and band bought: nothing to spend them on, no pulse");
+
+        // A real spend that takes the count under five (seven, a heart for five, two left) ends it.
+        host.ConfigurePlayerVitals(BodyHolding(7));
+        host.PlayerMode("challenge");
+        Check(StandAtCamp(host), "(the player stands at the camp holding seven Fractals)");
+        await Frames(30);
+        Check(_hud.JournalPulsing, "seven in hand: pulsing");
+        _hud.SpendFractals("heart");
+        await Frames(30);
+        Check(host.Vitals.Fractals.Unspent == 2 && !_hud.JournalPulsing && !dock.Pulsing, "a heart spent from the hand leaves two: the pulse is over");
+
+        // Opening the book ends it in the same moment, and it does not come back while the same Fractals wait.
+        host.ConfigurePlayerVitals(BodyHolding(12));
+        host.PlayerMode("challenge");
+        await Frames(30);
+        Check(_hud.JournalPulsing, "(twelve in hand, pulsing)");
+        _hud.OpenJournal();
+        Check(!_hud.JournalPulsing && !dock.Pulsing && dock.Scale == Vector2.One && dock.Halo is { Visible: false }, "opening the book ends the pulse in the same moment");
+        await Frames(JournalMoveFrames);
+        _hud.CloseJournal();
+        await Frames(JournalMoveFrames + 40);
+        Check(host.Vitals.Fractals.Unspent == 12 && !_hud.JournalPulsing && !dock.Pulsing,
+            "and the book, closed again with the twelve still in hand, is quiet: it does not nag");
+        // The next time the count reaches five it pulses again.
+        host.ConfigurePlayerVitals(BodyHolding(4));
+        host.PlayerMode("challenge");
+        await Frames(30);
+        host.ConfigurePlayerVitals(BodyHolding(5));
+        host.PlayerMode("challenge");
+        await Frames(30);
+        Check(_hud.JournalPulsing, "down to four and up to five again: the book pulses once more");
+        // However the book is opened (here straight through the presentation), the HUD ends the pulse within a frame.
+        _hud.Book.Open();
+        await Frames(3);
+        Check(!_hud.JournalPulsing && !dock.Pulsing, "opened by any path, the book ends its pulse");
+        await Frames(JournalMoveFrames);
+        _hud.CloseJournal();
+        await Frames(JournalMoveFrames);
+
+        FreshBodies(host);
+        host.PlayerMode("creative");
+        player.TryTeleportTo(home);
+        player.ResetPhysicsInterpolation();
+        await Frames(10);
+    }
+
     // ---- what the marker and the hint cost a frame ----
 
     /// <summary>
     /// The budget again (docs/runs/RUN-2-MECHANICS.md section 9: the meters at most 0.5 ms a frame) with the pips as the row under
-    /// the bar: the Gubble out of frame, the numbers on, the hearts shaking at one heart, the pool changing, and five Fractals in
-    /// hand at the camp so that the hint's look runs. And steady, where nothing changes: next to nothing allocated.
+    /// the bar: the numbers on, the hearts shaking at one heart, the pool changing, and five Fractals in hand at the camp so that the
+    /// hint's look runs and the journal's book pulses. And steady, where nothing changes (the book still breathing): nothing allocated.
     /// </summary>
     private async Task TestMarkerFrameCost()
     {
@@ -384,7 +496,8 @@ public partial class PlayHudTest
         _hud.SetMeterNumbers(true);
         await Frames(120);
         var marker = _hud.PipsRow;
-        Check(marker.Shown && marker.Numbers == $"Pips {host.Vitals.Pips}/8" && _hud.SpendHintCount == hints + 1, "(the row is drawn with its numbers, and the hint has been given)");
+        Check(marker.Shown && marker.Numbers == $"Pips {host.Vitals.Pips}/8" && _hud.SpendHintCount == hints + 1 && _hud.JournalPulsing,
+            "(the row is drawn with its numbers, the hint has been given and the journal's book is pulsing)");
         MeterCost.Reset();
         MeterCost.Measuring = true;
         var start = player.GlobalPosition;
@@ -424,8 +537,8 @@ public partial class PlayHudTest
         MeterCost.Measuring = false;
         var perFrame = MeterCost.AllocatedBytes / Math.Max(1, MeterCost.Frames);
         GD.Print($"PLAY_HUD_COST: steady with the row and the hint: {MeterCost.AllocatedBytes} bytes allocated over {MeterCost.Frames} frames ({perFrame} a frame), mean {MeterCost.MeanMs:0.0000} ms");
-        Check(MeterCost.Frames >= 200 && _hud.Map.Builds == readsBefore && MeterCost.AllocatedBytes <= 64 && MeterCost.MeanMs < 0.5,
-            $"and when nothing changes the row and the hint's look allocate nothing ({MeterCost.AllocatedBytes} bytes over {MeterCost.Frames} frames)");
+        Check(MeterCost.Frames >= 200 && _hud.Map.Builds == readsBefore && MeterCost.AllocatedBytes <= 64 && MeterCost.MeanMs < 0.5 && _hud.JournalPulsing,
+            $"and when nothing changes the row, the hint's look and the book's pulse allocate nothing ({MeterCost.AllocatedBytes} bytes over {MeterCost.Frames} frames)");
         companion.Visible = true;
         _hud.SetMeterNumbers(false);
         FreshBodies(host);

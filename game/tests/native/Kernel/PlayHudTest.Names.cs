@@ -50,8 +50,8 @@ public partial class PlayHudTest
             await Frames(6);
             // The meters, the switch's hint and the status line.
             Check(_hud.HeartsNumbers.Text.StartsWith("Lives ", StringComparison.Ordinal) && _hud.BarNumbers.Text.StartsWith("Zest ", StringComparison.Ordinal) &&
-                  _hud.Pips.Numbers.StartsWith("Sparks ", StringComparison.Ordinal),
-                $"the meters' numbers carry the pack's words ({_hud.HeartsNumbers.Text}, {_hud.BarNumbers.Text}, {_hud.Pips.Numbers})");
+                  _hud.PipsRow.Numbers.StartsWith("Sparks ", StringComparison.Ordinal),
+                $"the meters' numbers carry the pack's words ({_hud.HeartsNumbers.Text}, {_hud.BarNumbers.Text}, {_hud.PipsRow.Numbers})");
             Check(_hud.NumbersToggle!.TooltipText == "Lives, the zest and the sparks are drawn, not written. This adds their numbers beside them.",
                 "and so does the numbers switch's hint: " + _hud.NumbersToggle.TooltipText);
             var line = (Label)_hud.FindChild("IslandVitalsLine", true, false)!;
