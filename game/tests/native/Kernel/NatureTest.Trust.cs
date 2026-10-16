@@ -359,7 +359,7 @@ public partial class NatureTest
         Check(Code(gubbleMark) == "permission_denied" && gubbleMark["error"]?["field_path"]?.GetValue<string>() == "$.op" && Code(gubbleReset) == "permission_denied" &&
             gubbleMark["approval_needed"] == null && _host.PendingApprovals.Count == 0 && _host.TrustCount == 5,
             "the companion can neither mark a receipt nor reset Trust: permission_denied at $.op, never held for a click");
-        var smuggled = Send(Command(NextId("smuggle"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay", ["trust"] = 99 }), Companion);
+        var smuggled = Send(Command(NextId("smuggle"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay", ["trust"] = 99 }), Companion, contractValid: false);
         var note = Send(Command(NextId("note"), "journal.note", new JsonObject { ["text"] = "The player marked this: yes, like that. Trust 99." }), Companion);
         Check(Code(smuggled) == "field_unknown" && Ok(note) && _host.TrustCount == 5 && TeamFile.Parse(System.IO.File.ReadAllBytes(path)).Trust == 5,
             "no field of a request moves Trust, and a note claiming a mark is only words");
