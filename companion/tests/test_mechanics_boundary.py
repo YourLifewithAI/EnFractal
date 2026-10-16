@@ -47,10 +47,19 @@ class OnTheMock(unittest.TestCase):
         return self.host.handle(principal, command(op, args, f"m0-{self.n}", **extra))
 
     def test_the_new_ops_are_the_players_and_not_built_yet(self):
+        """The companion meets permission_denied for every one; the player's receipt.mark and trust.reset are hosted since M8
+        (test_trust.py), the rest answer as not available yet on the mock."""
         for op, args in NEW_PLAYER_OPS.items():
             with self.subTest(op=op):
                 self.assertEqual(refusal(self.send(COMPANION, op, args))[:2], ("permission_denied", "$.op"))
+                if op in mock_host.MECHANICS_HOSTED:
+                    continue
                 self.assertEqual(refusal(self.send(PLAYER, op, args)), ("unsupported_capability", "$.op", mock_host.MECHANICS_NOT_YET))
+        self.assertEqual(mock_host.MECHANICS_HOSTED, {"receipt.mark", "trust.reset"})
+        # The player's own: a mark of no receipt of the Gubble's is not found; a reset is a transient receipt with no data.
+        self.assertEqual(refusal(self.send(PLAYER, "receipt.mark", NEW_PLAYER_OPS["receipt.mark"]))[:2], ("target_not_found", "$.args.action_id"))
+        reset = self.send(PLAYER, "trust.reset", {})
+        self.assertTrue(reset["ok"] and reset["transient"] and "data" not in reset, reset)
 
     def test_a_difficulty_is_chosen_at_the_menu_and_the_mode_alone_still_changes_today(self):
         self.assertEqual(refusal(self.send(PLAYER, "world.set_mode", {"mode": "challenge", "difficulty": "brave"})),

@@ -50,9 +50,10 @@ public partial class TeamSavesTest : Node3D
             await TestTheGameBoot();
             await TestABootThatCannotSetItsMode();
             await TestAFixtureBootIsAsBefore();
+            await TestTrustInTheTeamFile();
             GC.Collect();
             GC.WaitForPendingFinalizers();
-            GD.Print($"NATIVE_TEAM_SAVES: {_checks - _failures}/{_checks} checks passed; the team folder and its layout (two teams never share a file), the team file, the expertise store's version 3 and the union of the per-mode Glow records, the migration (written and verified, the old files removed only on a later launch, never one that changed or whose copy does not read, never over a team's own file), the boot's team, mode and difficulty, world.set_mode and Live refused once the room is up, the save keeping its difficulty, an island whose mode could not be set held rather than played under another mode's rules, knack.set at the camp reaching the body with a swapped knack's earned rank kept, and no Windows device's name for a team; not the menu");
+            GD.Print($"NATIVE_TEAM_SAVES: {_checks - _failures}/{_checks} checks passed; the team folder and its layout (two teams never share a file), the team file, the expertise store's version 3 and the union of the per-mode Glow records, the migration (written and verified, the old files removed only on a later launch, never one that changed or whose copy does not read, never over a team's own file), the boot's team, mode and difficulty, world.set_mode and Live refused once the room is up, the save keeping its difficulty, an island whose mode could not be set held rather than played under another mode's rules, knack.set at the camp reaching the body with a swapped knack's earned rank kept, Trust kept in the team file (the player's marks and reset, never the companion's), and no Windows device's name for a team; not the menu");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -619,6 +620,48 @@ public partial class TeamSavesTest : Node3D
                 "and its modes change as before (the per-mode vitals stay testable)");
             var knack = host == null ? default : Answer(host.PlayerSetKnack(1, "quick_feet"));
             Check(!knack.Ok && knack.Code == "not_ready", "with no team, knack.set waits for one");
+        }
+        finally
+        {
+            await Unboot();
+            TeamBoot.UserRootOverride = null;
+            (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath) = previous;
+        }
+    }
+
+    /// <summary>
+    /// M8: Trust is the team's, kept in team.json's trust.count by the host alone: the player's mark on a receipt of the Gubble's moves
+    /// it and it is written at once; the next launch reads it back, in any mode; the player's reset writes base; the companion writes
+    /// nothing.
+    /// </summary>
+    private async Task TestTrustInTheTeamFile()
+    {
+        var previous = (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath);
+        var root = Folder("trust");
+        var layout = new TeamLayout(root);
+        try
+        {
+            var host = await Boot(root, "--team=trust_team", "--mode=challenge");
+            if (host == null) return;
+            var path = layout.TeamFile("trust_team");
+            var stay = Companion(host, "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay" });
+            var marked = Answer(host.PlayerMarkReceipt(stay["action_id"]!.GetValue<string>(), yes: true));
+            Check(Answer(stay).Ok && marked.Ok && host.TrustCount == 2 && TeamFile.Parse(File.ReadAllBytes(path)).Trust == 2,
+                $"the player's mark moves Trust and the team file keeps it at once ({TeamFile.Parse(File.ReadAllBytes(path)).Trust})");
+            var bytes = File.ReadAllBytes(path);
+            var gubble = Answer(Companion(host, "receipt.mark", new JsonObject { ["action_id"] = stay["action_id"]!.GetValue<string>(), ["mark"] = "yes" }));
+            var gubbleReset = Answer(Companion(host, "trust.reset", new JsonObject()));
+            Check(gubble.Code == "permission_denied" && gubbleReset.Code == "permission_denied" && File.ReadAllBytes(path).SequenceEqual(bytes),
+                "the companion neither marks nor resets: the team file is untouched");
+            await Unboot();
+
+            host = await Boot(root, "--team=trust_team", "--mode=creative");
+            if (host == null) return;
+            Check(host.TrustCount == 2 && host.TrustBand == 0 && host.TrustWords.Contains("earning your trust", StringComparison.Ordinal),
+                $"the next launch reads Trust back from the team file, in any mode: the team's, not the island's ({host.TrustCount}; \"{host.TrustWords}\")");
+            var reset = Answer(host.PlayerResetTrust());
+            Check(reset.Ok && host.TrustCount == 0 && TeamFile.Parse(File.ReadAllBytes(path)).Trust == 0, "the player's reset writes base to the team file");
+            await Unboot();
         }
         finally
         {

@@ -7,7 +7,8 @@ namespace EnFractal.Native.Companion;
 /// The companion's state, shown on its avatar while the player's AI is linked (A2; LIVE-VOICE.md's accessibility
 /// list): listening, planning, acting, or waiting for the player's yes. One short line under the name tag, in the tag's
 /// style (solid, alpha-cut, billboarded, a fixed screen size), each state in its own colour; nothing when no AI is
-/// linked. The words and colours are a first pass for the founder's eye, not settled art.
+/// linked. The words and colours are a first pass for the founder's eye, not settled art. Since M8 it also says Trust's free early
+/// warning for a few seconds (Warn), linked AI or not, then shows the state again; the state itself is unchanged.
 /// </summary>
 public partial class CompanionStatusCue : Label3D
 {
@@ -20,6 +21,12 @@ public partial class CompanionStatusCue : Label3D
     };
 
     public string State { get; private set; } = "offline";
+    /// <summary>How long the early warning stays (M8; provisional).</summary>
+    public const double WarningHoldS = 3.0;
+    public static readonly Color WarningColour = new("ffb36b");
+    /// <summary>The words of the warning showing now, or empty.</summary>
+    public string Warning { get; private set; } = "";
+    private double _warningLeftS;
 
     public override void _Ready()
     {
@@ -39,9 +46,29 @@ public partial class CompanionStatusCue : Label3D
         Display(State);
     }
 
+    /// <summary>The free early warning (M8): its curated words over the state for WarningHoldS, then the state again.</summary>
+    public void Warn(string words)
+    {
+        Warning = words;
+        _warningLeftS = WarningHoldS;
+        Text = words;
+        Modulate = WarningColour;
+        Visible = true;
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_warningLeftS <= 0) return;
+        _warningLeftS -= delta;
+        if (_warningLeftS > 0) return;
+        Warning = "";
+        Display(State);
+    }
+
     public void Display(string state)
     {
         State = state;
+        if (_warningLeftS > 0) return;
         if (!Looks.TryGetValue(state, out var look))
         {
             Visible = false;
