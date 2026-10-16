@@ -283,6 +283,11 @@ Multiplayer is a later phase and out of scope for the engine work now.
 
 69. **Trust counts only paid actions and their direct consequences.** A Gubble action gains Trust only when it cost pips (a cast or an effect the guard charged, a Lift charged at its rise); free actions (grabs, pushes, releases, builds that cost nothing, goals, stops, notes) never gain it. A consequence fact moves Trust only when it follows directly from such a paid action (the fire it cast, a bubble it cast). "Only paid actions and consequences directly related to those actions earn trust." This narrows decision 68.
 
+**Decided by the founder on Fire's campsites (16 October, evening)**:
+
+70. **Resting at a campfire is an action near the fire:** sitting down by it. "Resting at a campfire should mean taking some kind of action near the fire." The first rest at the island's starting campfire teaches Fire (decision 61).
+71. **A lit campfire is a full camp:** spending Fractals, choosing a knack and waking with half the pips work there as at the starting camp, and hearts refill faster (decision 62). The opening scene that will introduce Fire is planned in [RUN-2-OPENING.md](../runs/RUN-2-OPENING.md).
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
