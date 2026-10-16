@@ -113,9 +113,11 @@ public partial class CommandHostTest
         _host.UseDifficulty("gentle");
         _host.ConfigurePlayerVitals(new ModeTestStore());
         Check(Ok(_host.PlayerMode("challenge")) && _host.Difficulty == "gentle" && _host.Vitals.Health == 100, "the host plays a Gentle Challenge body, full hearts");
-        var small = _host.ApplyPlayerDamage(1.5f, PlayerDamageSource.Fall);
+        var small = _host.ApplyPlayerDamage(4f, PlayerDamageSource.Fall);
         Check(small is { Before: 100, After: 95, Recovered: false } && _host.Vitals.Health == 95,
-            $"a fall of 1.5 health at Gentle takes one quarter, not nothing ({_host.Vitals.Health} left)");
+            $"a fall of 4 health (a quarter at Standard) at Gentle takes one quarter, not nothing ({_host.Vitals.Health} left)");
+        Check(_host.ApplyPlayerDamage(1.5f, PlayerDamageSource.Fall) == null && _host.Vitals.Health == 95,
+            $"and a scrape of 1.5 health, none at Standard, is none at Gentle ({_host.Vitals.Health} left)");
         _host.ApplyPlayerDamage(30, PlayerDamageSource.Fall);
         Check(_host.Vitals.Health == 80, $"and 30 health at Gentle takes three quarters of five, not six ({_host.Vitals.Health} left)");
         Check(Ok(_host.PlayerMode("creative")) && _host.ApplyPlayerDamage(1.5f, PlayerDamageSource.Fall) == null && _host.ApplyPlayerDamage(500, PlayerDamageSource.Fall) == null &&
