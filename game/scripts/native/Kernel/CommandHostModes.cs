@@ -346,7 +346,7 @@ public partial class CommandHost
     /// Trusted hazard hook only: Fire, future critters and future PvP use the same mode rules. No AI damage-setting command
     /// exists. Creative never hurts; nothing hurts just after a recovery, and fire not for its longer grace. The amount is in
     /// health points: in quarters it is multiplied by the difficulty and rounded to whole quarters now (a fall capped where the
-    /// rules cap it), and a hurt that rounds to none does nothing. Returns what the hurt did (null when it did nothing), so the
+    /// rules cap it), and a hurt Standard counts costs at least a quarter wherever damage counts (a scrape Standard rounds to none does nothing). Returns what the hurt did (null when it did nothing), so the
     /// host can tell the Gubble what its own fire did.
     /// </summary>
     public PlayerHarm? ApplyPlayerDamage(float amount, PlayerDamageSource source)

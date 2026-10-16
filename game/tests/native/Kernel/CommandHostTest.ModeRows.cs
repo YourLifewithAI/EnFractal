@@ -93,19 +93,20 @@ public partial class CommandHostTest
                 for (var hurt = 0.01f; hurt <= 40f; hurt += 0.37f)
                 {
                     var quarters = rules.HarmQuarters(hurt, false);
-                    var ok = quarters >= VitalsRules.MinimumHurtQuarters && quarters >= before && rules.HarmQuarters(hurt, true) == quarters;
+                    var counted = VitalsRules.For(v5, "challenge", "standard", knacks).HarmQuarters(hurt, false) >= 1;
+                    var ok = (!counted || quarters >= VitalsRules.MinimumHurtQuarters) && quarters >= before && rules.HarmQuarters(hurt, true) == quarters;
                     if (!ok && always) worst = $"({difficulty}{(knacks == null ? "" : " with Big heart")}: {hurt:0.00} health took {quarters})";
                     always &= ok;
                     before = quarters;
                 }
             }
-        Check(always, "in Challenge at every difficulty (and with Big heart's larger quarter) a hurt of any size, from a hundredth of a point up, takes at least one quarter: the rounding never makes one free " + worst);
+        Check(always, "in Challenge at every difficulty (and with Big heart's larger quarter) every hurt Standard counts takes at least one quarter: the rounding never makes one free " + worst);
         var gentle = VitalsRules.For(v5, "challenge", "gentle");
         var standard = VitalsRules.For(v5, "challenge");
         var brave = VitalsRules.For(v5, "challenge", "brave");
-        Check(gentle.HarmQuarters(4, false) == 1 && gentle.HarmQuarters(2.4f, true) == 1 && standard.HarmQuarters(2, false) == 1 && brave.HarmQuarters(2, true) == 1 &&
+        Check(gentle.HarmQuarters(4, false) == 1 && gentle.HarmQuarters(2.6f, true) == 1 && gentle.HarmQuarters(2.4f, true) == 0 && standard.HarmQuarters(2, false) == 0 && brave.HarmQuarters(2, true) == 1 &&
               gentle.HarmQuarters(10, false) == 1 && gentle.HarmQuarters(40, false) == 4 && standard.HarmQuarters(40, false) == 8 && brave.HarmQuarters(40, false) == 12,
-            "a hurt of 4 health, which Standard counts as a quarter, is a quarter at Gentle too (half of 4 is 2, under half a quarter, and was removed); larger hurts are still halved and a half again: 40 health is 4, 8 and 12 quarters");
+            "a hurt of 4 health, which Standard counts as a quarter, is a quarter at Gentle too (half of 4 is 2, under half a quarter, and was removed); a scrape Standard rounds to none (2 health) stays none at Standard and Gentle; larger hurts are still halved and a half again: 40 health is 4, 8 and 12 quarters");
 
         // Through the host: the trusted hook hurts Gentle by the quarter and Creative not at all.
         _host.UseRules(v5);

@@ -180,12 +180,13 @@ public sealed class VitalsRules
     {
         if (!float.IsFinite(healthPoints) || healthPoints <= 0) return 0;
         var quarters = (int)Math.Min(1000, Math.Round(healthPoints * DamageMultiplier / HealthPerQuarter, MidpointRounding.AwayFromZero));
-        if (DamageMultiplier > 0) quarters = Math.Max(MinimumHurtQuarters, quarters);
+        // No hurt removed (decision 11): a hurt Standard counts costs at least a quarter wherever damage counts; a scrape Standard rounds to none stays none.
+        if (DamageMultiplier > 0 && Math.Round(healthPoints / HealthPerQuarter, MidpointRounding.AwayFromZero) >= 1) quarters = Math.Max(MinimumHurtQuarters, quarters);
         if (fall && FallCapQuarters is { } cap) quarters = Math.Min(quarters, cap);
         return Math.Max(0, quarters);
     }
 
-    /// <summary>The least a hurt costs wherever damage counts (decision 11: Gentle removes none): one quarter.</summary>
+    /// <summary>The least a hurt Standard counts costs wherever damage counts (decision 11: Gentle removes none): one quarter.</summary>
     public const int MinimumHurtQuarters = 1;
 
     /// <summary>Quarters taken from the body (in quarters only).</summary>
