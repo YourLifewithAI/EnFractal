@@ -7,38 +7,15 @@ using EnFractal.Native.Room;
 namespace EnFractal.Native.Look;
 
 /// <summary>
-/// The numbers of the Gubble's Bubbles and Fireworks (Run 2, Bubbles and Fireworks; docs/look/EFFECTS.md). Code constants for this
-/// round, like GlowLook: the founder tunes them by playing, and a later preset version can carry them as a look block.
+/// The numbers of the Gubble's Fireworks (Run 2, Bubbles and Fireworks; docs/look/EFFECTS.md). Code constants for this round, like
+/// GlowLook: the founder tunes them by playing, and a later preset version can carry them as a look block. The Bubbles have none
+/// here since the founder's redesign (decisions 55 to 60): the Bubble is one player-sized bubble the kernel holds (Kernel/Bubble) and
+/// LookDirector.Bubble.cs draws; the stream of small bubbles this file once drew is gone.
 /// </summary>
 public static class EffectLook
 {
-    /// <summary>The most effects the look draws at once, glows, bubbles and fireworks together: the engine's cap of 8 active effects per room.</summary>
+    /// <summary>The most effects the look draws at once, glows and fireworks together: the engine's cap of 8 active effects per room.</summary>
     public const int MaxEffects = 8;
-
-    // ---------- bubbles (particles.float) ----------
-
-    /// <summary>The most bubbles one stream keeps in the air: past it the stream waits for one to pop.</summary>
-    public const int MaxBubbles = 40;
-    /// <summary>Bubbles blown a second per unit of intensity (the pack's default 0.6 blows about 8 a second).</summary>
-    public const float BubblesPerSecond = 14f;
-    /// <summary>A bubble's radius, metres: a few millimetres to a centimetre and a half, at the 10 cm scale a child's soap bubbles.</summary>
-    public const float BubbleMinM = 0.005f, BubbleMaxM = 0.015f;
-    /// <summary>How long a bubble floats before it pops on its own, seconds.</summary>
-    public const float BubbleLifeMinS = 3f, BubbleLifeMaxS = 6.5f;
-    /// <summary>How fast a bubble rises, m/s, and how far it wobbles sideways as it goes.</summary>
-    public const float BubbleRiseMps = 0.045f, BubbleWobbleM = 0.012f;
-    /// <summary>
-    /// A bubble blown at a spot flies from the Gubble to a place within the spot's radius, a little above it, in this many seconds a
-    /// metre (between BlowMinS and BlowMaxS), slowing as it arrives, then floats there.
-    /// </summary>
-    public const float BlowSecondsPerM = 0.55f, BlowMinS = 0.25f, BlowMaxS = 1.2f, BlowLiftM = 0.06f;
-    /// <summary>The breeze bubbles drift in when the world has no wind of its own (the look's own wind direction, as the grass bends).</summary>
-    public const float BreezeMps = 0.03f;
-    public static readonly Vector2 BreezeDirection = new Vector2(1f, 1f).Normalized();
-    /// <summary>A pop: the bubble swells by PopSwell and fades out over PopS.</summary>
-    public const float PopS = 0.14f, PopSwell = 0.7f;
-    /// <summary>A bubble just blown does not pop on the Gubble that blew it, for this long.</summary>
-    public const float BlowerGraceS = 0.6f;
 
     // ---------- fireworks (particles.burst plus light.emit) ----------
 
@@ -70,13 +47,13 @@ public static class EffectLook
 public partial class LookDirector
 {
     /// <summary>What kind of effect an id draws.</summary>
-    public enum EffectKind { None, Glow, Bubbles, Fireworks }
+    public enum EffectKind { None, Glow, Fireworks }
 
     private sealed class Particle
     {
-        public Vector3 Position, Velocity, From, Target, Checked;
-        public float Radius, Age, Life, Travel, Phase, Popping = -1f;
-        public bool Alive, FromBody;
+        public Vector3 Position, Velocity;
+        public float Radius, Age, Life;
+        public bool Alive;
         public Color Tint;
     }
 
@@ -91,22 +68,20 @@ public partial class LookDirector
         public float RadiusM, Intensity;
         public Color Color;
         public Particle[] Items = Array.Empty<Particle>();
-        public float Clock, Emit, NextVolley;
-        public int Frame;
+        public float Clock, NextVolley;
         public RandomNumberGenerator Random = new();
         // Fireworks: the rocket in flight, the burst point, the flash.
         public OmniLight3D? Flash;
         public bool RocketUp;
         public Vector3 RocketFrom, Burst;
         public float RocketS, RocketAge, FlashAge = -1f, EmberClock;
-        public int Pops, Bursts;
+        public int Bursts;
     }
 
     private readonly Dictionary<string, Effect> _effects = new();
     private readonly List<Effect> _effectOrder = new();
-    private ImageTexture? _bubbleTexture;
 
-    /// <summary>How many effects the look is drawing: glows, bubbles and fireworks together (at most EffectLook.MaxEffects).</summary>
+    /// <summary>How many effects the look is drawing: glows and fireworks together (at most EffectLook.MaxEffects).</summary>
     public int EffectCount => _glows.Count + _effects.Count;
 
     /// <summary>What an effect id draws (None for an unknown id).</summary>
@@ -116,35 +91,24 @@ public partial class LookDirector
     /// <summary>Whether an effect with this id is drawn, of any kind.</summary>
     public bool HasEffect(string effectId) => KindOf(effectId) != EffectKind.None;
 
-    /// <summary>An effect's root node (bubbles or fireworks), for tests and the review harness; glows have GlowRoot.</summary>
+    /// <summary>A fireworks effect's root node, for tests and the review harness; glows have GlowRoot.</summary>
     public Node3D? EffectRoot(string effectId) => effectId != null && _effects.TryGetValue(effectId, out var e) ? e.Root : null;
 
     /// <summary>A fireworks effect's flash light while it is lit (null between bursts, and for any other id).</summary>
     public OmniLight3D? FlashLight(string effectId) => effectId != null && _effects.TryGetValue(effectId, out var e) && e.Flash != null && IsInstanceValid(e.Flash) ? e.Flash : null;
 
-    /// <summary>The live bubbles' or sparks' positions and radii (popping ones included), for tests and the review harness.</summary>
-    public IReadOnlyList<(Vector3 Position, float Radius, bool Popping)> EffectParticles(string effectId) =>
-        effectId != null && _effects.TryGetValue(effectId, out var e) ? e.Items.Where(p => p.Alive).Select(p => (p.Position, p.Radius, p.Popping >= 0f)).ToArray() : Array.Empty<(Vector3, float, bool)>();
-
-    /// <summary>How many bubbles of an effect have popped on touch (an avatar or the land), not of old age; for tests.</summary>
-    public int TouchPops(string effectId) => effectId != null && _effects.TryGetValue(effectId, out var e) ? e.Pops : 0;
+    /// <summary>The live sparks' and embers' positions and radii, for tests and the review harness.</summary>
+    public IReadOnlyList<(Vector3 Position, float Radius)> EffectParticles(string effectId) =>
+        effectId != null && _effects.TryGetValue(effectId, out var e) ? e.Items.Where(p => p.Alive).Select(p => (p.Position, p.Radius)).ToArray() : Array.Empty<(Vector3, float)>();
 
     /// <summary>How many bursts a fireworks effect has made; for tests.</summary>
     public int Bursts(string effectId) => effectId != null && _effects.TryGetValue(effectId, out var e) ? e.Bursts : 0;
 
-    /// <summary>The wind the bubbles drift in, m/s in XZ: null (the default) uses the world's wind from the player's body, or the look's light breeze when there is none.</summary>
-    public Vector2? Wind { get; set; }
-
     /// <summary>
-    /// Start the Gubble's bubbles (particles.float), cosmetic only. With follow, a stream of bubbles rises from that body while it
-    /// moves; without, the Gubble (when one is drawn) blows a stream toward center: each bubble flies from the Gubble to a place
-    /// within radiusM of the spot, a little above it, then floats, rising slowly, wobbling and drifting with the wind. With no Gubble
-    /// drawn they rise from the spot itself. intensity (0.05 to 2.0) sets how many a second. A bubble pops when it touches an avatar
-    /// or the land, or after a few seconds, as a look effect: no collision. The bubbles take the aura's tint in their sheen. The same
-    /// rules as StartGlow: an id in use is replaced; false, drawing nothing, past EffectLook.MaxEffects or for an unusable call.
+    /// The wind of the world's weather (m/s in XZ), handed over by the host (CommandHostNature sets it with the weather). Nothing in
+    /// the look reads it since the stream of small bubbles went (the Bubble is one bubble the kernel moves); it stays as the host's seam.
     /// </summary>
-    public bool StartBubbles(string effectId, Node3D? follow, Vector3 center, float radiusM, float intensity) =>
-        StartParticles(EffectKind.Bubbles, effectId, follow, center, radiusM, intensity);
+    public Vector2? Wind { get; set; }
 
     /// <summary>
     /// Start the Gubble's fireworks (particles.burst with a brief light.emit), cosmetic only. Without follow, a rocket climbs from the
@@ -156,7 +120,7 @@ public partial class LookDirector
     public bool StartFireworks(string effectId, Node3D? follow, Vector3 center, float radiusM, float intensity) =>
         StartParticles(EffectKind.Fireworks, effectId, follow, center, radiusM, intensity);
 
-    /// <summary>End an effect of any kind (a glow, bubbles or fireworks) and free everything it drew. An unknown id is a no-op.</summary>
+    /// <summary>End an effect of any kind (a glow or fireworks) and free everything it drew. An unknown id is a no-op.</summary>
     public void StopEffect(string effectId)
     {
         if (effectId == null) return;
@@ -164,7 +128,7 @@ public partial class LookDirector
         else FreeEffect(effectId);
     }
 
-    /// <summary>End every effect: every glow, every stream of bubbles and every fireworks.</summary>
+    /// <summary>End every effect: every glow and every fireworks.</summary>
     public void StopAllEffects()
     {
         StopAllGlows();
@@ -190,9 +154,9 @@ public partial class LookDirector
             Color = GlowLook.LightColor(AuraOf(follow ?? CompanionBody())),
         };
         effect.Random.Seed = (ulong)(Seed(effectId) * 1000f) + 17ul;
-        var count = kind == EffectKind.Bubbles ? EffectLook.MaxBubbles : EffectLook.MaxSparks + EffectLook.MaxEmbers;
+        var count = EffectLook.MaxSparks + EffectLook.MaxEmbers;
         effect.Items = Enumerable.Range(0, count).Select(_ => new Particle()).ToArray();
-        effect.Root = new Node3D { Name = (kind == EffectKind.Bubbles ? "Bubbles_" : "Fireworks_") + RoomBuilder.NodeName(effectId), TopLevel = true };
+        effect.Root = new Node3D { Name = "Fireworks_" + RoomBuilder.NodeName(effectId), TopLevel = true };
         effect.Root.SetMeta(GlowMeta, effectId);
         var multimesh = new MultiMesh
         {
@@ -202,15 +166,14 @@ public partial class LookDirector
         for (var i = 0; i < count; i++) multimesh.SetInstanceTransform(i, new Transform3D(Basis.Identity.Scaled(Vector3.Zero), Vector3.Zero));
         effect.Draw = new MultiMeshInstance3D
         {
-            Name = kind == EffectKind.Bubbles ? "BubbleDraw" : "SparkDraw", Multimesh = multimesh,
-            MaterialOverride = kind == EffectKind.Bubbles ? BubbleMaterial() : SparkMaterial(),
+            Name = "SparkDraw", Multimesh = multimesh, MaterialOverride = SparkMaterial(),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
         };
         effect.Root.AddChild(effect.Draw);
         AddChild(effect.Root);
         _effects[effectId] = effect;
         _effectOrder.Add(effect);
-        if (kind == EffectKind.Fireworks) Launch(effect);
+        Launch(effect);
         return true;
     }
 
@@ -222,7 +185,7 @@ public partial class LookDirector
         return true;
     }
 
-    /// <summary>The Gubble's middle when it is drawn (where bubbles are blown from and rockets leave), else null.</summary>
+    /// <summary>The Gubble's middle when it is drawn (where rockets leave), else null.</summary>
     private Vector3? GubbleMiddle()
     {
         var gubble = CompanionBody();
@@ -245,129 +208,9 @@ public partial class LookDirector
             var effect = _effectOrder[i];
             if (effect.Follow != null && !IsInstanceValid(effect.Follow)) { FreeEffect(effect.Id); continue; }
             effect.Clock += dt;
-            effect.Frame++;
-            if (effect.Kind == EffectKind.Bubbles) AdvanceBubbles(effect, dt);
-            else AdvanceFireworks(effect, dt);
+            AdvanceFireworks(effect, dt);
             DrawParticles(effect);
         }
-    }
-
-    // ---------- bubbles ----------
-
-    private void AdvanceBubbles(Effect effect, float dt)
-    {
-        var wind = BubbleWind();
-        var follow = effect.Follow != null && IsInstanceValid(effect.Follow) && effect.Follow.IsInsideTree();
-        var blower = follow ? FollowMiddle(effect) : GubbleMiddle();
-        effect.Emit += EffectLook.BubblesPerSecond * effect.Intensity * dt;
-        while (effect.Emit >= 1f)
-        {
-            effect.Emit -= 1f;
-            var slot = Array.FindIndex(effect.Items, p => !p.Alive);
-            if (slot < 0) { effect.Emit = 0f; break; }
-            SpawnBubble(effect, effect.Items[slot], blower, follow);
-        }
-        var bodies = TouchBodies();
-        foreach (var p in effect.Items)
-        {
-            if (!p.Alive) continue;
-            p.Age += dt;
-            if (p.Popping >= 0f)
-            {
-                p.Popping += dt;
-                if (p.Popping >= EffectLook.PopS) p.Alive = false;
-                continue;
-            }
-            var wobble = new Vector3(Mathf.Sin(p.Age * 3.1f + p.Phase), 0f, Mathf.Cos(p.Age * 2.3f + p.Phase * 1.7f)) * (EffectLook.BubbleWobbleM * 2.5f);
-            if (p.Age < p.Travel)
-            {
-                // Blown: from the Gubble to its place by the spot, slowing as it arrives.
-                var t = p.Age / p.Travel;
-                var eased = 1f - (1f - t) * (1f - t);
-                p.Position = p.From.Lerp(p.Target, eased) + Vector3.Up * (0.15f * p.From.DistanceTo(p.Target) * 4f * t * (1f - t));
-            }
-            else p.Position += (new Vector3(wind.X, EffectLook.BubbleRiseMps, wind.Y) + p.Velocity + wobble) * dt;
-            p.Velocity *= Mathf.Max(0f, 1f - 1.5f * dt);
-            if (p.Age >= p.Life) { p.Popping = 0f; continue; }
-            if (Touches(p, bodies, effect)) { p.Popping = 0f; effect.Pops++; }
-        }
-    }
-
-    private void SpawnBubble(Effect effect, Particle p, Vector3? blower, bool follow)
-    {
-        var r = effect.Random;
-        p.Alive = true;
-        p.Age = 0f;
-        p.Popping = -1f;
-        p.FromBody = false;
-        p.Radius = r.RandfRange(EffectLook.BubbleMinM, EffectLook.BubbleMaxM);
-        p.Life = r.RandfRange(EffectLook.BubbleLifeMinS, EffectLook.BubbleLifeMaxS);
-        p.Phase = r.RandfRange(0f, Mathf.Tau);
-        p.Tint = new Color(1f, 1f, 1f, 1f).Lerp(effect.Color, r.RandfRange(0.25f, 0.6f));
-        var around = new Vector3(r.RandfRange(-1f, 1f), 0f, r.RandfRange(-1f, 1f)).LimitLength(1f);
-        if (follow && blower is { } body)
-        {
-            // From the body as it moves: puffed out a little, then floating.
-            p.Position = body + around * 0.02f;
-            p.Velocity = around * 0.06f + Vector3.Up * 0.02f;
-            p.Travel = 0f;
-            p.FromBody = true;
-        }
-        else if (blower is { } from)
-        {
-            p.From = from;
-            p.Target = effect.Center + Vector3.Up * EffectLook.BlowLiftM + around * effect.RadiusM;
-            p.Travel = Mathf.Clamp(from.DistanceTo(p.Target) * EffectLook.BlowSecondsPerM, EffectLook.BlowMinS, EffectLook.BlowMaxS);
-            p.Position = from;
-            p.Velocity = Vector3.Zero;
-        }
-        else
-        {
-            // No Gubble drawn: they rise from the spot itself.
-            p.Position = effect.Center + Vector3.Up * 0.01f + around * effect.RadiusM * 0.5f;
-            p.Velocity = Vector3.Zero;
-            p.Travel = 0f;
-        }
-        p.Checked = p.Position;
-    }
-
-    private Vector2 BubbleWind()
-    {
-        if (Wind is { } set) return set;
-        if (FocusBody() is SmallPlayerController player && IsInstanceValid(player) && player.WindMps != Vector2.Zero) return player.WindMps;
-        return EffectLook.BreezeDirection * EffectLook.BreezeMps;
-    }
-
-    private (Vector3 Foot, float Height, float Radius, bool Gubble)[] TouchBodies()
-    {
-        var list = new List<(Vector3, float, float, bool)>(2);
-        if (FocusBody() is SmallPlayerController player && IsInstanceValid(player) && player.IsInsideTree() && player is not CompanionAvatar)
-            list.Add((player.GlobalPosition, player.BodyHeightM, player.BodyRadiusM, false));
-        if (CompanionBody() is SmallPlayerController gubble && IsInstanceValid(gubble) && gubble.IsInsideTree())
-            list.Add((gubble.GlobalPosition, gubble.BodyHeightM, gubble.BodyRadiusM, true));
-        return list.ToArray();
-    }
-
-    /// <summary>Whether a bubble touches an avatar (its body as an upright capsule) or the land (a ray along its path, every other frame).</summary>
-    private bool Touches(Particle p, (Vector3 Foot, float Height, float Radius, bool Gubble)[] bodies, Effect effect)
-    {
-        foreach (var body in bodies)
-        {
-            // The Gubble does not pop what it has just blown, nor the stream rising out of its own body.
-            if (body.Gubble && (p.FromBody || p.Age < EffectLook.BlowerGraceS)) continue;
-            var y = Mathf.Clamp(p.Position.Y, body.Foot.Y, body.Foot.Y + body.Height);
-            if (p.Position.DistanceTo(new Vector3(body.Foot.X, y, body.Foot.Z)) < body.Radius + p.Radius) return true;
-        }
-        if (!IsInsideTree() || (effect.Frame + (int)(p.Phase * 10f)) % 2 != 0) return false;
-        var path = p.Position - p.Checked;
-        var from = p.Checked;
-        p.Checked = p.Position;
-        if (path.LengthSquared() < 1e-10f) return false;
-        var probe = Probe();
-        probe.Position = from;
-        probe.TargetPosition = path + path.Normalized() * p.Radius;
-        probe.ForceRaycastUpdate();
-        return probe.IsColliding();
     }
 
     // ---------- fireworks ----------
@@ -524,33 +367,13 @@ public partial class LookDirector
         {
             var p = effect.Items[i];
             if (!p.Alive) { multimesh.SetInstanceTransform(i, new Transform3D(Basis.Identity.Scaled(Vector3.Zero), Vector3.Zero)); continue; }
-            float size, alpha;
-            if (effect.Kind == EffectKind.Bubbles)
-            {
-                var pop = p.Popping >= 0f ? Mathf.Clamp(p.Popping / EffectLook.PopS, 0f, 1f) : 0f;
-                var born = Mathf.Clamp(p.Age / 0.12f, 0f, 1f);
-                size = 2f * p.Radius * (0.4f + 0.6f * born) * (1f + EffectLook.PopSwell * pop);
-                alpha = (1f - pop) * (1f - pop);
-            }
-            else
-            {
-                var fade = Mathf.Clamp(1f - p.Age / p.Life, 0f, 1f);
-                size = 2f * p.Radius * (0.6f + 0.4f * fade);
-                alpha = fade * fade;
-            }
+            var fade = Mathf.Clamp(1f - p.Age / p.Life, 0f, 1f);
+            var size = 2f * p.Radius * (0.6f + 0.4f * fade);
+            var alpha = fade * fade;
             multimesh.SetInstanceTransform(i, new Transform3D(Basis.Identity.Scaled(Vector3.One * size), p.Position));
             multimesh.SetInstanceColor(i, new Color(p.Tint.R, p.Tint.G, p.Tint.B, alpha));
         }
     }
-
-    /// <summary>A soap bubble: a thin bright rim with a faint rainbow sheen and a highlight, lit by the scene (dark at night unless something lights it).</summary>
-    private StandardMaterial3D BubbleMaterial() => new()
-    {
-        ResourceName = "bubble", AlbedoTexture = BubbleTexture(), VertexColorUseAsAlbedo = true,
-        Transparency = BaseMaterial3D.TransparencyEnum.Alpha, BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled, BillboardKeepScale = true,
-        Roughness = 0.2f, MetallicSpecular = 0.7f, RimEnabled = true, Rim = 0.6f, RimTint = 0.6f, DisableReceiveShadows = true,
-        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
-    };
 
     /// <summary>A spark or an ember: a soft dot of burning light, added to what is behind it, its colour (over 1, for the bloom) per spark.</summary>
     private StandardMaterial3D SparkMaterial() => new()
@@ -559,27 +382,4 @@ public partial class LookDirector
         Transparency = BaseMaterial3D.TransparencyEnum.Alpha, BlendMode = BaseMaterial3D.BlendModeEnum.Add,
         BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled, BillboardKeepScale = true, DisableReceiveShadows = true,
     };
-
-    private ImageTexture BubbleTexture()
-    {
-        if (_bubbleTexture != null) return _bubbleTexture;
-        const int size = 64;
-        var image = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
-        for (var y = 0; y < size; y++)
-            for (var x = 0; x < size; x++)
-            {
-                var u = (x + 0.5f) / size * 2f - 1f;
-                var v = (y + 0.5f) / size * 2f - 1f;
-                var d = Mathf.Sqrt(u * u + v * v);
-                var rim = Mathf.SmoothStep(0.72f, 0.92f, d) * (1f - Mathf.SmoothStep(0.92f, 1f, d));
-                var film = d < 0.95f ? 0.07f : 0f;
-                var hue = Mathf.PosMod(Mathf.Atan2(v, u) / Mathf.Tau + d * 0.35f, 1f);
-                var sheen = Color.FromHsv(hue, 0.35f, 1f);
-                var spot = 1f - Mathf.SmoothStep(0.05f, 0.2f, new Vector2(u + 0.38f, v + 0.4f).Length());
-                var colour = sheen.Lerp(new Color(1f, 1f, 1f), spot);
-                image.SetPixel(x, y, new Color(colour.R, colour.G, colour.B, Mathf.Clamp(film + rim * 0.75f + spot * 0.85f, 0f, 1f)));
-            }
-        _bubbleTexture = ImageTexture.CreateFromImage(image);
-        return _bubbleTexture;
-    }
 }

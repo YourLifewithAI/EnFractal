@@ -131,7 +131,7 @@ public partial class CommandHost : Node
         "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
         // The mechanics round (M0): player-only. The player's item.pickup of a Fractal and item.gather of a held log or stone
         // are hosted (M1), knack.set too (M3, Saves/CommandHostTeams.cs), and fractal.spend (the second contract round, hosted in
-        // M1's fix round: CommandHostFractals); receipt.mark and trust.reset answer as not available yet until M8 (Unsupported).
+        // M1's fix round: CommandHostFractals), and receipt.mark and trust.reset since M8 (CommandHostTrust).
         "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset",
     };
     private static readonly HashSet<string> QueryOps = new()
@@ -147,7 +147,7 @@ public partial class CommandHost : Node
     /// in the player's profile files, never in the room. Never entity.release: putting a thing down is saved state
     /// (kernel-host-gaps P8), and never a nature change, which is room state. Transient() refuses any other op.
     /// </summary>
-    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop", "knack.set", "fractal.spend" };
+    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop", "knack.set", "fractal.spend", "receipt.mark", "trust.reset" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
     private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset" };
     /// <summary>The mechanics round's player-only ops (contracts/README.md "Player-only operations"): the player's own, with no tool.</summary>
@@ -690,9 +690,14 @@ public partial class CommandHost : Node
                 "item.gather" => GatherHeld(args, principal, actionId, fingerprint, preview),
                 "knack.set" => SetKnack(args, principal, actionId, fingerprint, preview),
                 "fractal.spend" => SpendFractals(args, principal, actionId, fingerprint, preview),
+                // M8: the player's marks and reset (CommandHostTrust).
+                "receipt.mark" => MarkReceipt(args, principal, actionId, fingerprint, preview),
+                "trust.reset" => ResetTrust(principal, actionId, fingerprint, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
             ObserveWishCommand(root, result, principal);
+            // M8: a command of the Gubble's that committed opens its Trust window and can be marked (CommandHostTrust).
+            ObserveTrustCommand(root, result, principal);
             return result;
         }
         catch (Refusal refusal)
@@ -2749,9 +2754,9 @@ public partial class CommandHost : Node
     {
         // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
         // pickup of a Fractal and spending them (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1,
-        // knack.set since M3, the Bubbles expertise since M9 (Kernel/Bubble). A difficulty in a request waits for the menu
-        // (M7): the boot sets it from the island save (BootMode, UseDifficulty).
-        "receipt.mark" or "trust.reset" => MechanicsNotYet,
+        // knack.set since M3, the Bubbles expertise since M9 (Kernel/Bubble), receipt.mark and trust.reset since M8
+        // (CommandHostTrust). A difficulty in a request waits for the menu (M7): the boot sets it from the island save (BootMode,
+        // UseDifficulty).
         "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",

@@ -429,6 +429,57 @@ def _cs_string(path, name: str) -> str:
     return raw.replace('\\"', '"').replace("\\\\", "\\")
 
 
+TRUST = KERNEL / "Kernel" / "Trust.cs"
+TRUST_HOST = KERNEL / "Kernel" / "CommandHostTrust.cs"
+
+
+@unittest.skipUnless(TRUST.is_file() and TRUST_HOST.is_file(), "the kernel's Trust is not in this checkout")
+class TrustMatchesTheKernel(unittest.TestCase):
+    """M8: the mock's Trust numbers, words and journal lines are the kernel's (Kernel/Trust.cs, Kernel/CommandHostTrust.cs), and the
+    kernel routes the two player's ops past the stubs and observes the Gubble's commits once."""
+
+    def test_the_numbers_and_words_are_the_kernels(self):
+        from enfractal_companion import mock_trust
+        numbers = {
+            "CLEAN_INITIATIVE": _constant(TRUST, r"\bconst int CleanInitiative = (-?\d+);"),
+            "CLEAN_WINDOW_S": float(_match(TRUST, r"\bconst double CleanWindowS = ([0-9.]+);")),
+            "GAIN_SPACING_S": float(_match(TRUST, r"\bconst double GainSpacingS = ([0-9.]+);")),
+            "PER_CONSEQUENCE": _constant(TRUST, r"\bconst int PerConsequence = (-?\d+);"),
+            "MARK_YES": _constant(TRUST, r"\bconst int MarkYes = (-?\d+);"),
+            "MARK_NOT_THAT": _constant(TRUST, r"\bconst int MarkNotThat = (-?\d+);"),
+            "MAX_REMEMBERED": _constant(TRUST, r"\bconst int MaxRemembered = (\d+);"),
+            "TRUST_BOUND": int(_match(TRUST, r"\bconst int Bound = ([0-9_]+);").replace("_", "")),
+        }
+        for name, value in numbers.items():
+            with self.subTest(name=name):
+                self.assertEqual(getattr(mock_trust, name), value)
+        self.assertEqual(list(mock_trust.BAND_AT), [int(n) for n in _match(TRUST, r"BandAt = \{ ([^}]*) \};").split(",")])
+        self.assertEqual(list(mock_trust.OWN_IDEA_SHARE), [float(n) for n in _match(TRUST, r"OwnIdeaShare = \{ ([^}]*) \};").split(",")])
+        for mock, kernel in (("MARK_NOT_FOUND", "MarkNotFound"), ("MARKED_ONCE", "MarkedOnce")):
+            with self.subTest(words=mock):
+                self.assertEqual(getattr(mock_trust, mock), _cs_string(TRUST_HOST, kernel))
+        trust = _text(TRUST)
+        for level in (-1, 0, 1, 2, 3):
+            self.assertIn(f'"{mock_trust.phrase(level)}"', trust)
+        host = _text(TRUST_HOST)
+        for line in ("You marked the Gubble's ", ": yes, like that.", ": not that.", "You reset the Gubble's Trust: "):
+            self.assertIn(line, host)
+        # The founder's rule (16 October): the same commands change the world, and so open a window, on both hosts.
+        self.assertEqual(mock_trust.WORLD_OPS, set(re.findall(r'"([a-z_.]+)"', _match(TRUST, r"WorldOps = new\(StringComparer\.Ordinal\)\s*\{([^}]*)\};"))))
+        self.assertEqual(mock_trust.WORLD_GOALS, set(re.findall(r'"([a-z_]+)"', _match(TRUST, r"WorldGoals = new\(StringComparer\.Ordinal\) \{([^}]*)\};"))))
+
+    def test_the_kernel_hosts_the_marks_and_the_reset(self):
+        source = _text(COMMAND_HOST)
+        unsupported = source[source.index("private string? Unsupported("):]
+        self.assertNotIn('"receipt.mark" or "trust.reset" => MechanicsNotYet', unsupported)
+        self.assertIn('"receipt.mark" => MarkReceipt(', source)
+        self.assertIn('"trust.reset" => ResetTrust(', source)
+        execute = _method(source, "private JsonObject Execute(")
+        self.assertEqual(execute.count("ObserveTrustCommand(root, result, principal);"), 1)
+        # The player-only refusal comes before either op's handler: the companion never reaches them.
+        self.assertLess(execute.index("PlayerOnlyOps.Contains(op)"), execute.index('"receipt.mark" => MarkReceipt('))
+
+
 @unittest.skipUnless(EYES.is_file(), "the kernel host's eyes are not in this checkout")
 class EyesMatchTheKernel(unittest.TestCase):
     """The Gubble's eyes (view.look): the mock's numbers and words are the kernel's, and the contract's bounds hold them."""

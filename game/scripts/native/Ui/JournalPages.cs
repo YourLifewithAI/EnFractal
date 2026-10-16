@@ -239,6 +239,7 @@ public static class JournalPages
             }
         lines.Add(Heading("Asking the Gubble"));
         lines.Add(Text($"{K(Act.GubbleAsk)}: ask for what fits where you point · hold it for the magic wheel"));
+        lines.Add(Text($"{K(Act.GubbleAsk)} on a bubble chooses it, then on a spot leads it there · a higher spot lifts it · {K(Act.MouseRelease)} lets it go"));
         lines.Add(Text($"{K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop"));
         lines.Add(Text($"{K(Act.GubbleEyes)} or the eye icon: see through {CompanionName(host)}'s eyes"));
         lines.Add(Heading("Ways through the world"));
@@ -254,10 +255,12 @@ public static class JournalPages
     /// <summary>What an ability does, from its engine primitive and where it may land (its targets): only what the game does.</summary>
     private static string AbilityWords(IslandAbility ability)
     {
+        // The Bubble (decisions 55 to 60): one bubble at a spot, the place deciding what it is, steered by the smart ask.
+        if (ability.Primitive == "particles.float")
+            return $"One bubble at a spot, and the place decides: a ride round you, a boat on water, a bubble to step into anywhere else. {K(Act.GubbleAsk)} it to choose it, then a spot to lead it there; lead it higher to lift.";
         var what = ability.Primitive switch
         {
             "light.emit" => "A small light",
-            "particles.float" => "Bubbles that drift upward",
             "particles.burst" => "A burst of fireworks",
             "growth.seed" => "Flowers that take root",
             "element.ignite" => "A fire that stays inside the area you preview, lit only when you hold to confirm",
@@ -316,6 +319,9 @@ public static class JournalPages
         lines.Add(Heading("Your companion"));
         lines.Add(Title(CompanionName(host)));
         lines.Add(Text("Floats after you, over water and up cliffs, and fetches the things you find."));
+        // Trust in words, never a number (M8): the host's count from what happened, the pack's word for Trust above it.
+        lines.Add(Faint(MeterWords.Name(host, "trust")));
+        lines.Add(Text(host.TrustWords));
         return new(lines, false, "");
     }
 

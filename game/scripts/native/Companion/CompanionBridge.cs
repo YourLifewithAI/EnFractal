@@ -29,6 +29,8 @@ namespace EnFractal.Native.Companion;
 ///   team's map and journal belong to the room and are saved with it, so a session no longer clears them.
 /// - Shows the companion's state on its avatar (<see cref="CompanionStatusCue"/>): listening, planning, acting, or
 ///   waiting for the player's yes; nothing when no AI is linked.
+/// - Keeps Trust's clock (M8): the host settles the Gubble's windows of clean initiative and checks the free early warning
+///   a few times a second (<see cref="CommandHost.SettleTrust"/>), and the Gubble's cue shows the warning's words.
 /// The goals themselves (follow, come, look_at, point_at) run in the host, which watches the body for their arrival.
 /// The integrator's one-line wiring: RoomWorld calls <c>Companion.CompanionBridge.Attach(this)</c> after the command host.
 /// </summary>
@@ -49,6 +51,8 @@ public partial class CompanionBridge : Node
     public const int MaxWorkPerFrame = 32;
     /// <summary>Requests waiting for the main thread at once. The link sends one at a time, so this is never reached by the real companion.</summary>
     public const int MaxQueuedRequests = 64;
+    /// <summary>How often Trust's clock runs (M8): settling is exact whenever it runs, so this only sets how soon the warning shows.</summary>
+    public const double TrustTickS = 0.25;
 
     public CommandHost Host { get; private set; } = null!;
     public CompanionAvatar? Companion { get; private set; }
@@ -77,6 +81,7 @@ public partial class CompanionBridge : Node
     private int _sessions;
     private double _lastRequestS = double.NegativeInfinity;
     private bool _closed;
+    private double _trustClockS;
 
     public static CompanionBridge Attach(RoomWorld world) =>
         Create(world, CommandHost.Of(world) ?? throw new InvalidOperationException("Attach the command host before the companion bridge."), world.Companion);
@@ -101,6 +106,8 @@ public partial class CompanionBridge : Node
             // Under the name tag, so the cue keeps its billboard size and hides with it when the camera is close.
             (Companion.GetNodeOrNull<Label3D>("CompanionLabel") as Node ?? Companion).AddChild(Cue);
         }
+        // The free early warning of Trust's bands (M8): the Gubble's cue says it, linked AI or not.
+        Host.EarlyWarning += ShowWarning;
         if (OS.GetCmdlineUserArgs().Contains(DisableArgument))
         {
             LinkNotice = "The companion link is off for this run.";
@@ -157,11 +164,28 @@ public partial class CompanionBridge : Node
         for (var done = 0; done < MaxWorkPerFrame && _work.TryDequeue(out var work); done++) work();
         PrintNotes();
         UpdateState();
+        _trustClockS += delta;
+        if (_trustClockS >= TrustTickS && IsInstanceValid(Host))
+        {
+            _trustClockS = 0;
+            Host.SettleTrust();
+        }
+    }
+
+    private void ShowWarning(string words)
+    {
+        if (Cue != null && IsInstanceValid(Cue)) Cue.Warn(words);
     }
 
     public override void _ExitTree()
     {
         _closed = true;
+        if (IsInstanceValid(Host))
+        {
+            Host.EarlyWarning -= ShowWarning;
+            // The last windows settle before the room goes: a gain already earned is written to the team file now.
+            Host.SettleTrust();
+        }
         Link?.Stop();
         RunnerLink?.Stop();
         if (IsInstanceValid(Host)) Host.WishRunnerSession(false);

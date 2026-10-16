@@ -42,8 +42,9 @@ namespace EnFractal.Tests.Look;
 /// A camera may set its own hour ("hour", the review clock's date) and light the Gubble's glows before it is framed ("glows": id,
 /// on: "companion" for a halo or at_m for a wisp at a point, radius_m, intensity; the look's StartGlow, as the host calls it).
 /// A wisp's "at_xz_m" stands it on the ground there instead (a ray down). "spark_s": T casts the glows again T seconds before the
-/// picture, to catch the spark from the Gubble in flight. An entry's "kind" may be "bubbles" or "fireworks" (StartBubbles,
-/// StartFireworks: same fields); "settle_s": T lets the effects run T seconds before the warm-up, so a stream has reached its spot.
+/// picture, to catch the spark from the Gubble in flight. An entry's "kind" may be "fireworks" (StartFireworks: same fields); "bubbles"
+/// is the stream of small bubbles the founder's redesign removed (decisions 55 to 60), so it is skipped with a note; "settle_s": T
+/// lets the effects run T seconds before the warm-up.
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -284,7 +285,12 @@ public partial class LookCaptureHarness : Node
             var radius = glow.TryGetProperty("radius_m", out var r) ? (float)r.GetDouble() : 0.6f;
             var intensity = glow.TryGetProperty("intensity", out var i) ? (float)i.GetDouble() : 0.6f;
             var kind = glow.TryGetProperty("kind", out var k) ? k.GetString() : "glow";
-            var method = kind switch { "bubbles" => "StartBubbles", "fireworks" => "StartFireworks", _ => "StartGlow" };
+            if (kind == "bubbles")
+            {
+                GD.Print($"LOOK_CAPTURE: the review glow {id} is a stream of bubbles, which is gone (decisions 55 to 60); skipped");
+                continue;
+            }
+            var method = kind == "fireworks" ? "StartFireworks" : "StartGlow";
             if (!_look.HasMethod(method)) continue;
             var started = _look.Call(method, id, onGubble ? _world.Companion : new Variant(), at, radius, intensity).AsBool();
             if (!started) throw new InvalidOperationException($"the look refused the review glow {id}");

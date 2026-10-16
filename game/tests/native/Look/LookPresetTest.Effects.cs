@@ -9,10 +9,11 @@ using EnFractal.Native.Room;
 namespace EnFractal.Tests.Look;
 
 /// <summary>
-/// Run 2, Bubbles and Fireworks, Lane L: the look's API mirrors StartGlow (StartBubbles, StartFireworks, StopEffect), one cap of 8
-/// effects across all kinds, both leave the Gubble, bubbles rise, drift with the wind and pop on touch (an avatar or the land), and
-/// fireworks climb from the Gubble, burst above the spot and flash a brief real light within the budgets that LightLevelAt counts
-/// while it is lit. How they look needs the GPU (docs/look/EFFECTS.md); these checks are what holds headless.
+/// Run 2, Bubbles and Fireworks, Lane L: the look's API mirrors StartGlow (StartFireworks, StopEffect), one cap of 8 effects across
+/// the kinds, and fireworks climb from the Gubble, burst above the spot and flash a brief real light within the budgets that
+/// LightLevelAt counts while it is lit. How they look needs the GPU (docs/look/EFFECTS.md); these checks are what holds headless.
+/// The Bubble is no effect since the founder's redesign (decisions 55 to 60): LookPresetTest.Bubble.cs checks its drawing, and that
+/// the stream of small bubbles this file once checked is gone.
 /// </summary>
 public partial class LookPresetTest
 {
@@ -21,7 +22,7 @@ public partial class LookPresetTest
     private async Task CheckEffects(StylePreset preset, RoomData room)
     {
         CheckEffectApi(preset, room);
-        await CheckBubbles(preset);
+        await CheckBubbleLook(preset, room);
         await CheckFireworks(preset);
     }
 
@@ -31,17 +32,17 @@ public partial class LookPresetTest
         look.SetProcess(false);
         var at = new Vector3(0.4f, 0f, -0.3f);
         Check(EffectLook.MaxEffects == 8 && look.EffectCount == 0 && look.KindOf("effect:b") == LookDirector.EffectKind.None, "the look draws at most 8 effects of every kind together, and none to start with");
-        Check(look.StartBubbles("effect:b", null, at, 0.4f, 0.6f) && look.StartFireworks("effect:f", null, at, 0.6f, 0.6f)
-            && look.KindOf("effect:b") == LookDirector.EffectKind.Bubbles && look.KindOf("effect:f") == LookDirector.EffectKind.Fireworks
+        Check(look.StartFireworks("effect:b", null, at, 0.4f, 0.6f) && look.StartFireworks("effect:f", null, at, 0.6f, 0.6f)
+            && look.KindOf("effect:b") == LookDirector.EffectKind.Fireworks && look.KindOf("effect:f") == LookDirector.EffectKind.Fireworks
             && look.EffectRoot("effect:b") is { TopLevel: true } && look.EffectRoot("effect:f") != null && look.EffectCount == 2 && look.GlowCount == 0,
-            "bubbles and fireworks start like a glow: an id, a body or a spot, a radius and an intensity");
+            "fireworks start like a glow: an id, a body or a spot, a radius and an intensity");
         var glows = Enumerable.Range(0, 6).Select(i => look.StartGlow($"effect:g{i}", null, at + new Vector3(0.2f * i, 0f, 0f), 0.6f, 0.6f)).ToArray();
         var children = look.GetChildCount();
-        Check(glows.All(g => g) && look.EffectCount == 8 && !look.StartBubbles("effect:x", null, at, 0.4f, 0.6f) && !look.StartFireworks("effect:y", null, at, 0.4f, 0.6f)
+        Check(glows.All(g => g) && look.EffectCount == 8 && !look.StartFireworks("effect:x", null, at, 0.4f, 0.6f) && !look.StartFireworks("effect:y", null, at, 0.4f, 0.6f)
             && !look.StartGlow("effect:z", null, at, 0.6f, 0.6f) && look.EffectCount == 8 && look.GetChildCount() == children,
             "one cap across the kinds: with 6 glows and 2 effects, a ninth of any kind is refused and draws nothing");
-        var bubblesRoot = look.EffectRoot("effect:b")!;
-        Check(look.StartGlow("effect:b", null, at, 0.6f, 0.6f) && look.KindOf("effect:b") == LookDirector.EffectKind.Glow && !IsInstanceValid(bubblesRoot) && look.EffectCount == 8,
+        var replacedRoot = look.EffectRoot("effect:b")!;
+        Check(look.StartGlow("effect:b", null, at, 0.6f, 0.6f) && look.KindOf("effect:b") == LookDirector.EffectKind.Glow && !IsInstanceValid(replacedRoot) && look.EffectCount == 8,
             "an id already in use is replaced whatever its kind, so it is not a new effect");
         var fireworksRoot = look.EffectRoot("effect:f")!;
         look.StopEffect("effect:f");
@@ -51,11 +52,11 @@ public partial class LookPresetTest
         var gone = new Node3D();
         holder.AddChild(gone);
         gone.Free();
-        Check(!look.StartBubbles("", null, at, 0.4f, 0.6f) && !look.StartFireworks("effect:n", null, new Vector3(float.NaN, 0f, 0f), 0.4f, 0.6f)
-            && !look.StartBubbles("effect:i", null, at, 0.4f, float.PositiveInfinity) && !look.StartFireworks("effect:gone", gone, at, 0.4f, 0.6f),
+        Check(!look.StartFireworks("", null, at, 0.4f, 0.6f) && !look.StartFireworks("effect:n", null, new Vector3(float.NaN, 0f, 0f), 0.4f, 0.6f)
+            && !look.StartFireworks("effect:i", null, at, 0.4f, float.PositiveInfinity) && !look.StartFireworks("effect:gone", gone, at, 0.4f, 0.6f),
             "an empty id, a number that is not finite or a body that is gone is refused");
         look.StopAllEffects();
-        Check(look.EffectCount == 0 && look.FindChildren("Bubbles_*", "", true, false).Count == 0 && look.FindChildren("Glow_*", "", true, false).Count == 0, "StopAllEffects ends every glow, stream and burst");
+        Check(look.EffectCount == 0 && look.FindChildren("Fireworks_*", "", true, false).Count == 0 && look.FindChildren("Glow_*", "", true, false).Count == 0, "StopAllEffects ends every glow and burst");
         holder.Free();
     }
 
@@ -83,70 +84,6 @@ public partial class LookPresetTest
     private static void Run(LookDirector look, float seconds)
     {
         for (var t = 0f; t < seconds; t += Tick) look._Process(Tick);
-    }
-
-    private async Task CheckBubbles(StylePreset preset)
-    {
-        var (holder, look, gubble, player) = await EffectWorld(preset, "BubblesHolder");
-        gubble.GlobalPosition = new Vector3(0.4f, 0f, 0.9f);
-        var middle = gubble.GlobalPosition + Vector3.Up * gubble.BodyHeightM * GlowLook.FollowHeightFraction;
-        var spot = new Vector3(0.8f, 0f, -0.5f);
-        look.Wind = new Vector2(0.12f, 0f);
-        Check(look.StartBubbles("effect:bubbles", null, spot, 0.25f, 0.6f), "the Gubble blows bubbles at a spot");
-        for (var i = 0; i < 60 && look.EffectParticles("effect:bubbles").Count == 0; i++) look._Process(Tick);
-        var first = look.EffectParticles("effect:bubbles");
-        Check(first.Count >= 1 && first.All(b => b.Position.DistanceTo(middle) < 0.08f), $"they leave the Gubble: the first {first.Count} start at its middle");
-        Run(look, 1.5f);
-        var blown = look.EffectParticles("effect:bubbles").Where(b => !b.Popping).ToArray();
-        var near = blown.Count(b => new Vector2(b.Position.X - spot.X, b.Position.Z - spot.Z).Length() < 0.25f + 0.25f);
-        Check(blown.Length >= 6 && near >= blown.Length / 3 && blown.All(b => b.Radius is >= EffectLook.BubbleMinM and <= EffectLook.BubbleMaxM),
-            $"after a moment the stream has reached the spot ({near} of {blown.Length} bubbles within its radius, a few millimetres to {EffectLook.BubbleMaxM * 100f:0.#} cm across)");
-        // An avatar touching them pops them: the player stands in a narrow stream.
-        look.StopEffect("effect:bubbles");
-        player.GlobalPosition = spot;
-        look.StartBubbles("effect:narrow", null, spot, 0.03f, 1f);
-        Run(look, 2.5f);
-        Check(look.TouchPops("effect:narrow") > 3, $"the player standing in the stream pops the bubbles that touch it ({look.TouchPops("effect:narrow")})");
-        look.StopEffect("effect:narrow");
-        player.GlobalPosition = new Vector3(1.6f, 0f, 1.2f);
-        // The land pops them too: blown under a low slab, they rise into its underside and none passes through it.
-        Block(holder, new Vector3(0.3f, 0.16f, -0.9f), new Vector3(0.5f, 0.06f, 0.5f));
-        await PhysicsFrames(2);
-        gubble.GlobalPosition = new Vector3(0f, 0f, -0.45f);
-        look.Wind = Vector2.Zero;
-        look.StartBubbles("effect:roof", null, new Vector3(0.3f, 0f, -0.9f), 0.15f, 1f);
-        var through = false;
-        for (var t = 0f; t < 6f; t += Tick)
-        {
-            look._Process(Tick);
-            through |= look.EffectParticles("effect:roof").Any(b => b.Position.Y > 0.19f && Mathf.Abs(b.Position.X - 0.3f) < 0.25f && Mathf.Abs(b.Position.Z + 0.9f) < 0.25f);
-        }
-        Check(look.TouchPops("effect:roof") > 5 && !through, $"under a low slab they rise into its underside and pop there ({look.TouchPops("effect:roof")}); none passes through it");
-        look.StopEffect("effect:roof");
-        // On the Gubble: a stream rises from its body; with no Gubble drawn they rise from the spot itself.
-        Check(look.StartBubbles("effect:self", gubble, Vector3.Zero, 0.3f, 0.6f), "a stream of bubbles on the Gubble");
-        Run(look, 0.4f);
-        var self = look.EffectParticles("effect:self");
-        var selfMiddle = gubble.GlobalPosition + Vector3.Up * gubble.BodyHeightM * GlowLook.FollowHeightFraction;
-        Check(self.Count > 0 && self.All(b => b.Position.DistanceTo(selfMiddle) < 0.25f), $"rises from its body ({self.Count} bubbles)");
-        gubble.GlobalPosition += new Vector3(0.5f, 0f, 0f);
-        Run(look, 0.4f);
-        Check(look.EffectParticles("effect:self").Any(b => b.Position.X > selfMiddle.X + 0.4f), "and follows it as it moves");
-        look.StopEffect("effect:self");
-        gubble.Visible = false;
-        look.Wind = new Vector2(0.12f, 0f);
-        look.StartBubbles("effect:alone", null, spot, 0.25f, 0.6f);
-        for (var i = 0; i < 60 && look.EffectParticles("effect:alone").Count == 0; i++) look._Process(Tick);
-        Check(look.EffectParticles("effect:alone").Count > 0 && look.EffectParticles("effect:alone").All(b => new Vector2(b.Position.X - spot.X, b.Position.Z - spot.Z).Length() < 0.2f && b.Position.Y < spot.Y + 0.1f),
-            "with no Gubble drawn they rise from the spot itself");
-        Run(look, 2f);
-        var floating = look.EffectParticles("effect:alone").Where(b => !b.Popping).ToArray();
-        Check(floating.Length > 5 && floating.Average(b => b.Position.Y) > spot.Y + 0.03f && floating.Average(b => b.Position.X) > spot.X + 0.05f && floating.Length <= EffectLook.MaxBubbles,
-            $"they rise (on average {floating.Average(b => b.Position.Y) - spot.Y:0.###} m up) and drift with the wind ({floating.Average(b => b.Position.X) - spot.X:0.###} m downwind), never more than {EffectLook.MaxBubbles} in the air");
-        gubble.Visible = true;
-        look.StopAllEffects();
-        holder.Free();
-        await PhysicsFrames(1);
     }
 
     private async Task CheckFireworks(StylePreset preset)

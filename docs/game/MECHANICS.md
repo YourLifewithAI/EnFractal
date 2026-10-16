@@ -275,6 +275,10 @@ Multiplayer is a later phase and out of scope for the engine work now.
 
 67. **Grow as proposed, and fire burns plants as it burns any other object.** Grow makes every plant rooted in its circle a quarter of its natural size bigger a cast, up to twice its size or one band (0.4 m) taller, whichever comes first; a grown tree is climbed as trees are; shrubs, ferns, grass and flowers grow but are not climbed yet; grown plants are saved with the island; 4 ordered, 2 as the Gubble's idea. Fire burns plants, grown or not, as it burns any other object: they catch, burn as fuel (more when grown) and burn down, gone with their collision; "it should burn it as it would any other object", not shrink it back. A burnt plant stays gone, like any other burnt object, unless it is replanted ("Burnt plants should stay gone like other objects unless replanted"); this replaces decision 52's ash regrowing at normal size. This is a baked-in expectation of the Grow packet: plants that cannot burn are not done.
 
+**Decided by the founder on M8's Trust (16 October)**:
+
+68. **Trust counts only what changes the world.** A Gubble action on its own initiative gains Trust only when it does something in the world: a cast, an effect, a build, moving or placing a thing, a fetch, leading a bubble. Directional commands (follow, stay, come, go to, look at, point at, wander), stops and notes never gain Trust: "Trust shouldn't be impacted by simple directional commands, only things that impact the world." The player's marks still count on any receipt of the Gubble's.
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.

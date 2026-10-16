@@ -54,12 +54,13 @@ public partial class NatureTest : Node3D
             await TestConsequences();
             await TestEnergy();
             await TestExpertise();
+            await TestTrust();
             await FreeWorld();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine error while the suite ran ({_errors.Count}; first: {_errors.First})");
             GD.Print($"NATIVE_KERNEL_NATURE: {_checks - _failures}/{_checks} checks passed; the ground field's laws and bounds, time away, nature as room state (saved block, " +
                 "throttle, rebuild, migration), receipts and undo by room revision (Creative only), the authority's checks, what a companion learns, the fire rule and its one ask, " +
-                $"the trail's consent, carried and burnt things, the Gubble's fire: consequences, guardrails and feedback{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
+                $"the trail's consent, carried and burnt things, the Gubble's fire: consequences, guardrails and feedback, Trust (initiative, marks, burnt builds, bands, lessons){(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveAll();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }

@@ -16,7 +16,9 @@ public static class GubbleMagic
     public static readonly string[] SlotCategories = { "light", "growth", "float", "burst", "build" };
     /// <summary>A slot's name while the island has no ability in its category (the island's own display_name replaces it).</summary>
     public static readonly string[] SlotNames = { "Glow", "Bloom", "Bubbles", "Fireworks", "Build" };
-    public static readonly string[] SlotIcons = { "☀", "✿", "○", "✸", "⌂" };
+    public static readonly string[] SlotIcons = { "☀", "✿", BubbleIcon, "✸", "⌂" };
+    /// <summary>The Bubbles' icon: the slot's, the wheel's wedge, and the thought bubble while the Gubble leads a bubble.</summary>
+    public const string BubbleIcon = "○";
 
     // The orders' icons, and the thought bubble's own.
     public const string FollowIcon = "→";
@@ -78,11 +80,19 @@ public static class GubbleMagic
     /// <summary>The wedge of an ability slot (0-based).</summary>
     public static int WedgeOfSlot(int slot) => Array.FindIndex(Wedges, w => w.Kind == WedgeKind.Ability && w.Slot == slot);
 
-    /// <summary>The smart ask's rules, the first that matches wins. While the Gubble holds something: put it down here, or put it there.</summary>
-    public enum AskRule { None, Toggle, Fetch, Glow, Look, PutHere, PutThere }
+    /// <summary>
+    /// The smart ask's rules, the first that matches wins. While the Gubble holds something: put it down here, or put it there.
+    /// SelectBubble, LeadBubble and ClearBubble are the Bubble's steering (decision 57): the first right-click on a bubble selects it,
+    /// the next on a spot leads it there, and a right-click on nothing (or on the bubble again, or on the Gubble) lets it go.
+    /// </summary>
+    public enum AskRule { None, Toggle, Fetch, Glow, Look, PutHere, PutThere, SelectBubble, LeadBubble, ClearBubble }
 
-    /// <summary>What the aim is on: whether it hit anything, where, the room entity it hit (an id, never a name), and whether it is the Gubble.</summary>
-    public readonly record struct Aim(bool Hit, Vector3 Point, string? Entity, bool AtGubble);
+    /// <summary>
+    /// What the aim is on: whether it hit anything, where, the room entity it hit (an id, never a name), and whether it is the Gubble.
+    /// Bubble is the bubble's effect id when the aim passes through it before anything else (the kernel's BubbleAt picks it), and
+    /// InBubble that the view is inside it (a first-person view in a carry): every ray from there is "on" the bubble.
+    /// </summary>
+    public readonly record struct Aim(bool Hit, Vector3 Point, string? Entity, bool AtGubble, string? Bubble = null, bool InBubble = false);
 
     /// <summary>What a tap would ask, at what point and of what thing.</summary>
     public readonly record struct Ask(AskRule Rule, Aim Aim)
@@ -97,8 +107,13 @@ public static class GubbleMagic
     /// holds something (the founder's playtest: it could pick a thing up but not put it down), aimed at the Gubble it puts it down
     /// here, and aimed at a spot it puts it there.
     /// </summary>
-    public static Ask Decide(Aim aim, Func<string, bool> carryable, Func<Vector3, bool> darkWithinReach, bool gubbleHolds = false)
+    public static Ask Decide(Aim aim, Func<string, bool> carryable, Func<Vector3, bool> darkWithinReach, bool gubbleHolds = false, string? selectedBubble = null)
     {
+        // A bubble is selected: the next ask is its steering, whatever else the aim is on. A spot leads it there; nothing, the Gubble
+        // or the bubble itself lets it go (the view inside the bubble is not "on" it: from there every ray is a spot).
+        if (selectedBubble != null)
+            return !aim.Hit || aim.AtGubble || (aim.Bubble == selectedBubble && !aim.InBubble) ? new(AskRule.ClearBubble, aim) : new(AskRule.LeadBubble, aim);
+        if (aim.Bubble != null) return new(AskRule.SelectBubble, aim);
         if (gubbleHolds && aim.AtGubble) return new(AskRule.PutHere, aim);
         if (gubbleHolds) return new(aim.Hit ? AskRule.PutThere : AskRule.None, aim);
         if (aim.AtGubble) return new(AskRule.Toggle, aim);
@@ -111,6 +126,9 @@ public static class GubbleMagic
     /// <summary>The reticle's words for what a tap would do now (icons and fixed words only, never a thing's name).</summary>
     public static string AskWords(AskRule rule, bool following, string glowName) => rule switch
     {
+        AskRule.SelectBubble => $"{BubbleIcon} choose this bubble",
+        AskRule.LeadBubble => $"{BubbleIcon} lead it there",
+        AskRule.ClearBubble => $"{BubbleIcon} let the bubble go",
         AskRule.Toggle => following ? $"{StayIcon} wait here" : $"{FollowIcon} follow me",
         AskRule.Fetch => $"{FetchIcon} fetch it",
         AskRule.Glow => $"{SlotIcons[0]} {glowName.ToLowerInvariant()} there",

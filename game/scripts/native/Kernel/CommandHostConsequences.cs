@@ -21,6 +21,8 @@ namespace EnFractal.Native.Kernel;
 /// - learning across sessions: the host writes one consequence fact per fire into the team's journal, in the game's own
 ///   words ("The Gubble's fire burned you near ..."), naming only places the team knows. journal.read with kind
 ///   "consequence" reads the lessons back; the journal is the AI's memory.
+/// - Trust (M8, CommandHostTrust): each new consequence fact costs Trust and spoils the windows of clean initiative open over
+///   it; since M8 a build the Gubble's fire burns writes one too (one fact per fire, updated in place as it burns more).
 /// </summary>
 public partial class CommandHost
 {
@@ -44,6 +46,10 @@ public partial class CommandHost
     private int _factFire = -1;
     private JsonObject? _factEntry;
     private bool _factRecovered;
+    /// <summary>M8: the fire (by its room revision) whose burnt-build fact is written, that fact, and the builds it names.</summary>
+    private int _buildFire = -1;
+    private JsonObject? _buildEntry;
+    private readonly List<string> _buildsBurnt = new();
 
     /// <summary>
     /// The player's setting "Let the Gubble use fire": read once from the player's profile (never room state), then whatever
@@ -182,7 +188,46 @@ public partial class CommandHost
         _factRecovered = harm.Recovered;
         _factEntry = Fact("consequence", ConsequenceLine(NearestKnownPlace(at), harm.Recovered), CompanionPrincipal, fire.DirectedBy, null, null, at);
         AddHistory(_factEntry);
+        // M8: a new consequence fact costs Trust and spoils the open windows of clean initiative.
+        NoteTrustConsequence();
         SaveTeam();
+    }
+
+    /// <summary>
+    /// M8: a build the Gubble's fire burns, in a mode with consequences (in Creative the player said yes first): one consequence fact
+    /// per fire, in the game's own words ("The Gubble's fire burned your "tower"."), updated in place as the same fire burns more
+    /// ("... and 2 more builds"), naming a build only as the team knows it. A new fact costs Trust, as the player's hurt does.
+    /// </summary>
+    private void NoteBuildBurnt(NatureFire fire, string creation, Vector3 at)
+    {
+        if (fire.Principal != CompanionPrincipal || Mode == "creative") return;
+        if (_buildFire == fire.Revision && _buildEntry != null)
+        {
+            if (_buildsBurnt.Contains(creation, StringComparer.Ordinal)) return;
+            _buildsBurnt.Add(creation);
+            _buildEntry["line"] = KernelJson.DisplayText(BuildBurntLine(_buildsBurnt[0]), 200);
+            _buildEntry["at_utc"] = EntryTime();
+            if (_buildEntry["subject"]?["entities"] is JsonArray named && named.Count < 8 && KnownToTeam(creation)) named.Add(creation);
+            SaveTeam();
+            return;
+        }
+        _buildFire = fire.Revision;
+        _buildsBurnt.Clear();
+        _buildsBurnt.Add(creation);
+        var view = TeamView(creation);
+        _buildEntry = Fact("consequence", BuildBurntLine(creation), CompanionPrincipal, fire.DirectedBy, view != null ? creation : null, view?.Name, view?.Pin ?? at);
+        AddHistory(_buildEntry);
+        NoteTrustConsequence();
+        SaveTeam();
+    }
+
+    /// <summary>The burnt-build fact's line: the first build by the name the team knows it by, and how many more the same fire burned.</summary>
+    private string BuildBurntLine(string first)
+    {
+        var name = TeamView(first)?.Name;
+        var more = _buildsBurnt.Count - 1;
+        return "The Gubble's fire burned " + (name == null ? "one of your builds" : "your " + Quoted(name)) +
+            (more == 0 ? "." : $" and {more} more {(more == 1 ? "build" : "builds")}.");
     }
 
     private static string ConsequenceLine(string? place, bool recovered) =>

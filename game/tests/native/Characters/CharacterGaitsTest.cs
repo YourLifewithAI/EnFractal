@@ -46,6 +46,7 @@ public partial class CharacterGaitsTest : Node3D
             TestHop();
             TestWaddle();
             TestFloat();
+            TestInBubble();
             TestEveryGaitOnEveryBody();
             TestLife();
             TestYield();

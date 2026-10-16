@@ -3816,7 +3816,7 @@
         }
       },
       "receipt.mark": {
-        "description": "The player's mark on the receipt of one of the Gubble's commands, by its action_id: yes (\"yes, like that\") or not_that. Each receipt is marked once. The host computes Trust from the marks and the consequence facts; no request writes Trust. Player-only. Kept with the team, never the room: a transient receipt with no data. Until the Trust packet (M8) the hosts answer the player unsupported_capability.",
+        "description": "The player's mark on the receipt of one of the Gubble's commands from this session, by its action_id (Bubbles' leads included): yes (\"yes, like that\") or not_that. Each receipt is marked once (a second mark is invalid_args at $.args.action_id; a receipt that is not the Gubble's from this session is target_not_found there). The host computes Trust from the marks, clean initiative and the consequence facts, in Challenge and Live; no request writes Trust. The journal keeps the mark as one of the AI's lessons (kind consequence). Player-only. Kept with the team, never the room: a transient receipt with no data. Hosted by both hosts since M8.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -3836,7 +3836,7 @@
         }
       },
       "trust.reset": {
-        "description": "Reset the team's Trust to base: the player's alone, beside \"Change my AI\" in the menu; the game never resets it. A transient receipt with no data. Until the Trust packet (M8) the hosts answer the player unsupported_capability.",
+        "description": "Reset the team's Trust to base: the player's alone, beside \"Change my AI\" in the menu; the game never resets it. The journal says so. A transient receipt with no data. Hosted by both hosts since M8.",
         "type": "object",
         "additionalProperties": false,
         "properties": {}
@@ -4342,6 +4342,33 @@
               },
               "slowed": {
                 "type": "boolean"
+              }
+            }
+          },
+          "trust": {
+            "description": "Trust (M8), as the AI may read it: the band (0 below 5, 1 from 5, 2 from 15, 3 from 30) and the game's words for it, never the count. The host computes it; no request writes it; the player alone resets it.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "band",
+              "words"
+            ],
+            "properties": {
+              "band": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              },
+              "words": {
+                "allOf": [
+                  {
+                    "$ref": "common.schema.json#/$defs/display_text"
+                  },
+                  {
+                    "maxLength": 80
+                  }
+                ],
+                "minLength": 1
               }
             }
           },
@@ -5257,7 +5284,7 @@
       }
     },
     "journal_kind": {
-      "description": "What a journal entry records. Facts, written only by the host: 'task' (what the team is working on, one entry per task, updated in place as it starts, changes and ends), 'built', 'changed' (a built thing changed later: what changed, never the steps), 'removed' (a structure fell apart or was removed), in modes with resources 'found' and 'gathered', and 'consequence' (what the Gubble's actions did to the player, in the game's own words: the AI's lessons, kept when the history is trimmed). 'note' is the companion's own words (journal.note), never a fact.",
+      "description": "What a journal entry records. Facts, written only by the host: 'task' (what the team is working on, one entry per task, updated in place as it starts, changes and ends), 'built', 'changed' (a built thing changed later: what changed, never the steps), 'removed' (a structure fell apart or was removed), in modes with resources 'found' and 'gathered', and 'consequence' (what the Gubble's actions did to the player, in the game's own words: the AI's lessons, kept when the history is trimmed; since M8 also a build the Gubble's fire burnt, the player's marks on the Gubble's receipts, Trust's words when they change, the player's reset of Trust, and 'lesson applied', the host's own observation that the Gubble acted on its own where a consequence once followed and none did). 'note' is the companion's own words (journal.note), never a fact.",
       "enum": [
         "task",
         "built",
