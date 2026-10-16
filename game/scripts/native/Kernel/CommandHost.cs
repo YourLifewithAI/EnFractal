@@ -38,6 +38,14 @@ public sealed class PendingApproval
 }
 
 /// <summary>
+/// One message the host answered (<see cref="CommandHost.Handled"/>): the message as received, the principal the trusted caller
+/// named, the answer's envelope and the milliseconds it took. A copy read from the result after it was made: never the result
+/// itself, and never its data.
+/// </summary>
+public sealed record CommandHandled(string Message, string Principal, string Op, bool Ok, string? ActionId, string? Code, string? ErrorMessage,
+    int? Revision, bool Replayed, bool Preview, double Milliseconds);
+
+/// <summary>
 /// The room's single command path (contracts/game-command.schema.json). Manual controls, the companion
 /// adapter and tests send enfractal.command and enfractal.query; the host answers enfractal.result, and
 /// always answers: an unexpected failure is internal_error, never an exception out of Handle.
@@ -185,6 +193,12 @@ public partial class CommandHost : Node
     public event Action<PendingApproval>? ApprovalRequested;
     /// <summary>Raised when a goal's job ends: actor, job id and its state (succeeded, failed or cancelled).</summary>
     public event Action<string, string, string>? GoalFinished;
+    /// <summary>
+    /// The playtest record's one tap (docs/runs/RUN-2-PLAYTEST-LOOP.md, R1): raised once for every message HandleObject answered for
+    /// the player or the companion, after its result is made, with a copy of the result's envelope. Nothing a listener does reaches
+    /// the result, and a listener that throws is passed over. The host knows nothing else of who listens.
+    /// </summary>
+    public event Action<CommandHandled>? Handled;
     public IReadOnlyList<PendingApproval> PendingApprovals => _approvals.Values.Where(a => a.State == "pending").OrderBy(a => a.Created).ToList();
     /// <summary>Perception memory's size per companion (PerceptionMemoryEntries; 0 turns memory off). Tests lower it.</summary>
     public int PerceptionMemoryLimit { get; internal set; } = PerceptionMemoryEntries;
@@ -382,6 +396,7 @@ public partial class CommandHost : Node
     {
         if (principal is not (PlayerPrincipal or CompanionPrincipal))
             return Fail("invalid", "system:host", null, null, new Refusal("principal_unknown", "The host did not admit this caller."));
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         _perceived = null;
         JsonObject result;
         try { result = HandleChecked(message, principal); }
@@ -394,7 +409,24 @@ public partial class CommandHost : Node
         finally { _perceived = null; }
         // What the Gubble's actions did to the player rides on its next result, whatever it asked (CommandHostConsequences).
         if (principal == CompanionPrincipal) DeliverNotices(result);
+        // The playtest record's tap, once the result is final: a copy of its envelope, so no listener can change the answer.
+        if (Handled != null) RaiseHandled(message, principal, result, started);
         return result;
+    }
+
+    private void RaiseHandled(string message, string principal, JsonObject result, long started)
+    {
+        static string? Text(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+        static bool Flag(JsonNode? node) => node is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
+        var error = result["error"] as JsonObject;
+        var handled = new CommandHandled(message, principal, Text(result["op"]) ?? "invalid", Flag(result["ok"]), Text(result["action_id"]),
+            Text(error?["code"]), Text(error?["message"]), result["revision"] is JsonValue revision && revision.TryGetValue<int>(out var number) ? number : null,
+            Flag(result["replayed"]), Flag(result["preview"]), System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        foreach (var listener in Handled!.GetInvocationList())
+        {
+            try { ((Action<CommandHandled>)listener)(handled); }
+            catch (Exception failure) { GD.Print("COMMAND_HOST a listener of Handled failed: " + failure.GetType().Name); }
+        }
     }
 
     private JsonObject HandleChecked(string message, string principal)

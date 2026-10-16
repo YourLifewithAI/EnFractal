@@ -109,6 +109,8 @@ public partial class PlayHudTest : Node
             await TestShoulderMovementFrame();
             await TestShoulderNearEndUnchanged();
             await TestShoulderFocusAndSwitches();
+            // The playtest record's keys (PlayHudTest.Playtest.cs).
+            await TestPlaytestKeys();
 
             // Unload while the final cast's chime is still active. AudioServer
             // retires stopped playback on subsequent frames, before engine exit.
@@ -168,6 +170,8 @@ public partial class PlayHudTest : Node
         ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
         ("bounce_step", Key.P, false), ("bounce_print", Key.P, true),
         ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("journal", Key.J, false), ("gubble_eyes", Key.I, false), ("mouse_release", Key.Escape, false),
+        // The playtest record's keys (docs/runs/RUN-2-PLAYTEST-LOOP.md): F6 to F9, bound to nothing in Windows.
+        ("playtest_mark", Key.F9, false), ("playtest_keep", Key.F8, false), ("playtest_stills_faster", Key.F7, false), ("playtest_stills_slower", Key.F6, false),
     };
 
     private readonly System.Collections.Generic.Dictionary<string, Godot.Collections.Array<InputEvent>> _savedMap = new();
@@ -347,6 +351,7 @@ public partial class PlayHudTest : Node
                 $"1 Glow{PriceWords("glow")}, 2 Bloom{PriceWords("bloom")}, 3 Bubbles{PriceWords("bubbles")}, 4 Fireworks{PriceWords("fireworks")} where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps · P your character's bounce (x0.5, x1, x1.5) · Shift+P print its motion profile",
+                "Playtest record: F9 something's off here · F8 keep this · F7 stills faster · F6 slower (the record is off for this run)",
             };
             var lines = HelpLines();
             Check(lines.SequenceEqual(expected), "with the default keys the help says drag where it said click, groups the Gubble's keys (its ask, Q, X, 1 to 5) under its name, and puts the testing toggles (G, T, Shift+T, L) under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
@@ -363,7 +368,7 @@ public partial class PlayHudTest : Node
                 Key.F13, Key.F14, Key.F15, Key.F16, Key.F17, Key.F18, Key.F19, Key.F20, Key.F21, Key.F22, Key.F23, Key.F24,
                 Key.Kp0, Key.Kp1, Key.Kp2, Key.Kp3, Key.Kp4, Key.Kp5, Key.Kp6, Key.Kp7, Key.Kp8, Key.Kp9,
                 Key.KpAdd, Key.KpSubtract, Key.KpMultiply, Key.KpDivide, Key.KpPeriod, Key.KpEnter, Key.Insert, Key.Delete, Key.Pause, Key.Pageup, Key.Pagedown,
-                Key.Home, Key.End, Key.Numlock, Key.Scrolllock, Key.Sysreq, Key.F25, Key.F26,
+                Key.Home, Key.End, Key.Numlock, Key.Scrolllock, Key.Sysreq, Key.F25, Key.F26, Key.F27, Key.F28, Key.F29, Key.F30,
             };
             var actions = PlayerControls.Specs.Select(spec => spec.Action).ToArray();
             Check(pool.Length >= actions.Length, "enough spare keys to give every control its own");
