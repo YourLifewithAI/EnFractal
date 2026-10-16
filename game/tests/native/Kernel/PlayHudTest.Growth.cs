@@ -65,7 +65,7 @@ public partial class PlayHudTest
         _hud.ZoomShoulder(1000);
         _hud.SetViewMode(previousView);
         _hud._UnhandledInput(Press(Key.C));
-        Check(_hud.JournalOpen && !_hud.Customizing && !_world.Player.InputEnabled,
+        Check(_hud.JournalOpen && !_hud.SettingsOpen && !_world.Player.InputEnabled,
             "C waits while the book is open: the book keeps the keyboard, all but its own key and Esc");
         _hud._UnhandledInput(Press(Key.Escape));
         Check(_hud.JournalOpen && !_hud.Book.WantsOpen && !_world.Player.InputEnabled, "Esc closes the book, and movement stays held while it shrinks back");
@@ -73,11 +73,11 @@ public partial class PlayHudTest
         Check(!_hud.JournalOpen && _world.Player.InputEnabled, "back in its dock, the book returns player control");
         _hud._UnhandledInput(Press(Key.C));
         _hud._UnhandledInput(Press(Key.J));
-        Check(_hud.JournalOpen && !_hud.Customizing && !_world.Player.InputEnabled,
-            "opening the journal from customize leaves only the journal open");
+        Check(_hud.JournalOpen && !_hud.SettingsOpen && !_world.Player.InputEnabled,
+            "opening the journal from the settings leaves only the journal open");
         _hud._UnhandledInput(Press(Key.Escape));
         await Frames(60);
-        Check(!_hud.JournalOpen && !_hud.Customizing && _world.Player.InputEnabled,
+        Check(!_hud.JournalOpen && !_hud.SettingsOpen && _world.Player.InputEnabled,
             "the existing Escape action closes the journal and restores player control");
     }
 

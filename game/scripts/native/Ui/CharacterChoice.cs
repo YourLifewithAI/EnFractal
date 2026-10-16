@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Godot;
 
@@ -12,6 +15,36 @@ namespace EnFractal.Native;
 /// </summary>
 public sealed record CharacterChoice(string Id, string DisplayName, Texture2D? Thumbnail = null)
 {
+    /// <summary>
+    /// The row as shown, from what the library supplies: the plain figure first, then each supplied character in order, leaving
+    /// out the Gubble, the plain figure's own id, ids that are not tokens and repeats (the first stays); names are cleaned
+    /// (ShownName). Used by the opening menu's picker (AvatarPicker) and by the HUD to know which costumes a body may wear.
+    /// </summary>
+    public static IReadOnlyList<CharacterChoice> RowOf(IReadOnlyList<CharacterChoice>? supplied)
+    {
+        var row = new List<CharacterChoice> { new(PrototypeId, PrototypeName) };
+        var seen = new HashSet<string>(StringComparer.Ordinal) { PrototypeId, GubbleId };
+        foreach (var choice in supplied ?? Array.Empty<CharacterChoice>())
+        {
+            if (choice == null || !SmallPlayerController.IsCharacterToken(choice.Id) || !seen.Add(choice.Id)) continue;
+            row.Add(choice with { DisplayName = ShownName(choice.DisplayName, choice.Id) });
+        }
+        return row;
+    }
+
+    /// <summary>
+    /// The shipped characters as choices (the Gubble left out; each refusal logged), with their thumbnails from the converter's renders
+    /// beside the source models (assets/characters/&lt;id&gt;/three_quarter.png): a build without them draws a named swatch instead.
+    /// </summary>
+    public static IReadOnlyList<CharacterChoice> FromLibrary(EnFractal.Native.Characters.CharacterLibrary library)
+    {
+        foreach (var entry in library.Entries)
+            if (!entry.IsLoaded) GD.PushWarning($"CHARACTERS: {entry.Id} refused: {entry.RefusalReason}");
+        var renders = System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectSettings.GlobalizePath("res://"), "..", "assets", "characters"));
+        return library.Characters.Where(c => c.Id != GubbleId)
+            .Select(c => new CharacterChoice(c.Id, c.DisplayName, LoadThumbnail(System.IO.Path.Combine(renders, c.Id)))).ToList();
+    }
+
     /// <summary>The prototype figure's id: none (SmallPlayerController.CharacterId is "" for it).</summary>
     public const string PrototypeId = "";
     /// <summary>The prototype figure's name in the row.</summary>

@@ -83,7 +83,7 @@ public partial class RoomHud
         if (GubbleViewOpen) return "through the Gubble's eyes";
         if (JournalOpen) return "with the journal open";
         if (MagicPanelOpen) return "with the Magic panel open";
-        if (Customizing) return "with the appearance panel open";
+        if (SettingsOpen) return "with the settings panel open";
         return "";
     }
 

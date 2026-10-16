@@ -17,7 +17,7 @@ public partial class RoomHud
     private OptionButton _repairChoice = null!;
     private Label _repairCost = null!;
     private Button _undoNature = null!;
-    private CheckButton _gubbleFire = null!;
+    private CheckButton? _gubbleFire;
     private Label _firePreviewWords = null!;
     private Button _fireConfirm = null!;
     private ProgressBar _fireHoldBar = null!;
@@ -46,16 +46,8 @@ public partial class RoomHud
         page.AddChild(WrapMagicLabel("Rain, light and the ground shape how flowers grow."));
         MagicHeading(page, "FIRE");
         page.AddChild(WrapMagicLabel("Fire can spread inside the previewed area. Creations become scorched and repairable; other things can burn away."));
-        // The player's own setting (saved in the player's profile, never room state); only this control changes it.
-        _gubbleFire = new CheckButton
-        {
-            Name = "GubbleFireSetting", Text = "Let the Gubble use fire",
-            ButtonPressed = Host?.GubbleFireAllowed ?? Kernel.CommandHost.LoadGubbleFire(ProfilePath),
-            TooltipText = "Your AI can light fires through the Gubble. In Challenge and Live its fire can hurt you, and it learns from that. X puts its fire out.",
-            FocusMode = Control.FocusModeEnum.All,
-        };
-        _gubbleFire.Toggled += SetGubbleFire;
-        page.AddChild(_gubbleFire);
+        // "Let the Gubble use fire" is one of the player's settings (RoomHud.Settings.cs): the switch moved there from this page.
+        page.AddChild(WrapMagicLabel("Whether the Gubble may light fires is one of your settings."));
         AddButton(page, "Preview Fire at this spot", PreviewFire, 32);
         _firePreviewWords = WrapMagicLabel("Choose a spot and preview it before lighting a fire.");
         _firePreviewWords.Name = "FirePreviewWords"; page.AddChild(_firePreviewWords);
@@ -183,7 +175,7 @@ public partial class RoomHud
         // Undo is Creative's alone (the founder, 13 October): in Challenge and Live the control is not there.
         _undoNature.Visible = host.Mode == "creative";
         _undoNature.Disabled = !host.NatureCanUndo;
-        _gubbleFire.SetPressedNoSignal(host.GubbleFireAllowed);
+        _gubbleFire?.SetPressedNoSignal(host.GubbleFireAllowed);
         RefreshRepairCost();
     }
 

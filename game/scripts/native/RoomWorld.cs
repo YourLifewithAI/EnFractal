@@ -28,6 +28,12 @@ public partial class RoomWorld : Node3D
     [Export] public string RoomDirectory { get; set; } = DefaultRoom;
     /// <summary>Overrides the room's pinned style when set (tests, previews).</summary>
     [Export] public string StylePresetPath { get; set; } = "";
+    /// <summary>
+    /// The command line the team's boot reads (--team=, --mode=, --difficulty=, --knack=); null is the game's own, the process's user
+    /// arguments. The opening menu (Ui/Menu/MenuBoot.cs) sets it to its choices on top of the arguments the game was launched with,
+    /// so the menu and run-room.ps1 -Team -Mode -Difficulty boot a team through one path.
+    /// </summary>
+    public IReadOnlyList<string>? BootArguments { get; set; }
     public RoomData Room { get; private set; } = null!;
     public LookDirector Look { get; private set; } = null!;
     public Node3D Built { get; private set; } = null!;
@@ -164,22 +170,26 @@ public partial class RoomWorld : Node3D
             var pondLife = PondLife.Create(Room.RoomId, Built);
             AddChild(pondLife);
             pondLife.SetAvatars(Player);
-            AddChild(new RoomHud
+            var hud = new RoomHud
             {
                 Player = Player, Companion = Companion, RoomTitle = Room.DisplayName.ToUpperInvariant(),
                 // Never a silent fallback: a style pin that did not verify, or a renderer the look was not designed for.
                 LookNotice = string.Join(" ", new[] { StyleNote, Look.PlayerNotice }.Where(note => note.Length > 0)),
                 Look = Look,
                 CharacterChoices = () => _characterChoices,
-            });
+            };
+            AddChild(hud);
             // The team (M3): --team=, --mode= and --difficulty=; the saves from before teams moved under the default team; the host's
             // stores pointed into the team's folder before it exists. A test's own RoomWorld keeps the paths it set (a fixture).
-            var team = Saves.TeamBoot.Prepare(this, OS.GetCmdlineUserArgs());
+            var team = Saves.TeamBoot.Prepare(this, BootArguments ?? OS.GetCmdlineUserArgs());
             var commandHost = Kernel.CommandHost.Attach(this);
             commandHost.LoadRules(DefaultRulesId, DefaultRulesVersion);
             // The team file's knacks and ranks, then the boot's one set-mode with the island save's difficulty, after which the mode is
             // fixed; a --knack= argument (quick_feet:3) only as a test's override.
             team.Apply(commandHost);
+            // The team the menu made (or any team file): its costume, the Gubble's name and colour wear on the bodies, over the machine's
+            // appearance profile the HUD read first. A fixture's room has no team file and keeps the profile's, as before.
+            if (team.GameBoot && commandHost.Team is { } teamFile) hud.UseTeam(teamFile);
             commandHost.ConfigureNature();
             // The island's clock record once the save is read (M6): none, the machine's clock, as before.
             Look.SetWorldClockFrom(commandHost.ClockRecord);
@@ -188,9 +198,14 @@ public partial class RoomWorld : Node3D
             natureLook.Configure(commandHost, Built);
             // The player's AI: the companion link in front of the command host (A2).
             CompanionBridge.Attach(this);
+            // "Gubble: connected" or "waiting for your AI", for the room's first seconds (Ui/Menu/GubbleLinkNote.cs).
+            Ui.GubbleLinkNote.Attach(this, hud);
             // The playtest record (R1): a windowed launch records itself; off headless, with --no-playtest-record and in a boot check.
             Playtest.PlaytestRecorder.Attach(this);
             Navigation.RoomNavigation.Attach(this);
+            // The last game played, for the menu's Continue: any boot as the game (a launch with --room= too), but not a boot check.
+            if (team.GameBoot && !commandHost.IslandHeld && QuitAfterReadyFrames() == null && commandHost.SaveTeamIdentity is { } who)
+                new Ui.LastGame(who.TeamId, Room.RoomId, who.Mode, who.Difficulty, DateTime.UtcNow).Write(Ui.MenuRoots.Layout());
             SetMeta("room_id", Room.RoomId);
             SetMeta("room_manifest_sha256", Room.ManifestSha256);
             SetMeta("style", $"{preset.PresetId}@{preset.PresetVersion}");

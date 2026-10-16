@@ -56,7 +56,7 @@ public partial class RoomHud
         if (_pickingMagicSpot) _noticeText = "Spot selection cancelled.";
         _pickingMagicSpot = false;
         _movingGlow = null;
-        if (Customizing) ToggleCustomization();
+        if (SettingsOpen) ToggleSettings();
         if (MagicPanelOpen) SetMagicPanelOpen(false);
         // The book pulsed to be opened (decision 53): it is, and it is quiet until the Fractals in hand next reach five.
         StopJournalPulse();

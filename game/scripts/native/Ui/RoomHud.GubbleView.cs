@@ -133,7 +133,7 @@ public partial class RoomHud
         if (_pickingMagicSpot) _noticeText = "Spot selection cancelled.";
         _pickingMagicSpot = false;
         _movingGlow = null;
-        if (Customizing) ToggleCustomization();
+        if (SettingsOpen) ToggleSettings();
         if (MagicPanelOpen) SetMagicPanelOpen(false);
         CloseJournalNow();
         GubbleViewYawDeg = GubbleViewPitchDeg = 0;

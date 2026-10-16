@@ -104,6 +104,8 @@ public partial class PlayHudTest : Node
             await TestExpertiseWords();
             await TestRenamedWords();
             await TestEyesSetting();
+            // The settings panel that took the Customize panel's switches (PlayHudTest.Settings.cs), and Reset Trust beside Change my AI.
+            await TestSettingsPanel();
             await TestGubbleView();
             await TestCharacterChoice();
             await TestWearingCharacters();
@@ -359,7 +361,7 @@ public partial class PlayHudTest : Node
                 $"WASD move · Shift run · Space jump · B back to {home} · R recover · drag to look around",
                 "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up",
                 "F1 first person · F2 third person: wheel zooms out to look around, and zoomed out drag orbits and WASD follows the view",
-                "O observe (a very tight tilt-shift view, best zoomed out) · C customize · J journal (Esc closes either)",
+                "O observe (a very tight tilt-shift view, best zoomed out) · C settings · J journal (Esc closes either)",
                 "F11 full screen on or off (kept for your next launch)",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm · E gather a log or stone you hold into your wallet",
                 "The Gubble, your companion:",
@@ -371,7 +373,7 @@ public partial class PlayHudTest : Node
             };
             var lines = HelpLines();
             Check(lines.SequenceEqual(expected), "with the default keys the help says drag where it said click, groups the Gubble's keys (its ask, Q, X, 1 to 5) under its name, and puts the testing toggles (G, T, Shift+T, L) under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
-            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Customize", "Magic" }) &&
+            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Settings", "Magic" }) &&
                 ButtonTexts("HandActions").SequenceEqual(new[] { "F Pick up / put down", "V Push", "E Gather" }), "and so do the buttons in the help");
             Check(((Label)_hud.FindChild("CompanionName", true, false)!).Text == "The Gubble:", "and the Gubble's buttons stand under its name");
             var state = ((Label)_hud.FindChild("State", true, false)!).Text;
@@ -487,17 +489,17 @@ public partial class PlayHudTest : Node
             // Esc and the appearance panel: the panel blocks every key but its own two.
             Bind(Act.HudCustomize, Key.K);
             _hud._UnhandledInput(Press(Key.C));
-            Check(!_hud.Customizing, "with the panel on K, C opens nothing");
+            Check(!_hud.SettingsOpen, "with the panel on K, C opens nothing");
             _hud._UnhandledInput(Press(Key.K));
-            Check(_hud.Customizing, "K opens the panel");
+            Check(_hud.SettingsOpen, "K opens the panel");
             var before = _hud.ViewMode;
             _hud._UnhandledInput(Press(Key.F1));
             Check(_hud.ViewMode == before, "and with it open the view keys do nothing");
             _hud._UnhandledInput(Press(Key.Escape));
-            Check(!_hud.Customizing, "Esc closes the panel");
+            Check(!_hud.SettingsOpen, "Esc closes the panel");
             RestoreMap();
         }
-        finally { RestoreMap(); _hud.SetViewMode(1); if (_hud.Customizing) _hud._UnhandledInput(Press(Key.C)); }
+        finally { RestoreMap(); _hud.SetViewMode(1); if (_hud.SettingsOpen) _hud._UnhandledInput(Press(Key.C)); }
     }
 
     /// <summary>
@@ -949,7 +951,7 @@ public partial class PlayHudTest : Node
         await Frames(20);
         intent = companion.CurrentIntent;
         _hud._UnhandledInput(Press(Key.C));
-        Check(_hud.Wheel.Open && GetTree().Paused && !_hud.Customizing, "while the wheel is open the other keys wait (C opens no panel)");
+        Check(_hud.Wheel.Open && GetTree().Paused && !_hud.SettingsOpen, "while the wheel is open the other keys wait (C opens no panel)");
         _hud._UnhandledInput(Press(Key.Escape));
         Check(!_hud.Wheel.Held && !_hud.Wheel.Open && !GetTree().Paused && companion.CurrentIntent == intent, "Esc cancels the wheel and resumes the game");
         _hud._UnhandledInput(RightButton(false));
@@ -1122,7 +1124,7 @@ public partial class PlayHudTest : Node
             var inPanel = _hud.Drag.Pressed || !Mathf.IsEqualApprox(yaw, player.GlobalRotation.Y);
             _hud._UnhandledInput(LeftButton(false));
             _hud._UnhandledInput(Press(Key.C));
-            Check(!inPanel && !_hud.Customizing, "with the appearance panel open a drag turns nothing (the panel keeps the mouse)");
+            Check(!inPanel && !_hud.SettingsOpen, "with the appearance panel open a drag turns nothing (the panel keeps the mouse)");
 
             _hud._UnhandledInput(LeftButton(true));
             _hud._UnhandledInput(Motion(new Vector2(30, 0)));
@@ -1135,7 +1137,7 @@ public partial class PlayHudTest : Node
         finally
         {
             _hud.DragHeldForTests = null;
-            if (_hud.Customizing) _hud._UnhandledInput(Press(Key.C));
+            if (_hud.SettingsOpen) _hud._UnhandledInput(Press(Key.C));
             _hud.SetViewMode(1);
             _hud._UnhandledInput(Press(Key.X));
         }
@@ -1332,23 +1334,20 @@ public partial class PlayHudTest : Node
         var before = companion.AuraColor!.Value;
         Check(ids.Length == 2 && ids.All(id => look.GlowLight(id)!.LightColor.IsEqualApprox(GlowLook.LightColor(before))) && companion.LastCastToward != null,
             "a halo on the Gubble and a wisp at a dark spot (1 aimed there) both take the Gubble's aura colour");
-        _hud._UnhandledInput(Press(Key.C));
-        var change = _hud.FindChildren("*", "Button", true, false).OfType<Button>().First(b => b.Text == "Change the Gubble's color");
-        change.EmitSignal(BaseButton.SignalName.Pressed);
-        _hud._UnhandledInput(Press(Key.C));
+        // The Gubble's colour is the team's now (chosen in the menu's New team panel, worn through RoomHud.UseTeam).
+        var other = EnFractal.Native.Saves.TeamFile.Create("aura_team", new DateTime(2026, 10, 16, 8, 0, 0, DateTimeKind.Utc), "Mira", "prototype", companion.CompanionName, "#d28f63");
+        _hud.UseTeam(other);
         await Frames(2);
         var after = companion.AuraColor!.Value;
         var colour = GlowLook.LightColor(after);
         bool Recoloured(string id) => look.GlowRoot(id) is { } root && look.GlowLight(id)!.LightColor.IsEqualApprox(colour) &&
             root.GetNode<MeshInstance3D>("Halo").MaterialOverride is StandardMaterial3D halo && new Color(halo.AlbedoColor, 1).IsEqualApprox(new Color(colour, 1)) &&
             (root.GetNodeOrNull<MeshInstance3D>("Core")?.MaterialOverride is not StandardMaterial3D core || core.Emission.IsEqualApprox(colour));
-        Check(!after.IsEqualApprox(before) && after.IsEqualApprox(companion.AppearanceColor), $"the customise panel's colour button changes the Gubble's aura with its colour ({before.ToHtml(false)} to {after.ToHtml(false)})");
+        Check(!after.IsEqualApprox(before) && after.IsEqualApprox(companion.AppearanceColor), $"a team's colour changes the Gubble's aura with its colour ({before.ToHtml(false)} to {after.ToHtml(false)})");
         Check(host.ActiveEffectIds.SequenceEqual(ids) && ids.All(Recoloured), "and both running glows take the new colour at once: the light, its halo, the wisp's heart, the same effects");
         for (var i = 0; i < 4; i++) _hud.RecolourGlows();
-        // Back to the profile's colour: the palette has five.
-        _hud._UnhandledInput(Press(Key.C));
-        for (var i = 0; i < 4; i++) change.EmitSignal(BaseButton.SignalName.Pressed);
-        _hud._UnhandledInput(Press(Key.C));
+        // Back to the profile's colour.
+        _hud.UseTeam(other with { GubbleColour = "#a18cc3" });
         Check(companion.AppearanceColor.ToHtml(false) == "a18cc3", "(the colour put back)");
         _hud._UnhandledInput(Press(Key.X));
         _hud.LightForTests = _ => 0.9f;
@@ -1544,7 +1543,7 @@ public partial class PlayHudTest : Node
         _hud._UnhandledInput(Press(Key.C));
         var stop = _hud.TimeStop;
         _hud._UnhandledInput(Press(Key.T));
-        Check(_hud.Customizing && _hud.TimeStop == stop, "T does nothing while the appearance panel is open");
+        Check(_hud.SettingsOpen && _hud.TimeStop == stop, "T does nothing while the appearance panel is open");
         _hud._UnhandledInput(Press(Key.C));
         for (var i = 0; i < 3; i++) _hud._UnhandledInput(Press(Key.T, shift: true));
         await Frames(2);

@@ -89,13 +89,13 @@ public partial class PlayHudTest
         var waits = companion.CurrentIntent;
         Click(ButtonOf(actions, "Follow"));
         Check(waits == "stay" && companion.CurrentIntent == "follow", $"in the help, Wait and Follow still order the Gubble ({waits}, then {companion.CurrentIntent})");
-        Click(ButtonOf(actions, "Customize"));
-        var customizing = _hud.Customizing;
-        Click(ButtonOf(actions, "Customize"));
+        Click(ButtonOf(actions, "Settings"));
+        var customizing = _hud.SettingsOpen;
+        Click(ButtonOf(actions, "Settings"));
         Click(actions.GetNode<Button>("MagicPanelButton"));
         var magic = _hud.MagicPanelOpen;
         Click(actions.GetNode<Button>("MagicPanelButton"));
-        Check(customizing && !_hud.Customizing && magic && !_hud.MagicPanelOpen, "and Customize and Magic open and close their panels");
+        Check(customizing && !_hud.SettingsOpen && magic && !_hud.MagicPanelOpen, "and Settings and Magic open and close their panels");
         var hands = help.GetNode<HBoxContainer>("HandActions");
         Click(ButtonOf(hands, "E Gather"));
         await Frames(2);
@@ -275,7 +275,7 @@ public partial class PlayHudTest
             // Live in every context: with the appearance panel open.
             _hud._UnhandledInput(Press(Key.C));
             _hud._UnhandledInput(Press(Key.F11));
-            Check(_hud.Customizing && _hud.Fullscreen, "with the appearance panel open the key still works, and the panel stays open");
+            Check(_hud.SettingsOpen && _hud.Fullscreen, "with the appearance panel open the key still works, and the panel stays open");
             _hud._UnhandledInput(Press(Key.F11));
             _hud._UnhandledInput(Press(Key.C));
             await Frames(2);

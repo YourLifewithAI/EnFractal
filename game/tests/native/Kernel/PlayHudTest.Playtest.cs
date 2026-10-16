@@ -82,7 +82,7 @@ public partial class PlayHudTest
             _hud._UnhandledInput(Press(Key.C));
             await Frames(2);
             _hud._UnhandledInput(Press(Key.F8));
-            Check(_hud.Customizing && recorder.Marks == 4, "F8 keeps with the appearance panel open, and the panel stays open");
+            Check(_hud.SettingsOpen && recorder.Marks == 4, "F8 keeps with the appearance panel open, and the panel stays open");
             _hud._UnhandledInput(Press(Key.C));
             await Frames(2);
 
