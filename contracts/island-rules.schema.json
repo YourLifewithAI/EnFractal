@@ -674,7 +674,7 @@
       }
     },
     "stamina": {
-      "description": "The stamina bar, in metres of climbing (the bar's own unit). It opens in bands found with Fractals: the first band is the starting bar, each later band adds band_m, and bands_per_bar of them fill one bar before a second is drawn under it. Climbing drains it as today; running, deep water and diving drain it at the rates below, charged by the kernel from the seconds the body reports (the ledger seam, game/scripts/native/Seams/StaminaLedger.cs); it refills on standable ground, never while running; at empty the body cannot run (it walks at its whole pace) until the first bar, the top row, refills to a fraction of itself (the founder, 15 October: completely). Knacks (Big bar, Steady climber, Strong swimmer, Long breath) multiply what they move, on the vitals and the body, never here.",
+      "description": "The stamina bar, in metres of climbing (the bar's own unit). It opens in bands found with Fractals: the first band is the starting bar, each later band adds band_m, and bands_per_bar of them fill one bar before a second is drawn under it. Climbing drains it a metre of bar for every climb_m_per_bar_m metres risen (absent: one metre, today's) and holding_m_per_s a second while hanging still (absent: today's 0.01); running, deep water and diving drain it at the rates below, charged by the kernel from the seconds the body reports while a key moves it (a swimmer floating still reports none: the founder, 16 October, decision 64; the ledger seam, game/scripts/native/Seams/StaminaLedger.cs); it refills on standable ground, never while running; at empty the body cannot run (it walks at its whole pace) until the first bar, the top row, refills to a fraction of itself (the founder, 15 October: completely). Knacks (Big bar, Steady climber, Strong swimmer, Long breath) multiply what they move, on the vitals and the body, never here.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -731,6 +731,18 @@
         },
         "dive_m_per_s": {
           "description": "Optional: time under water's cost, less by Long breath's factor (0.04 m a second, the founder's number of 15 October: 10 s on a starting bar). Absent: nothing drains there (the diver's drift up stays as built).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "climb_m_per_bar_m": {
+          "description": "Optional: the metres climbed for each metre of bar (1.5, the founder's number of 16 October, decision 65: 'the 1 m bar per metre climb is a bit harsh', so a 0.4 m starting bar buys 60 cm of climb), multiplied by Steady climber's factor. Absent: 1, today's (a metre of bar per metre risen).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "holding_m_per_s": {
+          "description": "Optional: what hanging still on a face costs, in metres of bar a second (0, the founder's number of 16 October, decision 64: standing still costs nothing). Absent: today's 0.01.",
           "type": "number",
           "minimum": 0,
           "maximum": 1

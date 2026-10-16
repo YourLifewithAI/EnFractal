@@ -862,7 +862,8 @@ MECHANICS = {
         "hearts": {"health_per_quarter": 5, "start_hearts": 5, "cap_hearts": 30, "heal_quarter_every_s": 2.5, "heal_after_unharmed_s": 10},
         "harm": {"fire_quarters_per_s": 1},
         "stamina": {"start_m": 0.4, "band_m": 0.4, "bands": 10, "bands_per_bar": 5, "running_m_per_s": 0.02, "refill_m_per_s": 0.1,
-                    "deep_water_m_per_s": 0.02, "dive_m_per_s": 0.04, "empty_no_run_until_fraction": 1},
+                    "deep_water_m_per_s": 0.02, "dive_m_per_s": 0.04, "climb_m_per_bar_m": 1.5, "holding_m_per_s": 0,
+                    "empty_no_run_until_fraction": 1},
         "pips": {"start": 8, "expertise_per_pip": 5, "ceiling": 40, "refill_near_every_s": 5, "refill_near_within_m": 2,
                  "refill_far_every_s": 15, "camp_fraction": 0.5},
         "wallet": {"start": {"wood": 0, "stone": 0, "copper": 0, "leaf": 0}},
@@ -964,6 +965,8 @@ INVALID_PACKS = {
     "rules_names_a_knack_it_does_not_have": lambda p: p["names"]["knacks"].update(flying="Flying"),
     "rules_fractal_budget_upside_down": lambda p: p["fractals"].update(budget_min=30, budget_max=25),
     "rules_stamina_without_running": lambda p: p["traits"]["stamina"].pop("running_m_per_s"),
+    "rules_climb_that_buys_nothing": lambda p: p["traits"]["stamina"].update(climb_m_per_bar_m=0),
+    "rules_holding_cost_below_nothing": lambda p: p["traits"]["stamina"].update(holding_m_per_s=-0.01),
     "rules_half_a_pip": lambda p: p["traits"]["pips"].update(start=8.5),
 }
 

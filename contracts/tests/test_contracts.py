@@ -1737,6 +1737,8 @@ RULES_FAILURES = {
     "rules_names_a_knack_it_does_not_have": "names.knacks names 'flying', which is no knack of this pack",
     "rules_fractal_budget_upside_down": "fractals budget_min 30 is above budget_max 25",
     "rules_stamina_without_running": "'running_m_per_s' is a required property",
+    "rules_climb_that_buys_nothing": "0 is less than or equal to the minimum of 0",
+    "rules_holding_cost_below_nothing": "-0.01 is less than the minimum of 0",
     "rules_half_a_pip": "8.5 is not of type 'integer'",
 }
 # Each invalid team document (examples/teams_invalid) and the reason it must fail.
@@ -1805,6 +1807,9 @@ class MechanicsRoundTests(unittest.TestCase):
         self.assertAlmostEqual(stamina["start_m"] / stamina["running_m_per_s"], 20, msg="a full starting bar lasts 20 s of running")
         self.assertEqual((stamina["refill_m_per_s"], stamina["deep_water_m_per_s"], stamina["dive_m_per_s"], stamina["empty_no_run_until_fraction"]),
                          (0.1, 0.02, 0.04, 1), "the founder's drains and the run lock of 15 October")
+        self.assertEqual((stamina["climb_m_per_bar_m"], stamina["holding_m_per_s"]), (1.5, 0),
+                         "the founder's climb of 16 October (decisions 64 and 65): hanging still costs nothing, a metre of bar buys 1.5 m")
+        self.assertAlmostEqual(stamina["start_m"] * stamina["climb_m_per_bar_m"], 0.6, msg="a 0.4 m starting bar buys 60 cm of climb")
         self.assertEqual(traits["pips"], {"start": 8, "expertise_per_pip": 5, "ceiling": 40, "refill_near_every_s": 5,
                                           "refill_near_within_m": 2, "refill_far_every_s": 15, "camp_fraction": 0.5})
         prices = {name: (p["ordered"], round(p["ordered"] * p["own_idea_factor"])) for name, p in self.v5["cost"]["prices"].items()}
