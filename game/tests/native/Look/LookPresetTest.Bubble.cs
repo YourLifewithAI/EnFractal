@@ -181,6 +181,27 @@ public partial class LookPresetTest
         Check(Mathf.Abs(night - look.LightLevelAt(look.BubbleRoot("effect:tint")!.GlobalPosition)) < 0.02f && noon > night + 0.1f && expected > 0.2f,
             $"it darkens with the place: {noon:0.00} at noon, {night:0.00} at 02:00");
         look.HideBubble("effect:tint");
+
+        // WarmBubble (the HUD asks it once the room is up): a bubble too small to see is drawn in front of the eye for a few frames, parts and all,
+        // then goes, so the first cast is not the renderer's first look at the film. With no eye it waits.
+        look.WarmBubble();
+        var eye = holder.GetViewport().GetCamera3D();
+        var waited = true;
+        if (eye == null)
+        {
+            look._Process(Tick);
+            waited = look.BubbleDrawCount == 0;
+            eye = new Camera3D { Name = "WarmEye", Position = new Vector3(0f, 0.3f, 1f) };
+            holder.AddChild(eye);
+            eye.MakeCurrent();
+        }
+        look._Process(Tick);
+        var warming = look.BubbleRoot(LookDirector.WarmBubbleId);
+        Check(waited && warming != null && warming.Scale.X < 1e-3f && look.BubbleDrawCount == 1 && look.BubbleStateOf(LookDirector.WarmBubbleId) is { Led: false } &&
+              warming.GlobalPosition.DistanceTo(eye.GlobalPosition) is > 0.5f and < 0.7f,
+            $"WarmBubble draws (once there is an eye) a bubble too small to see {warming?.GlobalPosition.DistanceTo(eye.GlobalPosition):0.00} m in front of it");
+        for (var i = 0; i < BubbleDrawTuning.WarmFrames + 2; i++) look._Process(Tick);
+        Check(look.BubbleDrawCount == 0 && look.BubbleRoot(LookDirector.WarmBubbleId) == null && look.SelectedBubble == null, "and once its parts have been drawn it is gone, and none is left to find");
         holder.Free();
         await PhysicsFrames(1);
     }

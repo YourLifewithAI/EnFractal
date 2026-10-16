@@ -69,6 +69,8 @@ public static class BubbleDrawTuning
 /// Everything a bubble may wear (the string, the ring on the ground, a lift's column, the focus ring) is made when it is cast and shown
 /// for a few frames too small to see, so the materials, the ring's picture and the renderer's first draws of each cost their hitch
 /// then, with the cast, and not in the frame of the first right-click that chooses it or leads it (the first capture: 60 to 90 ms each).
+/// The HUD asks WarmBubble once the room is up: a bubble of nothing is drawn in front of the eye for those frames, before anyone casts
+/// one, so the first cast's own frames (the first capture: 108 and 52 ms) are no longer the renderer's first look at the film.
 /// (The selection is no FocusHighlight overlay: its outline pass fills a see-through shell's whole disc with the line's colour, so a
 /// bubble drawn with it looked half full of liquid. The same two-tone warm line is drawn as a ring round the bubble's silhouette
 /// instead, in FocusLook's own colours, and the film takes a warm wash.)
@@ -94,6 +96,9 @@ public partial class LookDirector
     }
 
     private readonly Dictionary<string, BubbleDraw> _bubbleDraws = new();
+    /// <summary>The id of the bubble of nothing WarmBubble draws (no kernel bubble has this id).</summary>
+    public const string WarmBubbleId = "warmup:film";
+    private bool _bubbleWarmPending;
     private ImageTexture? _bubbleRingTexture;
     private string? _selectedBubble;
     private static readonly StringName FilmRimAlpha = "rim_alpha", FilmTintAlpha = "tint_alpha", FilmIridescence = "iridescence", FilmBands = "film_bands",
@@ -126,10 +131,24 @@ public partial class LookDirector
     /// <summary>How far a drawn bubble is stretched by a lift now (0 to 1).</summary>
     public float BubbleLiftShown(string id) => id != null && _bubbleDraws.TryGetValue(id, out var draw) ? draw.Lift : 0f;
 
+    /// <summary>
+    /// Have the renderer draw every part of a bubble once now, out of sight (a bubble too small to see in front of the eye, for a few
+    /// frames), so the materials and pipelines are made before the first cast and not in its frames. Done once the eye exists; asking
+    /// again while one is pending does nothing.
+    /// </summary>
+    public void WarmBubble() => _bubbleWarmPending = true;
+
     /// <summary>Draw a bubble (or its ghost) at a place. An id already drawn is moved instead.</summary>
     public void ShowBubble(string id, Vector3 center, float radiusM, bool boat, bool ghost)
     {
         if (string.IsNullOrEmpty(id) || !center.IsFinite() || !float.IsFinite(radiusM) || radiusM <= 0) return;
+        var began = BubbleCost.Begin();
+        MakeBubble(id, center, radiusM, boat, ghost);
+        BubbleCost.End(began, BubbleCost.Piece.Show);
+    }
+
+    private void MakeBubble(string id, Vector3 center, float radiusM, bool boat, bool ghost)
+    {
         if (_bubbleDraws.TryGetValue(id, out var drawn))
         {
             drawn.Root.Position = center;
@@ -425,10 +444,18 @@ public partial class LookDirector
     /// <summary>Every frame: a waiting bubble breathes and bobs, a lift stretches, the string runs from the Gubble, the mark breathes at the spot, the film reads the light.</summary>
     private void UpdateBubbles(double delta)
     {
+        if (_bubbleWarmPending && IsInsideTree() && GetViewport().GetCamera3D() is { } eye && eye.IsInsideTree())
+        {
+            _bubbleWarmPending = false;
+            ShowBubble(WarmBubbleId, ToLocal(eye.GlobalPosition - eye.GlobalBasis.Z * 0.6f), 0.08f, boat: false, ghost: false);
+            if (_bubbleDraws.TryGetValue(WarmBubbleId, out var warming)) warming.Root.Scale = Vector3.One * 1e-4f;
+        }
         if (_bubbleDraws.Count == 0) return;
         var began = BubbleCost.Begin();
         DrawBubbles(delta);
         BubbleCost.End(began, BubbleCost.Piece.Draw);
+        // The bubble of nothing has been drawn; it goes (never from inside the loop that draws it).
+        if (_bubbleDraws.TryGetValue(WarmBubbleId, out var warm) && warm.Warm == 0) HideBubble(WarmBubbleId);
     }
 
     private void DrawBubbles(double delta)

@@ -12,7 +12,7 @@ namespace EnFractal.Native.Look;
 /// </summary>
 public static class BubbleCost
 {
-    public enum Piece { Draw, Select, Aim, Preview, Choose, Lead }
+    public enum Piece { Draw, Select, Aim, Preview, Choose, Lead, Show }
 
     public static bool Measuring { get; set; }
     public static long Frames { get; private set; }
@@ -22,7 +22,7 @@ public static class BubbleCost
     public static System.Collections.Generic.List<double> SamplesMs { get; } = new();
     /// <summary>Managed memory the measured pieces allocated.</summary>
     public static long AllocatedBytes { get; private set; }
-    public static readonly long[] PieceTicks = new long[6];
+    public static readonly long[] PieceTicks = new long[7];
     private static long _frame;
     private static long _beganBytes;
 

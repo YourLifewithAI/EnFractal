@@ -373,6 +373,8 @@ public partial class RoomHud : CanvasLayer
         Input.MouseMode = Input.MouseModeEnum.Visible;
         StartFullscreenIfAsked();
         RefreshKeyText();
+        // The Bubble's film and parts are drawn once out of sight now, so the first cast is no hitch (LookDirector.WarmBubble).
+        Look?.WarmBubble();
     }
 
     /// <summary>A help line: its words are rebuilt from the input map whenever a key changes.</summary>

@@ -31,6 +31,8 @@ namespace EnFractal.Tests.Look;
 ///   moves a little each frame, so no preview is reused), led across the floor and up a ledge when the island has one, chosen again
 ///   at once whenever a lead ends, recast whenever it pops; the same frame figures, and BubbleCost's (the bubble's draw, the HUD's
 ///   update, the ray test and the host's preview) in milliseconds a frame;
+/// - X: a short probe of the first-use frames, each alone (a new icon in the Gubble's thought bubble, a Bubble cast by the host with no
+///   thought bubble, the reticle's first words), every frame timed, to say which is the slow one;
 /// - B0: the control for B's process and physics time: the Gubble walks the same round (go_to the same spots) with no bubble at all;
 /// - C: the stages photographed (a bubble cast, chosen, a spot aimed at, a lift aimed at, led, lifting, a carry round the player), the
 ///   reticle's tag read, untimed: the pictures are the founder's to judge.
@@ -300,6 +302,42 @@ public partial class BubbleCapture : Node
         GD.Print($"BUBBLE_CAPTURE B script: {casts} casts, {leads} leads set ({lifts} of them lifts), {refusals} refused, {_tapsMade} taps, previews asked {_hud.LeadPreviews}");
     }
 
+    /// <summary>
+    /// First uses, one at a time with a second of nothing between, every frame timed and labelled: a new icon in the Gubble's thought
+    /// bubble (Glow's sun, never shown before), the Bubble cast by the host with no thought bubble, then its icon, then the reticle's words.
+    /// </summary>
+    private async Task RunProbe()
+    {
+        var spot = Floor(_player.GlobalPosition + -_player.GlobalBasis.Z * 0.4f);
+        _hud.AimRayForTests = (spot + Vector3.Up * 0.3f, spot + Vector3.Down * 0.3f);
+        _sampler = new Sampler();
+        _label = "nothing";
+        await Seconds(1);
+        _label = "a new icon in the thought bubble (Glow's sun)";
+        _hud.Cue.Think(GubbleMagic.SlotIcons[0]);
+        await Seconds(1);
+        _hud.Cue.Clear();
+        _label = "nothing, after";
+        await Seconds(1);
+        _label = "the Bubble cast by the host, no thought bubble";
+        _host.PlayerEffect("bubbles", spot);
+        await Seconds(1);
+        _label = "the Bubble's icon in the thought bubble";
+        _hud.Cue.Think(GubbleMagic.BubbleIcon);
+        await Seconds(1);
+        _hud.Cue.Done();
+        _label = "the done mark in the thought bubble";
+        await Seconds(1);
+        _label = "the reticle's first words (go and look / choose this bubble)";
+        _hud.AimRayForTests = (_host.ActiveBubble!.Value.CenterM + Vector3.Up * 0.3f, _host.ActiveBubble!.Value.CenterM + Vector3.Down * 0.3f);
+        await Seconds(1);
+        _label = "nothing, at the end";
+        await Seconds(1);
+        _host.PlayerGoal("stop");
+        Summary("X (first uses, one at a time)", _sampler);
+        _sampler = null;
+    }
+
     /// <summary>The control for B: the Gubble walks the same round, no bubble at all.</summary>
     private async Task RunControl(double seconds, Vector3 floorA, Vector3 floorB, Vector3? ledge)
     {
@@ -363,7 +401,8 @@ public partial class BubbleCapture : Node
         await Grab("03-lead-aimed");
         await LeadTo(spotTwo, 0.1, wait: false, wobblePx: 0);
         await Seconds(1.1);
-        AimAt(spotTwo);
+        // (Aimed past the bubble, so the reticle's words are not about the bubble itself.)
+        AimAt(Floor(feet + forward * 1.0f - right * 0.1f));
         await Grab("04-led");
         var deadline = Now + 20;
         while (_host.ActiveBubble is { LedToM: not null } && Now < deadline) await Frames(1);
@@ -371,7 +410,10 @@ public partial class BubbleCapture : Node
         if (FindLedge() is { } ledge)
         {
             // (A bubble's time runs out: cast another if this one is gone, and choose it.)
-            if (!await EnsureBubble(spotOne) || !await Choose()) GD.Print("BUBBLE_CAPTURE stages: no bubble to lift");
+            var have = await EnsureBubble(spotOne);
+            var chosen = have && await Choose();
+            GD.Print($"BUBBLE_CAPTURE stages: for the lift a bubble {(have ? "is there" : "was not cast")}, chosen {chosen}, the tag says \"{_hud.AskTag.Text}\"");
+            if (have && !chosen && _host.ActiveBubble is { } there) { _hud.SelectBubble(there.Id); GD.Print("BUBBLE_CAPTURE stages: chosen by the HUD's own call instead (the ray missed it)"); }
             AimAt(ledge);
             await Seconds(0.6);
             await Grab("05-lift-aimed");
@@ -501,7 +543,7 @@ public partial class BubbleCapture : Node
                 ["frames"] = BubbleCost.Frames, ["mean_ms"] = Math.Round(BubbleCost.MeanMs, 4), ["longest_ms"] = Math.Round(BubbleCost.WorstMs, 3),
                 ["p99_ms"] = Math.Round(Percentile(BubbleCost.SamplesMs, 0.99), 4), ["draw_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Draw), 4),
                 ["select_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Select), 4), ["aim_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Aim), 4),
-                ["choosing_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Choose) * BubbleCost.Frames, 2), ["leading_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Lead) * BubbleCost.Frames, 2),
+                ["show_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Show) * BubbleCost.Frames, 2), ["choosing_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Choose) * BubbleCost.Frames, 2), ["leading_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Lead) * BubbleCost.Frames, 2),
                 ["preview_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Preview), 4), ["allocated_kb"] = BubbleCost.AllocatedBytes / 1024,
             };
             GD.Print(FormattableString.Invariant($"BUBBLE_CAPTURE cost in B: {BubbleCost.Frames} frames; the bubble costs {BubbleCost.MeanMs:0.0000} ms a frame on average (longest {BubbleCost.WorstMs:0.000}, p99 {Percentile(BubbleCost.SamplesMs, 0.99):0.0000}): ") +
@@ -510,6 +552,8 @@ public partial class BubbleCapture : Node
             await Seconds(1);
             Scan("after B");
             }
+
+            if (runs.Contains("X")) await RunProbe();
 
             // C: the stages photographed, untimed.
             if (runs.Contains("C")) await Stages();
