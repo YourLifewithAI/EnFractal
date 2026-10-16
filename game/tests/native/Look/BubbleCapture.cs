@@ -530,27 +530,27 @@ public partial class BubbleCapture : Node
             }
             if (runs.Contains("B"))
             {
-            BubbleCost.Measuring = true;
-            BubbleCost.Reset();
-            _label = "idle";
-            _sampler = new Sampler();
-            await RunB(seconds, floorA, floorB, ledge);
-            b = Summary("B (a bubble cast, chosen, aimed, led, lifted)", _sampler);
-            _sampler = null;
-            BubbleCost.Measuring = false;
-            cost = new JsonObject
-            {
-                ["frames"] = BubbleCost.Frames, ["mean_ms"] = Math.Round(BubbleCost.MeanMs, 4), ["longest_ms"] = Math.Round(BubbleCost.WorstMs, 3),
-                ["p99_ms"] = Math.Round(Percentile(BubbleCost.SamplesMs, 0.99), 4), ["draw_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Draw), 4),
-                ["select_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Select), 4), ["aim_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Aim), 4),
-                ["show_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Show) * BubbleCost.Frames, 2), ["choosing_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Choose) * BubbleCost.Frames, 2), ["leading_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Lead) * BubbleCost.Frames, 2),
-                ["preview_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Preview), 4), ["allocated_kb"] = BubbleCost.AllocatedBytes / 1024,
-            };
-            GD.Print(FormattableString.Invariant($"BUBBLE_CAPTURE cost in B: {BubbleCost.Frames} frames; the bubble costs {BubbleCost.MeanMs:0.0000} ms a frame on average (longest {BubbleCost.WorstMs:0.000}, p99 {Percentile(BubbleCost.SamplesMs, 0.99):0.0000}): ") +
-                FormattableString.Invariant($"draw {BubbleCost.PieceMeanMs(BubbleCost.Piece.Draw):0.0000}, the HUD's update {BubbleCost.PieceMeanMs(BubbleCost.Piece.Select):0.0000}, the ray test {BubbleCost.PieceMeanMs(BubbleCost.Piece.Aim):0.0000}, the host's preview {BubbleCost.PieceMeanMs(BubbleCost.Piece.Preview):0.0000} ms; allocated {BubbleCost.AllocatedBytes / 1024.0:0.0} KB over the run"));
-            _host.PlayerGoal("stop");
-            await Seconds(1);
-            Scan("after B");
+                BubbleCost.Measuring = true;
+                BubbleCost.Reset();
+                _label = "idle";
+                _sampler = new Sampler();
+                await RunB(seconds, floorA, floorB, ledge);
+                b = Summary("B (a bubble cast, chosen, aimed, led, lifted)", _sampler);
+                _sampler = null;
+                BubbleCost.Measuring = false;
+                cost = new JsonObject
+                {
+                    ["frames"] = BubbleCost.Frames, ["mean_ms"] = Math.Round(BubbleCost.MeanMs, 4), ["longest_ms"] = Math.Round(BubbleCost.WorstMs, 3),
+                    ["p99_ms"] = Math.Round(Percentile(BubbleCost.SamplesMs, 0.99), 4), ["draw_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Draw), 4),
+                    ["select_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Select), 4), ["aim_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Aim), 4),
+                    ["show_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Show) * BubbleCost.Frames, 2), ["choosing_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Choose) * BubbleCost.Frames, 2), ["leading_total_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Lead) * BubbleCost.Frames, 2),
+                    ["preview_mean_ms"] = Math.Round(BubbleCost.PieceMeanMs(BubbleCost.Piece.Preview), 4), ["allocated_kb"] = BubbleCost.AllocatedBytes / 1024,
+                };
+                GD.Print(FormattableString.Invariant($"BUBBLE_CAPTURE cost in B: {BubbleCost.Frames} frames; the bubble costs {BubbleCost.MeanMs:0.0000} ms a frame on average (longest {BubbleCost.WorstMs:0.000}, p99 {Percentile(BubbleCost.SamplesMs, 0.99):0.0000}): ") +
+                    FormattableString.Invariant($"draw {BubbleCost.PieceMeanMs(BubbleCost.Piece.Draw):0.0000}, the HUD's update {BubbleCost.PieceMeanMs(BubbleCost.Piece.Select):0.0000}, the ray test {BubbleCost.PieceMeanMs(BubbleCost.Piece.Aim):0.0000}, the host's preview {BubbleCost.PieceMeanMs(BubbleCost.Piece.Preview):0.0000} ms; allocated {BubbleCost.AllocatedBytes / 1024.0:0.0} KB over the run"));
+                _host.PlayerGoal("stop");
+                await Seconds(1);
+                Scan("after B");
             }
 
             if (runs.Contains("X")) await RunProbe();

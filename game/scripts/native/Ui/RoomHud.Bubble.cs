@@ -39,7 +39,12 @@ public partial class RoomHud
     /// <summary>Times the host was asked to preview a lead (the tag asks at the focus's pace, and not again for the same spot).</summary>
     public int LeadPreviews { get; private set; }
 
+    /// <summary>What the notice line says when the choice ends while it still tells how to lead the bubble (it would be stale).</summary>
+    public const string BubbleLetGoWords = "The bubble is let go.";
+
     private string? _leadJob;
+    /// <summary>The instruction SelectBubble put on the notice line, while it stands there.</summary>
+    private string _chosenNotice = "";
     /// <summary>Whether the lead the player committed is a lift (the host's word in the goal.set result); null for a lead the HUD did not set.</summary>
     private bool? _leadIsLift;
     private bool _selectedWasLed;
@@ -91,7 +96,7 @@ public partial class RoomHud
         _leadPreview = null;
         _askAge = double.MaxValue;
         Look?.SelectBubble(id);
-        _noticeText = $"Bubble chosen: {K(Act.GubbleAsk)} a spot to lead it there (a higher spot lifts it), {K(Act.MouseRelease)} lets it go.";
+        _noticeText = _chosenNotice = $"Bubble chosen: {K(Act.GubbleAsk)} a spot to lead it there (a higher spot lifts it), {K(Act.MouseRelease)} lets it go.";
         BubbleCost.End(began, BubbleCost.Piece.Choose);
     }
 
@@ -104,6 +109,9 @@ public partial class RoomHud
         _leadPreview = null;
         _askAge = double.MaxValue;
         Look?.SelectBubble(null);
+        // The line that told how to lead it must not stand once it is let go (another notice that has replaced it stays).
+        if (_chosenNotice.Length > 0 && _noticeText == _chosenNotice) _noticeText = BubbleLetGoWords;
+        _chosenNotice = "";
     }
 
     /// <summary>The second right-click: lead the selected bubble to the spot, as the player's command; the Gubble's bubble answers when the lead ends.</summary>

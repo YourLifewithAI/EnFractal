@@ -276,7 +276,7 @@ public partial class PlayHudTest
             }
             await Frames(2);
             Check(_hud.SelectedBubble == null && look.SelectedBubble == null && look.BubbleHalo(id) is not { Visible: true } && Commands(host) == sent && host.ActiveBubble is { LedToM: null } &&
-                  companion.CurrentIntent == intent && _hud.Cue.State != "refused",
+                  companion.CurrentIntent == intent && _hud.Cue.State != "refused" && notice.Text == RoomHud.BubbleLetGoWords,
                 $"a right-click on {(way == "Esc" ? "nothing but Esc" : way)} lets the bubble go: it stays where it is, nothing is sent, the Gubble is not asked anything");
         }
 
