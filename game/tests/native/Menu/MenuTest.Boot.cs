@@ -61,6 +61,16 @@ public partial class MenuTest
         await Frames(4);
     }
 
+    /// <summary>A click as the GUI receives a real one (a card with its contents on top reads it itself).</summary>
+    private async Task Click(Control control)
+    {
+        var point = control.GetGlobalRect().GetCenter();
+        GetViewport().PushInput(new InputEventMouseMotion { Position = point, GlobalPosition = point }, true);
+        GetViewport().PushInput(new InputEventMouseButton { Position = point, GlobalPosition = point, ButtonIndex = MouseButton.Left, ButtonMask = MouseButtonMask.Left, Pressed = true }, true);
+        GetViewport().PushInput(new InputEventMouseButton { Position = point, GlobalPosition = point, ButtonIndex = MouseButton.Left, Pressed = false }, true);
+        await Frames(2);
+    }
+
     private static Button FindButton(Node under, string text) => under.FindChildren("*", "Button", true, false).OfType<Button>().First(b => b.Text == text);
     private static void Press(BaseButton button) => button.EmitSignal(BaseButton.SignalName.Pressed);
 
@@ -120,17 +130,17 @@ public partial class MenuTest
         Check(menu.KnackSwap.GetParent<Control>().Visible && menu.KnackSwap.ItemCount == offered.Count + 1, "and its knack can be swapped for free from the first row");
 
         // Where to, and how.
-        Press(menu.IslandButtons["test_room"]);
-        Press(menu.ModeButtons["live"]);
+        await Click(menu.IslandButtons["test_room"]);
+        Check(model.RoomId == "test_room" && menu.IslandButtons["test_room"].ButtonPressed, "a real click on an island's card chooses it (the card's own labels let the mouse through)");
+        await Click(menu.ModeButtons["live"]);
         Check(model.Mode == null && menu.NoticeLabel.Visible && menu.NoticeLabel.Text.StartsWith(CommandHost.LiveNotYet, StringComparison.Ordinal) && menu.PlayButton.Disabled && !menu.ModeButtons["live"].ButtonPressed,
             $"Live is refused on pressing it, with the words, and Play stays shut: \"{menu.NoticeLabel.Text}\"");
-        Press(menu.ModeButtons["challenge"]);
-        await Frames(1);
+        await Click(menu.ModeButtons["challenge"]);
         var gentle = menu.DifficultyButtons["gentle"];
         Check(model.Mode == "challenge" && model.Difficulty == "gentle" && menu.DifficultyRow.Visible && gentle.ButtonPressed && gentle.Text.Contains("suggested", StringComparison.Ordinal) && !menu.PlayButton.Disabled &&
               menu.DifficultyButtons.Values.All(b => b.Visible) && !menu.CopyRow.Visible,
             "Challenge shows Gentle, Standard and Brave with Gentle suggested for a first Challenge; there is no Creative island to copy, so no copy row");
-        Press(menu.DifficultyButtons["brave"]);
+        await Click(menu.DifficultyButtons["brave"]);
         Check(model.Difficulty == "brave" && menu.DifficultyButtons["brave"].ButtonPressed && !gentle.ButtonPressed && menu.HintLabel.Text.Contains("Brave", StringComparison.Ordinal),
             "Brave chosen: " + menu.HintLabel.Text);
         Press(menu.PlayButton);
