@@ -67,12 +67,13 @@ public static class Act
     public static readonly StringName BouncePrint = "bounce_print";
     // The panels and the mouse. The cursor is always free (the Glow playtest, 9 October): it is the aim in every view.
     public static readonly StringName HudHelp = "hud_help";
+    /// <summary>C: the settings panel (it was the Customize panel; the input action keeps its name, hud_customize, until project.godot renames it).</summary>
     public static readonly StringName HudCustomize = "hud_customize";
     /// <summary>The journal, the leather book at the lower right: opens it at its index, and closes it again.</summary>
     public static readonly StringName Journal = "journal";
     /// <summary>The eye icon above the journal: look through the Gubble's eyes, and back to the player's own.</summary>
     public static readonly StringName GubbleEyes = "gubble_eyes";
-    /// <summary>Esc: closes the appearance panel and the journal, returns from the Gubble's eyes, cancels the wheel or a drag. (Its map name is from when it freed the captured mouse.)</summary>
+    /// <summary>Esc: closes the settings panel and the journal, returns from the Gubble's eyes, cancels the wheel or a drag. (Its map name is from when it freed the captured mouse.)</summary>
     public static readonly StringName MouseRelease = "mouse_release";
     /// <summary>Hold and drag to look around (the left button); a click without a drag does nothing. (Its map name is from when a click captured the mouse.)</summary>
     public static readonly StringName LookDrag = "mouse_capture";
@@ -91,11 +92,11 @@ public static class Act
 [Flags]
 public enum ControlContext
 {
-    /// <summary>Every view, while the appearance panel is shut.</summary>
+    /// <summary>Every view, while the settings panel is shut.</summary>
     Always = 1,
     /// <summary>The over-the-shoulder view (F2) only.</summary>
     Shoulder = 2,
-    /// <summary>While the appearance panel is open, which blocks every key but these.</summary>
+    /// <summary>While the settings panel is open, which blocks every key but these.</summary>
     Customize = 8,
     /// <summary>While the journal is open, opening or closing, which blocks every key but these (RoomHud.Journal.cs).</summary>
     Reading = 16,

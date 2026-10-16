@@ -102,7 +102,7 @@ public partial class PlayHudTest
             // From the appearance panel, I opens the view and closes the panel; the journal holds I, and the icon rests while the book is out.
             _hud._UnhandledInput(Press(Key.C));
             _hud._UnhandledInput(Press(Key.I));
-            Check(_hud.GubbleViewOpen && !_hud.Customizing && !player.InputEnabled, "I from the appearance panel closes it and opens the view");
+            Check(_hud.GubbleViewOpen && !_hud.SettingsOpen && !player.InputEnabled, "I from the appearance panel closes it and opens the view");
             _hud._UnhandledInput(Press(Key.I));
             _hud._UnhandledInput(Press(Key.J));
             _hud._UnhandledInput(Press(Key.I));
@@ -174,7 +174,7 @@ public partial class PlayHudTest
         Check(host.ActiveEffectIds.Count == effects && host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && companion.CurrentIntent == intent &&
               _hud.GetNode<PanelContainer>("HelpFooter").GetChild<VBoxContainer>(0).GetNode<VBoxContainer>("KeyHelp").Visible == help &&
               _hud.ViewMode == view && _world.Player.WorldPhysicsId == physics && _world.Look.LampsOn == lamps && _world.Look.Observe == observe &&
-              !_hud.Customizing && !_hud.JournalOpen && _hud.TimeStop == -1 && !wheel && !_world.Player.InputEnabled && _hud.GubbleViewOpen,
+              !_hud.SettingsOpen && !_hud.JournalOpen && _hud.TimeStop == -1 && !wheel && !_world.Player.InputEnabled && _hud.GubbleViewOpen,
             "through the Gubble's eyes, no gameplay key, no order to the Gubble, no magic, no ask, no wheel, no panel and no journal gets through; the body waits");
     }
 

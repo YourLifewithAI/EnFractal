@@ -45,7 +45,7 @@ public partial class PlayHudTest
         await Frames(12);
         Check(host.Mode == "creative" && undoButton.Visible && modeName.Text == "Creative", "back in Creative through the host, its undo control and the page's name for the mode return");
         var fireSetting = (CheckButton)_hud.FindChild("GubbleFireSetting", true, false)!;
-        Check(fireSetting.ButtonPressed && host.GubbleFireAllowed && fireSetting.Text == "Let the Gubble use fire", "the Magic panel has \"Let the Gubble use fire\", on by default");
+        Check(fireSetting.ButtonPressed && host.GubbleFireAllowed && fireSetting.Text == "Let the Gubble use fire", "the settings panel has \"Let the Gubble use fire\", on by default");
         fireSetting.EmitSignal(BaseButton.SignalName.Toggled, false);
         Check(!host.GubbleFireAllowed && !fireSetting.ButtonPressed && !CommandHost.LoadGubbleFire(EnFractal.Native.RoomHud.ProfilePath),
             "switching it off is obeyed by the host and saved in the player's profile");

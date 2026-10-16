@@ -146,7 +146,7 @@ public partial class PlayHudTest
         _hud._UnhandledInput(WheelEvent(MouseButton.WheelDown));
         var shut = _hud.ShoulderDistanceM == near;
         _hud._UnhandledInput(Press(Key.C));
-        Check(shut && !_hud.Customizing, "nor with the appearance panel open");
+        Check(shut && !_hud.SettingsOpen, "nor with the appearance panel open");
 
         // Walls and the ground hold the camera in, as the shoulder arm always was held: out at the far end in this small room, the lens
         // stands inside it with nothing between it and the player.

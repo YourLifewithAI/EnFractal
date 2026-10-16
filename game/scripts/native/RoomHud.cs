@@ -18,7 +18,6 @@ public partial class RoomHud : CanvasLayer
     public string RoomTitle { get; set; } = "ROOM";
     /// <summary>Set by RoomWorld: what the look and the style pin need the player to know (a renderer fallback, a style that did not verify).</summary>
     public string LookNotice { get; set; } = "";
-    public bool Customizing => _customization.Visible;
     /// <summary>The player's profile (appearance, the Gubble's name and colour, has_used_glow). A test seam: the HUD's tests point it elsewhere.</summary>
     public static string ProfilePath { get; set; } = DefaultProfilePath;
     public const string DefaultProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
@@ -115,7 +114,6 @@ public partial class RoomHud : CanvasLayer
     private PanelContainer _footer = null!;
     private VBoxContainer _keyHelp = null!;
     private Label _helpHint = null!;
-    private PanelContainer _customization = null!;
     private SpringArm3D _arm = null!;
     private Camera3D _shoulder = null!;
     // F3, the diorama view: a high-angle camera orbiting the player (founder playtest, 6 October: F3 froze). SHELVED on 13 October
@@ -281,7 +279,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyButton(actions, () => $"{K(Act.GubbleStop)} Stop", StopGubble, 26);
         AddKeyButton(actions, () => $"{K(Act.GubbleSlot1)} {SlotName(0)}", () => CastSlot(0, AimNow()), 26);
         BuildSlotPrice(actions);
-        AddButton(actions, "Customize", ToggleCustomization, 26);
+        AddButton(actions, "Settings", ToggleSettings, 26);
         // The hand keys send the same sandbox commands the companion uses (CommandHost.PlayerHands, PlayerPush).
         var hands = new HBoxContainer { Name = "HandActions" };
         AddKeyButton(hands, () => $"{K(Act.Hands)} Pick up / put down", Hands, 26);
@@ -316,7 +314,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} first person · {K(Act.ViewShoulder)} third person: {PlayerControls.ZoomLabel()} zooms out to look around, and zoomed out {PlayerControls.DragLabel()} orbits and {PlayerControls.MoveLabel()} follows the view");
-        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best zoomed out) · {K(Act.HudCustomize)} customize · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best zoomed out) · {K(Act.HudCustomize)} settings · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
         // The window (RoomHud.Screen.cs): the key, and what the game remembers for the next launch.
         AddKeyLine(_keyHelp, ScreenKeysLine, "ScreenKeys");
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm · {K(Act.ItemGather)} gather a log or stone you hold into your wallet");
@@ -336,24 +334,10 @@ public partial class RoomHud : CanvasLayer
         _notice = new Label { Name = "Notice", Text = _noticeText, Visible = _noticeText.Length > 0 }; help.AddChild(_notice);
         // The footer is a line of no height at the bottom edge that grows up to the size its content needs, and gives it back when the help folds.
         // (It was told its size here once, which moved its top edge nowhere: the unfolded help ran off the bottom of the screen.)
-        _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
-        AddChild(_customization);
-        var options = new VBoxContainer(); _customization.AddChild(options);
-        options.AddChild(new Label { Text = "YOUR TWO AVATARS" });
-        // The player's character, the row of the prototype figure and the drawn ones, and its colour button (RoomHud.Customize.cs).
-        BuildCharacterChoice(options);
-        var name = new LineEdit { Text = Companion.CompanionName, MaxLength = 40, PlaceholderText = "Your companion's name (the Gubble)", CustomMinimumSize = new Vector2(360, 40) };
-        options.AddChild(name);
-        name.TextChanged += value => Companion.SetDisplayName(value);
-        AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); ApplyAura(); });
-        options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
-        // The player's two switches side by side, so the panel still fits above the folded help.
-        var settings = new HBoxContainer { Name = "Settings" };
-        options.AddChild(settings);
-        BuildEyesSetting(settings);
-        BuildIntroSetting(settings);
-        BuildNumbersSetting(settings);
-        AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
+        // The settings (RoomHud.Settings.cs): the player's switches and "Your AI". The Customize panel's avatars moved to the opening menu.
+        var settingsPanel = new PanelContainer { Name = "SettingsPanel", Position = new Vector2(18, 190), Theme = theme, Visible = false };
+        AddChild(settingsPanel);
+        BuildSettingsPanel(settingsPanel);
         BuildGubbleControls(compactTheme);
         BuildSwimHint(compactTheme);
         BuildMagicPanel(actions, _statusLines, theme);
@@ -885,13 +869,13 @@ public partial class RoomHud : CanvasLayer
             // Esc closes the panel and calls off a drag; the cursor is never captured, so there is nothing to free.
             if (PlayerControls.Hit(press, Act.MouseRelease))
             {
-                if (Customizing) ToggleCustomization();
+                if (SettingsOpen) ToggleSettings();
                 if (MagicPanelOpen) SetMagicPanelOpen(false);
                 EndDrag();
                 // Esc lets go of the bubble the smart ask chose (RoomHud.Bubble.cs).
                 ClearBubbleSelection();
             }
-            if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleCustomization();
+            if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleSettings();
             if (ReadingPanelOpen) return;
             // One key does one thing, the first below that it is (Shift+T is the season before it is a T).
             if (PlayerControls.Hit(press, Act.HudHelp))
@@ -998,18 +982,6 @@ public partial class RoomHud : CanvasLayer
     /// <summary>V: push what the player faces.</summary>
     private void Push() => _noticeText = Host?.PlayerPush().Message ?? "The command host is not attached; the hand keys are off.";
 
-    private void ToggleCustomization()
-    {
-        CancelAsk();
-        EndDrag();
-        CloseJournalNow();
-        if (MagicPanelOpen) SetMagicPanelOpen(false);
-        _customization.Visible = !_customization.Visible;
-        Player.SetInputEnabled(!_customization.Visible);
-        Input.MouseMode = Input.MouseModeEnum.Visible;
-        if (_customization.Visible) OnCustomizeOpened();
-    }
-
     private void LoadPreferences()
     {
         var config = new ConfigFile();
@@ -1030,29 +1002,6 @@ public partial class RoomHud : CanvasLayer
         Player.SetAppearance(Palette[_playerColor]);
         Companion.SetAppearance(Palette[_companionColor]);
         RestoreCharacter(config.GetValue("profile", CharacterProfileKey, CharacterChoice.PrototypeId));
-    }
-
-    /// <summary>
-    /// "Save appearance": the appearance's own fields written into the profile as it is on disk, every other key kept (the
-    /// player's settings "Let my AI see through the Gubble's eyes" and "Let the Gubble use fire" among them). A profile that
-    /// does not load is never overwritten, as for SaveProfileValue: the appearance then lasts this session only.
-    /// </summary>
-    internal void SavePreferences()
-    {
-        var config = new ConfigFile();
-        var loaded = config.Load(ProfilePath);
-        var readable = loaded == Error.FileNotFound || (loaded == Error.Ok &&
-            config.GetValue("profile", "version", 0).VariantType == Variant.Type.Int && config.GetValue("profile", "version", 0).AsInt32() == 1);
-        if (readable)
-        {
-            config.SetValue("profile", "version", 1);
-            config.SetValue("profile", "player_color", _playerColor);
-            config.SetValue("profile", "companion_color", _companionColor);
-            config.SetValue("profile", "companion_name", Companion.CompanionName);
-            config.SetValue("profile", "has_used_glow", HasUsedGlow);
-            config.SetValue("profile", CharacterProfileKey, ChosenCharacterId);
-        }
-        _noticeText = readable && WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
     }
 
     /// <summary>

@@ -127,7 +127,7 @@ public partial class PlayHudTest
         _hud._UnhandledInput(LeftButton(false));
         Check(host.ActiveEffectIds.Count == effects && host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && companion.CurrentIntent == intent &&
               _hud.GetNode<PanelContainer>("HelpFooter").GetChild<VBoxContainer>(0).GetNode<VBoxContainer>("KeyHelp").Visible == help &&
-              _hud.ViewMode == view && !_hud.Customizing && _hud.TimeStop == -1 && !wheel && !drag && !_world.Player.InputEnabled,
+              _hud.ViewMode == view && !_hud.SettingsOpen && _hud.TimeStop == -1 && !wheel && !drag && !_world.Player.InputEnabled,
             $"{when}, no gameplay key, no order to the Gubble, no ask, no wheel and no look drag gets through the book");
     }
 
