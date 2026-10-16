@@ -12,15 +12,17 @@ namespace EnFractal.Native.Kernel;
 /// Trust (docs/game/MECHANICS.md section 5, "Trust, the later dial"; decisions 1, 6, 16, 42 and 45; M8 of
 /// docs/runs/RUN-2-MECHANICS.md): a count per team the host keeps in the team file, computed only from what happened.
 /// <list type="bullet">
-/// <item><b>Clean initiative, +1.</b> Every command on the Gubble's connection is its own idea (decision 5), an approved suggestion
-/// too (decision 45): when one that changes the world commits (Trust.ChangesTheWorld; the founder, 16 October: "only things that
-/// impact the world"), a 60 s window opens; a window that closes with no consequence fact in it gains, at most once in two minutes.
-/// A fetch or a lead opens its window only when its job succeeds (fetched, arrived): one that fails or is stopped gains nothing, and
-/// a consequence fact while it runs spoils it. Directional goals (follow, stay, come, go_to, look and point), stops, notes and
-/// checkpoints never gain.</item>
-/// <item><b>Consequence facts, -3.</b> The Gubble's fire hurting the player (CommandHostConsequences), the Gubble's fire burning a
-/// build (M8; one fact per fire for each), and the Gubble's lead carrying the player into fire that hurts them, whoever lit it (one
-/// fact per lead).</item>
+/// <item><b>Clean initiative, +1, for paid actions only</b> (decision 69: "Only paid actions and consequences directly related to
+/// those actions earn trust"). Every command on the Gubble's connection is its own idea (decision 5), an approved suggestion too
+/// (decision 45): when one the guard charged pips for commits (Trust.Paid: a cast or an effect, read from what ChargeEnergy charged,
+/// so a pack's prices decide), a 60 s window opens; a window that closes with no consequence fact in it gains, at most once in two
+/// minutes. A goal's window waits for its job and opens only when it succeeds; a lead is paid only once its Lift is charged at the
+/// rise (TrustLiftCharged), so a lead that is no lift, a fetch, or one that fails gains nothing. Free commands (grabs, pushes,
+/// releases, free builds, goals, effect adjustments, stops, notes, checkpoints) never gain.</item>
+/// <item><b>Consequence facts, -3, when they follow directly from a paid action.</b> The Gubble's fire hurting the player
+/// (CommandHostConsequences), the Gubble's fire burning a build (M8; one fact per fire for each), and the Gubble's lead carrying the
+/// player into fire that hurts them, whoever lit it (one fact per lead). Each is traced to its action (PaidFire, PaidCarry); a fact
+/// from a free action is written in the journal as ever but moves no Trust and spoils no window.</item>
 /// <item><b>The player's marks, +2 and -2.</b> receipt.mark ("yes, like that" or "not that") on a receipt of the Gubble's from this
 /// session, each receipt once; trust.reset back to base. Both player-only, never held, never exposed to the companion.</item>
 /// <item><b>Counted in Challenge and Live only</b> (team.schema.json); marks in Creative still teach (the journal keeps them).</item>
@@ -43,6 +45,11 @@ public partial class CommandHost
     private int _trustUnfiled;
     /// <summary>Whether the free early warning is showing for the fire near the player now (one warning per approach).</summary>
     private bool _warned;
+    /// <summary>
+    /// The pips the guard charged since Trust last looked (ChargeEnergy's hook, NoteTrustCharge): the command being executed's own
+    /// charge, read and cleared when it commits (ObserveTrustCommand), or a lead's Lift's, read at its rise (TrustLiftCharged).
+    /// </summary>
+    private int _trustCharged;
 
     /// <summary>The player was warned before a hazard (the early warning's words): the Gubble's cue shows them (CompanionBridge).</summary>
     public event Action<string>? EarlyWarning;
@@ -77,18 +84,37 @@ public partial class CommandHost
     // ---- the Gubble's commands: initiative, and what a mark names ----
 
     /// <summary>
-    /// After a command committed (CommandHost.Execute): a command of the Gubble's opens its window and is remembered for a mark.
-    /// Its own words and place come from the command as committed, never from the receipt's text.
+    /// ChargeEnergy's hook (decision 69): the guard charged this price at a commit, or at a Lift's rise. Trust reads it, never an op list,
+    /// so whatever a pack prices is what can earn.
+    /// </summary>
+    private void NoteTrustCharge(int price)
+    {
+        if (price > 0) _trustCharged += price;
+    }
+
+    /// <summary>The pips charged since Trust last looked, cleared: what the command just executed (or the Lift just risen) was charged.</summary>
+    private int TakeTrustCharge()
+    {
+        var charged = _trustCharged;
+        _trustCharged = 0;
+        return charged;
+    }
+
+    /// <summary>
+    /// After a command committed (CommandHost.Execute): a command of the Gubble's opens its window when the guard charged it pips, and
+    /// every one is remembered for a mark. Its own words and place come from the command as committed, never from the receipt's text.
+    /// The charge is taken first, whoever's command it was, so the player's own charge never reaches the Gubble's next command.
     /// </summary>
     private void ObserveTrustCommand(JsonElement root, JsonObject result, string principal)
     {
+        var charged = TakeTrustCharge();
         if (principal != CompanionPrincipal || result["ok"]?.GetValue<bool>() != true || result["preview"]?.GetValue<bool>() == true) return;
         // The command has committed: nothing here may turn its answer into a failure. A Trust note that cannot be made is dropped.
-        try { RememberGubbleCommand(root, result); }
+        try { RememberGubbleCommand(root, result, charged); }
         catch (Exception error) when (error is not OutOfMemoryException) { GD.Print("COMMAND_HOST Trust could not note a command: " + error.GetType().Name); }
     }
 
-    private void RememberGubbleCommand(JsonElement root, JsonObject result)
+    private void RememberGubbleCommand(JsonElement root, JsonObject result, int charged)
     {
         var op = Op(root);
         if (StopOps.Contains(op) || op is "journal.note" or "room.checkpoint") return;
@@ -101,13 +127,14 @@ public partial class CommandHost
             _ => null,
         };
         SettleTrust();
-        var initiative = Trust.ChangesTheWorld(op, op == "goal.set" ? Str(args, "goal") : null);
-        // A fetch or a lead changes the world only when its job succeeds: its window waits for the job (TrustGoalFinished).
-        var job = op == "goal.set" && initiative ? result["job_id"]?.GetValue<string>() : null;
+        // A goal's job decides whether it did anything: its window waits for the job (TrustGoalFinished). Goals cost nothing at their
+        // commit; a lead becomes paid when its Lift is charged at the rise (TrustLiftCharged).
+        var job = op == "goal.set" ? result["job_id"]?.GetValue<string>() : null;
         _trustLedger.Note(new TrustLedger.Entry
         {
             ActionId = Str(root, "action_id")!, Op = op, Capability = capability, What = TrustWhat(op, capability), Place = TrustPlace(op, args),
-            At = Clock(), Counted = TrustCounts, Initiative = initiative, ApprovedBy = result["approved_by"]?.GetValue<string>(), JobId = job, Pending = job != null,
+            At = Clock(), Counted = TrustCounts, Paid = Trust.Paid(charged), Revision = result["revision"] is JsonValue at && at.TryGetValue<int>(out var revision) ? revision : null,
+            ApprovedBy = result["approved_by"]?.GetValue<string>(), JobId = job, Pending = job != null,
         });
         if (job == null) return;
         if (!_trustWatchesJobs)
@@ -120,14 +147,24 @@ public partial class CommandHost
             _trustLedger.JobEnded(job, ended.State == "succeeded", Clock());
     }
 
-    /// <summary>Whether Trust hears the goal jobs' ends (subscribed once, at the first fetch or lead of the Gubble's).</summary>
+    /// <summary>Whether Trust hears the goal jobs' ends (subscribed once, at the first goal of the Gubble's that runs as a job).</summary>
     private bool _trustWatchesJobs;
 
-    /// <summary>A goal job ended (GoalFinished): a fetch's or a lead's window opens if it succeeded, and gains nothing otherwise.</summary>
+    /// <summary>A goal job ended (GoalFinished): its window opens if it succeeded (gaining only if it was paid), and gains nothing otherwise.</summary>
     private void TrustGoalFinished(string actor, string jobId, string state)
     {
         try { _trustLedger.JobEnded(jobId, state == "succeeded", Clock()); }
         catch (Exception error) when (error is not OutOfMemoryException) { GD.Print("COMMAND_HOST Trust could not note a goal's end: " + error.GetType().Name); }
+    }
+
+    /// <summary>
+    /// The Bubble's hook after a Lift's charge at the rise (CommandHostBubbleLead.StartLift): the pips just charged make the Gubble's
+    /// lead a paid action (decision 69: "a Lift charged at its rise"), its window gaining if it then arrives clean, and fire it carries
+    /// the player into a consequence of that paid action. A lead the player set is theirs: nothing for Trust.
+    /// </summary>
+    private void TrustLiftCharged(BubbleLead lead)
+    {
+        if (Trust.Paid(TakeTrustCharge()) && lead.Principal == CompanionPrincipal) _trustLedger.Charged(lead.ActionId);
     }
 
     /// <summary>What a mark's line calls a command: the ability or goal, in plain words from the host's own table.</summary>
@@ -239,13 +276,34 @@ public partial class CommandHost
 
     // ---- consequences ----
 
-    /// <summary>A consequence fact was written (a new one, never an update in place): open windows are spoiled, and Trust loses.</summary>
-    private void NoteTrustConsequence()
+    /// <summary>
+    /// A consequence fact was written (a new one, never an update in place). When it follows directly from a paid action of the
+    /// Gubble's (paid: PaidFire or PaidCarry), open windows are spoiled and Trust loses; a fact from a free action stays the journal's
+    /// lesson and moves no Trust, neither the count nor a window (decision 69).
+    /// </summary>
+    private void NoteTrustConsequence(bool paid)
     {
+        if (!paid) return;
         SettleTrust();
         _trustLedger.Consequence(Clock());
         if (TrustCounts) MoveTrust(TrustLaws.PerConsequence, CompanionPrincipal);
     }
+
+    /// <summary>
+    /// Decision 69's trace for a fire: the Gubble's fire is traced by the room revision it was lit at (NatureFire.Revision, the
+    /// revision its nature.cast committed at) to the Gubble's Fire cast at that revision, paid when the guard charged it pips. A fire
+    /// not traced to a paid cast (one the pack prices at nothing, or one lit in an earlier session) is a free action's.
+    /// </summary>
+    private bool PaidFire(NatureFire fire) => fire.Principal == CompanionPrincipal && _trustLedger.PaidFireAt(fire.Revision);
+
+    /// <summary>
+    /// Decision 69's trace for a carry into fire ("a bubble it cast"): the Gubble's lead is paid when its Lift was charged at the rise;
+    /// else the bubble holding the player is traced by its action id (Bubble.ActionId) to the Gubble's cast of it, paid when the guard
+    /// charged it pips. A lead that is no lift, of a bubble the player cast or one the pack prices at nothing, is a free action's.
+    /// </summary>
+    private bool PaidCarry(BubbleLead lead) =>
+        _trustLedger.WasPaid(lead.ActionId) ||
+        (HoldsPlayer() is { Principal: CompanionPrincipal } bubble && ReferenceEquals(bubble.CarriedBy, lead) && _trustLedger.WasPaid(bubble.ActionId));
 
     // ---- the price: the bands' discount on the Gubble's own ideas ----
 

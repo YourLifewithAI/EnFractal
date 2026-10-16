@@ -21,9 +21,12 @@ namespace EnFractal.Native.Kernel;
 /// - learning across sessions: the host writes one consequence fact per fire into the team's journal, in the game's own
 ///   words ("The Gubble's fire burned you near ..."), naming only places the team knows. journal.read with kind
 ///   "consequence" reads the lessons back; the journal is the AI's memory.
-/// - Trust (M8, CommandHostTrust): each new consequence fact costs Trust and spoils the windows of clean initiative open over
-///   it; since M8 a build the Gubble's fire burns writes one too (one fact per fire, updated in place as it burns more), and so
-///   does the Gubble's lead carrying the player into fire that hurts them, whoever lit it (one fact per lead, NoteLeadHarm).
+/// - Trust (M8, CommandHostTrust): each new consequence fact that follows directly from a paid action of the Gubble's costs Trust
+///   and spoils the windows of clean initiative open over it; since M8 a build the Gubble's fire burns writes one too (one fact per
+///   fire, updated in place as it burns more), and so does the Gubble's lead carrying the player into fire that hurts them, whoever
+///   lit it (one fact per lead, NoteLeadHarm). Decision 69: a fire is traced to its cast by its revision (PaidFire), a carry to its
+///   lead's Lift or the Gubble's cast of the bubble (PaidCarry); a fact from a free action is written all the same, as the AI's
+///   lesson, and moves no Trust.
 /// </summary>
 public partial class CommandHost
 {
@@ -193,15 +196,16 @@ public partial class CommandHost
         _factRecovered = harm.Recovered;
         _factEntry = Fact("consequence", ConsequenceLine(NearestKnownPlace(at), harm.Recovered), CompanionPrincipal, fire.DirectedBy, null, null, at);
         AddHistory(_factEntry);
-        // M8: a new consequence fact costs Trust and spoils the open windows of clean initiative.
-        NoteTrustConsequence();
+        // M8: a new consequence fact costs Trust and spoils the open windows of clean initiative, when the fire was paid (decision 69).
+        NoteTrustConsequence(PaidFire(fire));
         SaveTeam();
     }
 
     /// <summary>
     /// M8: a build the Gubble's fire burns, in a mode with consequences (in Creative the player said yes first): one consequence fact
     /// per fire, in the game's own words ("The Gubble's fire burned your "tower"."), updated in place as the same fire burns more
-    /// ("... and 2 more builds"), naming a build only as the team knows it. A new fact costs Trust, as the player's hurt does.
+    /// ("... and 2 more builds"), naming a build only as the team knows it. A new fact costs Trust, as the player's hurt does, when the
+    /// fire was a paid cast (decision 69).
     /// </summary>
     private void NoteBuildBurnt(NatureFire fire, string creation, Vector3 at)
     {
@@ -222,7 +226,7 @@ public partial class CommandHost
         var view = TeamView(creation);
         _buildEntry = Fact("consequence", BuildBurntLine(creation), CompanionPrincipal, fire.DirectedBy, view != null ? creation : null, view?.Name, view?.Pin ?? at);
         AddHistory(_buildEntry);
-        NoteTrustConsequence();
+        NoteTrustConsequence(PaidFire(fire));
         SaveTeam();
     }
 
@@ -241,8 +245,9 @@ public partial class CommandHost
     /// <summary>
     /// The W2 review's minor: the Gubble's lead carried the player, in the bubble that still holds them, into fire that hurts them,
     /// whoever lit it. One consequence fact per lead, in the game's own words ("The Gubble's bubble carried you into fire near
-    /// ..."), saved with the journal at once; like every new consequence fact it costs Trust and spoils the windows open over it, the
-    /// lead's own (still running or just arrived) among them, so the lead earns nothing. A lead the player ordered is theirs.
+    /// ..."), saved with the journal at once; when it follows from a paid action of the Gubble's (its lead's Lift, or its cast of the
+    /// bubble: PaidCarry) it costs Trust and spoils the windows open over it, the lead's own (still running or just arrived) among
+    /// them, so the lead earns nothing; from free actions it moves no Trust (decision 69). A lead the player ordered is theirs.
     /// </summary>
     private void NoteLeadHarm(Vector3 at)
     {
@@ -251,7 +256,7 @@ public partial class CommandHost
         var place = NearestKnownPlace(at);
         var directedBy = _trustLedger.Find(lead.ActionId)?.ApprovedBy ?? CompanionPrincipal;
         AddHistory(Fact("consequence", LeadHarmPrefix + (place == null ? "" : " near " + Quoted(place)) + ".", CompanionPrincipal, directedBy, null, null, at));
-        NoteTrustConsequence();
+        NoteTrustConsequence(PaidCarry(lead));
         SaveTeam();
     }
 

@@ -71,7 +71,7 @@ public partial class BubbleTest : Node3D
                 "water, a bubble to walk into), the ghost and its lead, the walk-in, every refusal, the price by what the place made and by principal, the pops and the " +
                 "receipts, one bubble at a time, the room's cap, the ride, the deflate, the boat, the Gubble's lead (arriving, popping short, its stop), the lift " +
                 "(charged at the rise, refused without pips, the 1.2 m rise), the HUD's view, the security row, the player's marks on a bubble and its lead, and the " +
-                "Wave 2 review's fixes (judged where it forms, no free ride up a slope, a lift under a ceiling, Trust for a lead that arrives, a lead into fire, the lead's " +
+                "Wave 2 review's fixes (judged where it forms, no free ride up a slope, a lift under a ceiling, Trust only for a paid lift that arrives, a lead into fire paid or free, the lead's " +
                 $"sight, one rule for the island's bounds){(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveAll();
             GetTree().Quit(_failures == 0 ? 0 : 1);
