@@ -185,6 +185,7 @@ public partial class CommandHost
             return false;
         }
         ChargeEnergy(price);
+        TrustLiftCharged(lead); // decision 69: the Lift's charge at the rise makes the Gubble's lead a paid action (CommandHostTrust)
         lead.Rising = true;
         lead.RiseToY = Math.Min(RestOver(bubble, lead.SpotGroundY), bubble.Center.Y + BubbleLaws.LiftRiseM);
         lead.BlockedS = 0;

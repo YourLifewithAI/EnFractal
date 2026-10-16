@@ -50,6 +50,7 @@ public partial class CommandHost
     /// <summary>The charge, once the command committed: the pool (or the shadow pool) loses the price, never below empty.</summary>
     private void ChargeEnergy(int price)
     {
+        NoteTrustCharge(price); // decision 69: Trust reads what the guard charged, never an op list (CommandHostTrust)
         if (price <= 0 || _playerVitalsUnavailable || !_vitalsRules.HasPool) return;
         var pips = Math.Max(0, Math.Max(0, Vitals.Pips) - price);
         if (pips == Vitals.Pips) return;

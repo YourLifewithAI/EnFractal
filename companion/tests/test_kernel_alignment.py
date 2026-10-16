@@ -433,6 +433,9 @@ def _cs_string(path, name: str) -> str:
 
 TRUST = KERNEL / "Kernel" / "Trust.cs"
 TRUST_HOST = KERNEL / "Kernel" / "CommandHostTrust.cs"
+ENERGY = KERNEL / "Kernel" / "CommandHostEnergy.cs"
+BUBBLE_HOST = KERNEL / "Kernel" / "Bubble" / "CommandHostBubble.cs"
+BUBBLE_LEAD = KERNEL / "Kernel" / "Bubble" / "CommandHostBubbleLead.cs"
 
 
 @unittest.skipUnless(TRUST.is_file() and TRUST_HOST.is_file(), "the kernel's Trust is not in this checkout")
@@ -466,9 +469,38 @@ class TrustMatchesTheKernel(unittest.TestCase):
         host = _text(TRUST_HOST)
         for line in ("You marked the Gubble's ", ": yes, like that.", ": not that.", "You reset the Gubble's Trust: "):
             self.assertIn(line, host)
-        # The founder's rule (16 October): the same commands change the world, and so open a window, on both hosts.
-        self.assertEqual(mock_trust.WORLD_OPS, set(re.findall(r'"([a-z_.]+)"', _match(TRUST, r"WorldOps = new\(StringComparer\.Ordinal\)\s*\{([^}]*)\};"))))
-        self.assertEqual(mock_trust.WORLD_GOALS, set(re.findall(r'"([a-z_]+)"', _match(TRUST, r"WorldGoals = new\(StringComparer\.Ordinal\) \{([^}]*)\};"))))
+
+    def test_both_hosts_earn_from_the_charge_never_a_list(self):
+        """Decision 69 ("Only paid actions and consequences directly related to those actions earn trust"): the same rule on both
+        hosts, read from what the guard charges, never a list of ops (decision 68's lists are gone from both)."""
+        import inspect
+        from enfractal_companion import mock_trust
+        from enfractal_companion.mock_host import MockHost
+        trust = _text(TRUST)
+        self.assertIsNone(re.search(r"HashSet<string> World(Ops|Goals)\b", trust), "the kernel keeps no op list for Trust")
+        for name in ("WORLD_OPS", "WORLD_GOALS", "changes_the_world"):
+            self.assertFalse(hasattr(mock_trust, name), f"the mock keeps no {name}")
+        # The rule itself: paid when the charge is above the kernel's threshold, the same answers on both hosts.
+        threshold = int(_match(TRUST, r"public static bool Paid\(int chargedPips\) => chargedPips > (-?\d+);"))
+        self.assertEqual([mock_trust.paid(pips) for pips in range(-2, 7)], [pips > threshold for pips in range(-2, 7)])
+        # The kernel reads the charge where the guard makes it, takes it first at a commit, and pays a lead at its Lift's rise.
+        charge = _method(_text(ENERGY), "private void ChargeEnergy(")
+        self.assertLess(charge.index("NoteTrustCharge(price);"), charge.index("if (price <= 0"))
+        host = _text(TRUST_HOST)
+        observe = _method(host, "private void ObserveTrustCommand(")
+        self.assertLess(observe.index("var charged = TakeTrustCharge();"), observe.index("if (principal != CompanionPrincipal"))
+        self.assertIn("Paid = Trust.Paid(charged)", _method(host, "private void RememberGubbleCommand("))
+        self.assertRegex(_method(_text(BUBBLE_LEAD), "private bool StartLift("), r"ChargeEnergy\(price\);\s*TrustLiftCharged\(lead\);")
+        # The mock notes the same charge wherever the kernel's guard charges a command the mock hosts (Bloom and Fire it does not).
+        self.assertEqual(_text(BUBBLE_HOST).count("ChargeEnergy(price);"), 2, "the kernel charges a bubble at effect.start and nature.cast")
+        self.assertIn("ChargeEnergy(price);", _method(_text(EFFECTS), "private JsonObject EffectStart("))
+        for method in (MockHost._op_effect_start, MockHost._bubble_effect_start, MockHost._bubble_cast):
+            with self.subTest(method=method.__name__):
+                self.assertIn("self._trust_charge(", inspect.getsource(method))
+        self.assertIn("self._trust_lift_charged(", inspect.getsource(MockHost._lead_arrived))
+        observed = inspect.getsource(mock_trust.TrustMixin._observe_trust)
+        self.assertLess(observed.index("charged = self._take_trust_charge()"), observed.index("if principal.startswith"))
+        self.assertIn("paid(charged)", observed)
 
     def test_the_kernel_hosts_the_marks_and_the_reset(self):
         source = _text(COMMAND_HOST)

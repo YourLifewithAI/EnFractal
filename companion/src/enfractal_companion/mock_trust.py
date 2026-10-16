@@ -2,11 +2,14 @@
 
 - The count is the team's (the kernel keeps it in team.json; the mock keeps it with the host, so a room reload never erases it),
   computed only from what happened, and counted in Challenge and Live only.
-- Clean initiative, +1: a committed command of the Gubble's that changes the world (WORLD_OPS, and goal.set only for WORLD_GOALS;
-  the founder, 16 October: "only things that impact the world") opens a 60 s window; a window that closes with no consequence fact
-  in it gains, at most once in two minutes. A fetch or a lead opens its window only when its job succeeds; one that fails or is
-  stopped gains nothing. Directional goals, stops, notes and checkpoints never gain. The mock simulates no nature, so it
-  writes no consequence facts of its own; the -3 is the kernel's.
+- Clean initiative, +1, for paid actions only (decision 69, the founder, 16 October: "Only paid actions and consequences directly
+  related to those actions earn trust"): a committed command of the Gubble's that the guard would charge pips for (paid: the
+  price above zero where the kernel's ChargeEnergy charges, read from the pack's prices, never a list of ops; the mock keeps no
+  pool, so it notes the price it would charge) opens a 60 s window; a window that closes with no consequence fact in it gains, at
+  most once in two minutes. A goal's window opens only when its job succeeds, and a lead is paid only once its Lift is charged
+  (the rise, which on the mock is its arrival); a lead that is no lift, a fetch, or one that fails gains nothing. Free commands
+  (grabs, pushes, releases, free builds, goals, stops, notes, checkpoints) never gain. The mock simulates no nature, so it writes
+  no consequence facts of its own; the -3, and its trace to a paid action, are the kernel's.
 - receipt.mark and trust.reset are the player's alone: the companion is refused before any handler runs (player-only ops). A
   mark names a receipt of the Gubble's from this room's session, each once: +2 for yes, -2 for not that.
 - Readable, never writable: the journal keeps the marks, a tier's change and a reset as lessons (kind consequence), in the
@@ -36,17 +39,12 @@ MARK_NOT_FOUND = "There is no receipt of the Gubble's from this session with tha
 MARKED_ONCE = "That receipt is already marked: each receipt is marked once."  # kernel: CommandHost.MarkedOnce
 CONSEQUENCE_PLACE_M = 1.5  # kernel: CommandHost.ConsequencePlaceM
 _NOT_ACTIONS = frozenset({"goal.stop", "effect.stop", "wish.stop", "journal.note", "room.checkpoint"})
-# kernel: TrustLaws.WorldOps and TrustLaws.WorldGoals (the Gubble's commands that change the world, so open a window)
-WORLD_OPS = frozenset({"nature.cast", "nature.trail", "nature.repair", "room.undo", "effect.start", "effect.adjust",
-                       "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
-                       "creation.place", "creation.revise", "creation.activate", "protect.lock"})
-WORLD_GOALS = frozenset({"fetch", "lead"})
 _KNOWN_ID = re.compile(r"(obj|creation):[A-Za-z0-9_-]{1,64}")
 
 
-def changes_the_world(op: str, goal: str | None) -> bool:
-    """The kernel's Trust.ChangesTheWorld."""
-    return goal in WORLD_GOALS if op == "goal.set" else op in WORLD_OPS
+def paid(charged_pips: int) -> bool:
+    """The kernel's Trust.Paid (decision 69): a command is a paid action when the host charged it pips, and only then."""
+    return charged_pips > 0
 
 
 def band(count: int) -> int:
@@ -83,11 +81,11 @@ class TrustEntry:
     place: list[float] | None
     at: float
     counted: bool
-    initiative: bool = True
+    paid: bool = False  # the guard charged it pips (the kernel's Entry.Paid): only a paid window can gain; any receipt can be marked
     spoiled: bool = False
     settled: bool = False
     mark: str | None = None
-    job_id: str | None = None  # a fetch's or a lead's job: its window waits for it (the kernel's Entry.JobId)
+    job_id: str | None = None  # a goal's job: its window waits for it (the kernel's Entry.JobId)
     pending: bool = False  # its job still runs: the window has not opened
     job_failed: bool = False  # its job ended without succeeding: it gains nothing
     opened_at: float | None = None  # when its window opened: its commit, or its job's success
@@ -128,6 +126,7 @@ class TrustMixin:
     def _reset_trust_session(self) -> None:
         self._trust_entries: OrderedDict[str, TrustEntry] = OrderedDict()
         self._trust_last_gain: float | None = None
+        self._trust_charged = 0  # the pips the guard would have charged since Trust last looked (the kernel's _trustCharged)
 
     @property
     def trust_band(self) -> int:
@@ -147,10 +146,38 @@ class TrustMixin:
         listed = next(((ordered, factor) for name, ordered, factor in self.rules.prices if name == capability), None)
         return own_idea_price(listed[0], listed[1], level) if listed else price
 
+    # ------------------------------------------------------------------ what the guard charges (decision 69)
+
+    def _charge_price(self, capability: str, principal: str) -> int:
+        """What the kernel's guard charges for this at a commit (GuardEnergy's price): nothing without a pool or a price, else the
+        price by principal with Trust's discount. In Creative the kernel's shadow pool is charged it too (Trust counts nothing there)."""
+        if self.rules is None or self.rules.pips is None:
+            return 0
+        return self._trust_price(capability, principal)
+
+    def _trust_charge(self, capability: str, principal: str) -> None:
+        """The hook where the kernel's ChargeEnergy charges (an effect's start, a bubble's cast, a Lift's rise): the price it would
+        charge, noted for Trust. The mock keeps no pool, so nothing else moves."""
+        self._trust_charged += max(0, self._charge_price(capability, principal))
+
+    def _take_trust_charge(self) -> int:
+        charged, self._trust_charged = self._trust_charged, 0
+        return charged
+
+    def _trust_lift_charged(self, lead: dict) -> None:
+        """The kernel's TrustLiftCharged: a lift's charge at its rise (on the mock, its arrival: no drift) makes the Gubble's lead a
+        paid action, its window gaining once the arrival's window closes clean. A lead the player set is theirs."""
+        self._trust_charge("bubble_lift", lead["principal"])
+        entry = self._trust_entries.get(lead["action_id"])
+        if paid(self._take_trust_charge()) and not lead["principal"].startswith("player:") and entry is not None:
+            entry.paid = True
+
     # ------------------------------------------------------------------ the Gubble's commands
 
     def _observe_trust(self, principal: str, message: dict, result: dict) -> None:
-        """After a commit: a command of the Gubble's opens its window and can be marked (the kernel's ObserveTrustCommand)."""
+        """After a commit: a command of the Gubble's opens its window when the guard charged it pips, and every one can be marked
+        (the kernel's ObserveTrustCommand). The charge is taken first, whoever's command it was."""
+        charged = self._take_trust_charge()
         if principal.startswith("player:") or message["op"] in _NOT_ACTIONS or not result.get("ok"):
             return
         args = message.get("args", {})
@@ -161,11 +188,10 @@ class TrustMixin:
         self._settle_trust()
         entries = self._trust_entries
         entries.pop(message["action_id"], None)
-        initiative = changes_the_world(op, args.get("goal") if op == "goal.set" else None)
-        # A fetch or a lead changes the world only when its job succeeds: its window waits for the job (_trust_job_ended).
-        job = result.get("job_id") if op == "goal.set" and initiative else None
+        # A goal's job decides whether it did anything: its window waits for the job (_trust_job_ended); a lead is paid at its Lift.
+        job = result.get("job_id") if op == "goal.set" else None
         entries[message["action_id"]] = TrustEntry(message["action_id"], op, _what(op, capability, self.rules), _place(args),
-                                                   self.clock.now(), self._trust_counts(), initiative, job_id=job, pending=job is not None)
+                                                   self.clock.now(), self._trust_counts(), paid(charged), job_id=job, pending=job is not None)
         while len(entries) > MAX_REMEMBERED:
             entries.popitem(last=False)
         ended = self.jobs.get(job) if job is not None else None
@@ -173,8 +199,8 @@ class TrustMixin:
             self._trust_job_ended(job, ended["state"])
 
     def _trust_job_ended(self, job_id: str, state: str) -> None:
-        """A goal's job ended (the kernel's TrustLedger.JobEnded): a fetch's or a lead's window opens now if it succeeded, and it
-        gains nothing if it failed or was stopped."""
+        """A goal's job ended (the kernel's TrustLedger.JobEnded): its window opens now if it succeeded (gaining only if it was
+        paid), and it gains nothing if it failed or was stopped."""
         for entry in self._trust_entries.values():
             if entry.pending and entry.job_id == job_id:
                 entry.pending = False
@@ -184,12 +210,12 @@ class TrustMixin:
                     entry.job_failed = True
 
     def _settle_trust(self) -> None:
-        """Every window closed by now settles once: clean and counted, it gains, at most once in GAIN_SPACING_S."""
+        """Every window closed by now settles once: clean, counted and paid, it gains, at most once in GAIN_SPACING_S."""
         now = self.clock.now()
         closed = sorted((e for e in self._trust_entries.values() if not e.settled and not e.pending and e.closes <= now), key=lambda e: e.closes)
         for entry in closed:
             entry.settled = True
-            if entry.spoiled or not entry.counted or not entry.initiative or entry.job_failed:
+            if entry.spoiled or not entry.counted or not entry.paid or entry.job_failed:
                 continue
             if self._trust_last_gain is None or entry.closes - self._trust_last_gain >= GAIN_SPACING_S:
                 self._trust_last_gain = entry.closes
