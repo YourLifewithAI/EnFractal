@@ -1032,9 +1032,10 @@ public partial class SmallPlayerController : CharacterBody3D
         RememberShoreEntry();
         _wasDiving = IsDiving;
         IsDiving = false;
-        // What the bar pays for beyond a climb (the ledger): which way the body moved this tick.
+        // What the bar pays for beyond a climb (the ledger): which way the body moved this tick, and in the water whether a key moved it.
         var onFoot = false;
         var swam = false;
+        _stroked = false;
         // A bubble that holds the body moves it, and the body's own exit and deflate come first (SmallPlayerController.Bubble.cs).
         if (RideBubble(dt, wish)) { }
         else if (_climbing) Climb(dt, control);
@@ -1099,7 +1100,7 @@ public partial class SmallPlayerController : CharacterBody3D
                 FallObserved?.Invoke(_vitalsLandingSpeedMps, false);
             Recover();
         }
-        ObserveBodyVitals(dt, TakeExertion(dt, moved, onFoot, swam, sprint, control));
+        ObserveBodyVitals(dt, TakeExertion(dt, moved, onFoot, swam && _stroked, sprint, control));
         // Out of stamina in deep water (the ledger's gate): the scene fades and the body is back on the shore where it went in.
         if (_swimming && _gate.Empty) BeginShoreReturn();
         TakeBodyState(dt, moved, onFloor, wasSwimming, sprint);
@@ -1570,8 +1571,11 @@ public partial class SmallPlayerController : CharacterBody3D
             _waterLeap = true;
             JumpsStarted++;
             EndSwim();
+            _stroked = true;
         }
         else _jumpBuffer = Mathf.Max(0, _jumpBuffer - dt);
+        // A stroke (the ledger's deep-water seconds, decision 64): a movement key moving the swimmer. Floating still costs nothing.
+        if (!spent && control.LengthSquared() > StrokeControlSquared) _stroked = true;
         var desired = spent ? Vector3.Zero : wish * SwimPaceMps(sprint);
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, SwimAccelerationMps2 * dt), dt);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
@@ -1594,6 +1598,8 @@ public partial class SmallPlayerController : CharacterBody3D
         if (!_wasDiving) DiveStarts++;
         IsDiving = true;
         DiveTicks++;
+        // Under water a stroke is a key's own motion: Ctrl down, Space up, or a movement key. A diver let go drifts up for nothing.
+        if (down || up || control.LengthSquared() > StrokeControlSquared) _stroked = true;
         Vector3 wish;
         if (MovementFrameYaw is { } frameYaw) wish = new Basis(Vector3.Up, frameYaw) * new Vector3(control.X, 0, -control.Y);
         else wish = ViewForward() * control.Y + GlobalBasis.X * control.X;

@@ -54,6 +54,14 @@ public partial class SmallPlayerController
 
     /// <summary>A moving body counts as running once it covers at least this share of a walk's distance in the tick (it is not pushing a wall).</summary>
     public const float RunningShareOfWalk = 0.5f;
+    /// <summary>A movement key counts as held, for a stroke in the water, past this length of the control vector (squared), as for running.</summary>
+    private const float StrokeControlSquared = 0.01f;
+
+    /// <summary>
+    /// Whether a key moved the body in the water this tick (Swim, Dive): a movement key, the leap out, or under water the dive's own
+    /// keys. The deep-water and dive seconds are reported only then (decision 64 of 16 October: a swimmer floating still pays nothing).
+    /// </summary>
+    private bool _stroked;
 
     private StaminaGate _gate = StaminaGate.Free;
 
@@ -67,8 +75,9 @@ public partial class SmallPlayerController
 
     /// <summary>
     /// What the bar pays for this tick beyond climbing: seconds running on foot (sprint held, moving), swimming in deep water at the
-    /// surface, or under it; never more than one, never more than the tick. Floating bodies and held ones (a tumble, a trip home)
-    /// exert nothing.
+    /// surface, or under it, each only while a key moves the body (swam: a stroke this tick; a swimmer floating still, or a diver let
+    /// go and drifting up, reports none, decision 64); never more than one, never more than the tick. Floating bodies and held ones
+    /// (a tumble, a trip home) exert nothing.
     /// </summary>
     private BodyExertion TakeExertion(float dt, float moved, bool onFoot, bool swam, bool sprint, Vector2 control)
     {

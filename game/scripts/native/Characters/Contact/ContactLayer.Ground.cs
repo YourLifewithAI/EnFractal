@@ -257,7 +257,14 @@ public sealed partial class ContactLayer
         if (_stepAhead < 1e-4f) _stepAhead = 0;
     }
 
-    /// <summary>A climber's body front meets the face: one ray from the middle of the body to the wall.</summary>
+    /// <summary>
+    /// A climber's body front meets the face: one ray from the middle of the body to the wall. The middle is taken where the lean along
+    /// the face puts it (Tilt, turned about the root's joint by ApplyRoot), and on a sloped face, where the body lies along it and its
+    /// limbs reach into it, no drawn part is left behind the face: the press stops short, or backs off, where the part nearest the face
+    /// (as last drawn) would be FaceClearM in front of it. On a cliff, with no lean, the body's front meets the face as before. (Mark 1
+    /// of the first recorded play, 16 October: the press measured from the upright middle and the lean added up, and on a 52 degree
+    /// rock face Stickbear was drawn 3 cm inside it while the capsule held 4 cm in front.)
+    /// </summary>
     private void Press(in BodyState state, Transform3D skeleton, Transform3D toSkeleton, float dt)
     {
         var target = 0f;
@@ -265,18 +272,65 @@ public sealed partial class ContactLayer
         {
             var normal = ContactMath.Direction(state.ClimbNormal, Vector3.Back);
             var body = _rig.Bones[_rig.BodyBone];
-            var middle = skeleton * new Vector3(0, body.RestModel.Y + body.MeshBounds.GetCenter().Y, 0);
-            if (Cast(_wallRay, middle, middle - normal * 0.08f, out var point, out _))
+            var joint = _rig.Bones[CharacterBody.RootBone].RestModel;
+            var upright = new Vector3(0, body.RestModel.Y + body.MeshBounds.GetCenter().Y, 0);
+            var middle = skeleton * (joint + _tilt * (upright - joint));
+            if (Cast(_wallRay, middle, middle - normal * 0.08f, out var point, out var face))
             {
                 // The body's front at rest, measured from the capsule's axis (forward is -Z).
                 var front = -(body.RestModel.Z + body.MeshBounds.Position.Z);
                 var gap = (middle - point).Length();
                 target = Mathf.Clamp(gap - front - 0.001f, -0.02f, 0.02f);
+                // How far the body lies along a sloped face: none on a cliff, all of it from a 70 degree slope down.
+                var sloped = Mathf.Clamp(ContactMath.Angle(_tilt) / SlopedLeanRad, 0, 1);
+                if (sloped > 0 && ContactMath.Finite(face))
+                {
+                    // Every drawn part in front: the press that leaves the nearest one FaceClearM off the face (the last drawn pose
+                    // already carries the last press, so the change is the nearest part's distance less the clearance). Where two faces
+                    // meet at a seam the hands reach the one above: the face under the leaned top counts too.
+                    var nearest = NearestToFace(point, face);
+                    var top = skeleton * (joint + _tilt * (new Vector3(0, _rig.RestBounds.End.Y * 0.85f, 0) - joint));
+                    if (Cast(_wallRay, top, top - normal * 0.1f, out var upper, out var upperFace) && upperFace.Dot(face) < 0.9999f)
+                        nearest = Mathf.Min(nearest, NearestToFace(upper, upperFace));
+                    var clear = Mathf.Max(_press + nearest - FaceClearM, -MaxPressOutM);
+                    if (clear < target) target = Mathf.Lerp(target, clear, sloped);
+                }
             }
             _pressDir = ContactMath.Direction(toSkeleton.Basis * -normal, Vector3.Forward);
         }
         _press = ContactMath.Approach(_press, target, dt, PressTau);
         if (Mathf.Abs(_press) < 1e-5f) _press = 0;
+    }
+
+    /// <summary>A lean along the face of this much (a 70 degree slope's) or more keeps every drawn part in front of it.</summary>
+    private static readonly float SlopedLeanRad = Mathf.DegToRad(20);
+    /// <summary>The nearest drawn part stops this far in front of a sloped face.</summary>
+    private const float FaceClearM = 0.002f;
+    /// <summary>The most the press backs a climber off a sloped face.</summary>
+    private const float MaxPressOutM = 0.04f;
+
+    /// <summary>
+    /// The signed distance to the face (a point on it and its outward normal, world) of the drawn body's corner nearest it: every meshed
+    /// bone's bounds at its last drawn transform, carried with the body to where it is now. Negative: something is drawn behind the face.
+    /// </summary>
+    private float NearestToFace(Vector3 point, Vector3 face)
+    {
+        var toWorld = _rig.GlobalTransform;
+        var nearest = float.MaxValue;
+        var bones = _rig.Bones;
+        for (var i = 0; i < bones.Count; i++)
+        {
+            var bone = bones[i];
+            if (!bone.HasMesh) continue;
+            var t = toWorld * _rig.FinalBoneTransform(i);
+            var b = bone.MeshBounds;
+            for (var c = 0; c < 8; c++)
+            {
+                var corner = b.Position + new Vector3((c & 1) != 0 ? b.Size.X : 0, (c & 2) != 0 ? b.Size.Y : 0, (c & 4) != 0 ? b.Size.Z : 0);
+                nearest = Mathf.Min(nearest, (t * corner - point).Dot(face));
+            }
+        }
+        return nearest == float.MaxValue ? 0 : nearest;
     }
 
     /// <summary>

@@ -89,6 +89,7 @@ public partial class SmallAvatarPhysicsTest
         await TestReportsAndOrder();
         await TestEmptyBarStopsTheRun();
         await TestEmptyBarDropsAClimber();
+        await TestStillWaterCostsNothing();
         await TestEmptyBarInDeepWater();
         await TestShoreReturnGoesWhereItWentIn();
         await TestShoreReturnToTheSeasBeach();
@@ -491,6 +492,123 @@ public partial class SmallAvatarPhysicsTest
     private static bool StandsDry(SmallPlayerController body) => body.IsOnFloor() && !body.IsSwimming && (!body.Water.Wet || body.Water.Under(body.GlobalPosition) <= 0);
 
     /// <summary>
+    /// Still costs nothing in the water (decision 64 of 16 October, the first recorded play: "If I stop while swimming or climbing I
+    /// continue to lose stamina"): a body floating still in deep water for ten seconds reports no deep-water seconds and keeps its bar;
+    /// the same body swimming reports the tick's seconds as before, and the bar pays the pack's 0.02 m a second. Under water the same
+    /// two ways: a diver let go, drifting up, reports none; Ctrl held, the tick's seconds at 0.04 m a second. The ledger is the
+    /// fixture's own arithmetic (ModelLedger), so the bar is the one the kernel would keep.
+    /// </summary>
+    private async Task TestStillWaterCostsNothing()
+    {
+        var b = new Vector3(800, 0, 1400);
+        var (parts, _, _) = BuildPond(b, 3.0f, eastRamp: false);
+        var east = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        var floatY = PondSurface - 0.06f;
+        var body = new SmallPlayerController { Name = "StillWaterBody", ReadKeyboard = false, Position = b + new Vector3(1.0f, floatY, 0), Rotation = east };
+        AddChild(body);
+        await Frames(40);
+        var ledger = new ModelLedger { Max = 0.4, Stamina = 0.4 };
+        ledger.Refresh();
+        body.VitalsTick = (dt, grounded) => ledger.Tick(dt, grounded);
+        body.StaminaLedger = ledger;
+        await Frames(5);
+        Check(body.IsSwimming && !body.IsDiving && Mathf.Abs(body.GlobalPosition.Y - floatY) < 0.01f, "a swimmer afloat in the deep middle of a 3 m pond, no key held");
+
+        // Ten seconds floating still: no deep-water seconds, the bar kept.
+        var reports = ledger.Reports;
+        ledger.DeepTotal = ledger.DiveTotal = ledger.SprintTotal = 0;
+        var bar = ledger.Stamina;
+        var from = body.GlobalPosition;
+        await Frames(600);
+        Report(ledger.Reports == reports + 600 && ledger.DeepTotal == 0 && ledger.DiveTotal == 0 && ledger.SprintTotal == 0 && ledger.Stamina == bar && body.IsSwimming &&
+               PlanarDistance(body.GlobalPosition, from) < 0.01f,
+            $"floating still in deep water for ten seconds reports no seconds ({ledger.DeepTotal:0.000} s over {ledger.Reports - reports} ticks) and keeps its bar ({ledger.Stamina:0.000} m of {bar:0.000})");
+
+        // The run key alone moves nothing: still afloat, still free.
+        body.SetControlInput(Vector2.Zero, sprint: true);
+        await Frames(60);
+        body.SetControlInput(Vector2.Zero);
+        Check(ledger.DeepTotal == 0 && ledger.Stamina == bar, "holding the run key alone while afloat reports nothing");
+
+        // Swimming: every tick a key moves the body is a deep-water second, as before, and the bar pays the pack's rate.
+        body.SetControlInput(new Vector2(0, 1));
+        await Frames(10);
+        ledger.DeepTotal = 0;
+        bar = ledger.Stamina;
+        var stroked = 0;
+        ledger.OnReport = e => { if (e.DeepWaterS > 0) stroked++; };
+        from = body.GlobalPosition;
+        await Frames(60);
+        ledger.OnReport = null;
+        body.SetControlInput(Vector2.Zero);
+        Report(body.IsSwimming && stroked == 60 && Mathf.Abs((float)ledger.DeepTotal - 1.0f) < 0.002f && Mathf.Abs((float)(bar - ledger.Stamina) - 0.02f) < 0.0005f &&
+               PlanarDistance(body.GlobalPosition, from) > 0.1f && ledger.Breaches == 0,
+            $"swimming reports the tick's seconds as before ({ledger.DeepTotal:0.000} s over a second, {stroked} of 60 ticks) and the bar pays 0.02 m a second ({bar - ledger.Stamina:0.0000} m)");
+
+        // Stopping stops the cost at once: the glide that is left is the water's, not a stroke.
+        await Frames(2);
+        ledger.DeepTotal = 0;
+        await Frames(120);
+        Check(ledger.DeepTotal == 0, $"letting go of the key stops the cost at once, while the swimmer still glides ({ledger.DeepTotal:0.000} s)");
+
+        // A leap out of the water is a key's motion too: its tick is paid.
+        await Frames(60);
+        ledger.DeepTotal = 0;
+        var jumps = body.JumpsStarted;
+        for (var i = 0; i < 60 && body.JumpsStarted == jumps; i++)
+        {
+            body.SetControlInput(Vector2.Zero, jump: true);
+            await Frames(1);
+        }
+        Check(body.JumpsStarted == jumps + 1 && ledger.DeepTotal > 0 && ledger.DeepTotal < 3 * Tick + 1e-4,
+            $"a leap from the water pays its tick as a stroke ({ledger.DeepTotal:0.000} s)");
+        for (var i = 0; i < 180 && !(body.IsSwimming && Mathf.Abs(body.GlobalPosition.Y - floatY) < 0.01f && body.Velocity.Length() < 0.01f); i++) await Frames(1);
+
+        // Under water: Ctrl held is a stroke under the surface, its seconds as diving at the pack's 0.04 m a second ...
+        body.SetDiveInput(true, false);
+        for (var i = 0; i < 200 && !body.IsDiving; i++) await Frames(1);
+        await Frames(5);
+        ledger.DeepTotal = ledger.DiveTotal = 0;
+        bar = ledger.Stamina;
+        await Frames(30);
+        var diveSeconds = ledger.DiveTotal;
+        var diveCost = bar - ledger.Stamina;
+        Report(body.IsDiving && Mathf.Abs((float)diveSeconds - 0.5f) < 0.002f && ledger.DeepTotal == 0 && Mathf.Abs((float)diveCost - 0.02f) < 0.0005f,
+            $"diving with Ctrl held reports the tick's seconds under water ({diveSeconds:0.000} s over half a second, {diveCost:0.0000} m of bar)");
+        // ... and a diver let go drifts up for nothing, as long as it stays under.
+        await Frames(60);
+        body.SetDiveInput(false, false);
+        await Frames(1);
+        ledger.DeepTotal = ledger.DiveTotal = 0;
+        bar = ledger.Stamina;
+        var underTicks = 0;
+        ledger.OnReport = _ => { if (body.IsDiving) underTicks++; };
+        await Frames(90);
+        ledger.OnReport = null;
+        Report(underTicks >= 60 && ledger.DiveTotal == 0 && ledger.DeepTotal == 0 && ledger.Stamina == bar,
+            $"a diver let go, drifting up under the water, reports nothing ({underTicks} ticks under, {ledger.DiveTotal:0.000} s) and keeps its bar");
+        // Under water with a movement key: a stroke again.
+        body.SetDiveInput(true, false);
+        for (var i = 0; i < 60 && !body.IsDiving; i++) await Frames(1);
+        await Frames(40);
+        body.SetDiveInput(false, false);
+        body.SetControlInput(new Vector2(0, 1));
+        await Frames(2);
+        ledger.DiveTotal = 0;
+        var swumUnder = 0;
+        ledger.OnReport = e => { if (body.IsDiving && e.DiveS > 0) swumUnder++; };
+        await Frames(20);
+        ledger.OnReport = null;
+        body.SetControlInput(Vector2.Zero);
+        Check(swumUnder >= 15 && ledger.Breaches == 0, $"under water a movement key is a stroke too ({swumUnder} of 20 ticks paid as diving)");
+
+        body.VitalsTick = null;
+        body.StaminaLedger = null;
+        body.QueueFree();
+        await FreeAll(parts);
+    }
+
+    /// <summary>
     /// In deep water an empty bar fades the scene and puts the body back on the shore where it went in: standing, dry, still, unhurt, the
     /// Gubble beside it, and no drift on the way. A diver is not held down. A body with no entry (put into the water) goes to the
     /// nearest shore a swimmer could stand on, never up a bank.
@@ -516,15 +634,10 @@ public partial class SmallAvatarPhysicsTest
             body.SetControlInput(Vector2.Zero);
         }
 
-        // Treading water costs the bar by the second, diving by its own, each as seconds of one kind.
+        // Diving reports its own seconds, never deep water's (a stroke's cost, and floating still, are TestStillWaterCostsNothing's).
         Place(b + new Vector3(0.9f, floatY, 0));
         await Frames(40);
         Check(body.IsSwimming && !body.IsDiving, "the swimmer floats at the surface of the deep end");
-        ledger.DeepTotal = 0;
-        var before = ledger.Reports;
-        await Frames(60);
-        Report(Mathf.Abs((float)ledger.DeepTotal - 1.0f) < 0.03f && ledger.Reports == before + 60 && ledger.SprintTotal == 0 && ledger.DiveTotal == 0 && ledger.Breaches == 0,
-            $"swimming in deep water reports its seconds ({ledger.DeepTotal:0.000} s over a second, none of them running or diving)");
         body.SetDiveInput(true, false);
         for (var i = 0; i < 200 && !body.IsDiving; i++) await Frames(1);
         await Frames(20);

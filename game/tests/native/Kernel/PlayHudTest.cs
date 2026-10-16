@@ -109,6 +109,7 @@ public partial class PlayHudTest : Node
             await TestShoulderOrbit();
             await TestShoulderMovementFrame();
             await TestShoulderNearEndUnchanged();
+            await TestShoulderKeepsTheBodyInFrame();
             await TestShoulderFocusAndSwitches();
             // The playtest record's keys (PlayHudTest.Playtest.cs).
             await TestPlaytestKeys();
