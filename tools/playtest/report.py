@@ -989,7 +989,8 @@ def section_glance(play: Play, stills: list, marks: list, refusals: list, frames
 def section_record_check(play: Play, *_ignored) -> list:
     if not play.notes:
         return []
-    return ["## About this record", "", "The reader found these things wrong with the record. It went on without them.", ""] + \
+    return ["## About this record", "", "What the reader could not use as it is, and went on without: fields and kinds it does not know "
+            "(the contract allows them; a newer recorder may write them), and anything damaged or missing.", ""] + \
            [f"- {line}" for line in play.notes.lines()] + [""]
 
 
@@ -1387,7 +1388,7 @@ def main(argv: Optional[list] = None) -> int:
     print(f"wrote {result['report']}")
     print(f"wrote {result['sheet']} ({result['sheet_items']} stills)" if result["sheet"] else f"no contact sheet: {result['sheet_note']}")
     if play.notes:
-        print(f"{len(play.notes.items)} thing{'s' if len(play.notes.items) != 1 else ''} wrong with the record (see the report)")
+        print(f"{len(play.notes.items)} note{'s' if len(play.notes.items) != 1 else ''} about the record (see the report's 'About this record')")
     return 0
 
 
