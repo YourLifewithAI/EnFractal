@@ -129,6 +129,8 @@ public static class MaterialLibrary
         SetLand(material, "haze_end_m", 1f);
         SetLand(material, "haze_max", 0f);
         SetLand(material, "haze_far_m", 0f);
+        // The living shore (ShoreWash): off, with the island garage's numbers ready; OpenSea turns it on for a room with a sea.
+        foreach (var (name, value) in ShoreWash.LandParameters(ShoreLook.Default, false, ShoreWash.FreeRunning, 0f, ShoreWash.DefaultFilmColour, SeaLook.Default.FoamColor, null)) SetLand(material, name.ToString(), value);
         material.SetMeta("material_role", role);
         material.SetMeta("landscape", true);
         // VoxelGI voxelizes BaseMaterial3D albedo only, and ignores vertex colour: the look director bakes with this colour instead.
@@ -200,6 +202,8 @@ public static class MaterialLibrary
         SetWater(material, "foam_strength", SeaLook.Default.FoamStrength);
         SetWater(material, "wave_spacing_m", SeaLook.Default.WaveSpacingM);
         SetWater(material, "wave_speed", SeaLook.Default.WaveSpeed);
+        // The living shore (ShoreWash): off for ponds and brooks; OpenSea turns it on for the sea's water.
+        foreach (var (name, value) in ShoreWash.WaterParameters(ShoreLook.Default, false)) SetWater(material, name.ToString(), value);
         material.SetMeta("material_role", role);
         material.SetMeta("landscape", true);
         material.SetMeta("water", true);

@@ -1,0 +1,44 @@
+# The first recorded play's frames
+
+**Run 2, the first recorded play's fix round, Lane L (16 October).** The debrief ([playtests/2026-10-16-landscape_garage_nominal.md](../runs/playtests/2026-10-16-landscape_garage_nominal.md)) found two hitches near a second in the record's `frame` events (979 ms at 0:14 and 970 ms at 0:44) and 35 to 41 ms frames in 34 of 54 windows, and guessed the first two were the intro's start and the island's reveal. Measured here, on the founder's installed island (a read-only copy on a scratch profile, `run-room.ps1` with the recorder on, the machine the play was made on), with the intro playing and with "Play the intro" off, before and after the fix; and a probe (`game/tests/native/Look/FrameProbe.cs`, `native_look_frames.tscn`) that times every frame from the room's build and says what each slow one spent its time on.
+
+## The record's own reading
+
+The room was ready at 14.05 s (`ready`), the intro played from there (its log line: `INTRO: ended (played) at 15.0 s`, so to about 0:29), the founder pressed T at 42.67 and 43.53 (the HUD then read "08:31 morning"), and the two windows are 14.05 to 19.05 (longest 979.1 ms, 511 frames) and 44.06 to 49.07 (longest 970.5 ms, 481 frames, video memory 241.1 to 253.3 MB, and it stays there). Every other window's longest frame is 17 to 113 ms, and the typical one 30 to 38 ms.
+
+## Hitch 1, 0:14: not the intro. The fish survey, and then the first frame after the load
+
+Longest frame of the first window (the recorder's `frame` event), this island, this machine:
+
+| | before (`e646082`) | after (this branch) |
+|---|---|---|
+| intro playing | 1197.0 ms (390 frames) | 440.6 ms (547 frames) |
+| "Play the intro" off | 1258.6 ms | 432.4 ms |
+
+(The founder's own was 979.1 ms. A third before-play, with the intro and the T presses, read 1843 ms, but the water shader had just been edited under it, so it is not counted.) The frame probe splits the first window:
+
+- **The fish survey (Look's; fixed).** `PondLife` surveyed all the island's water in its first physics frame: `PondSurvey.Survey` reads the sea's 114,000 vertices into triangles, welds them into bodies, lays five on grids of up to 6,400 cells and casts 25,965 rays straight down for their beds, 63 MB of garbage in one call: 606 ms in the founder's log (`POND_LIFE: ... surveyed and placed in 606 ms`), 771 ms here, 290 ms headless. Now the main thread only reads each water mesh's triangles and casts the rays, at most 3 ms a physics frame (`PondLife.SurveyBudgetMs`), and the plain arithmetic (the welding, the grids) runs on a worker thread: 116 to 142 ms of main-thread time spread over 23 to 33 physics frames (about half a second), the same ponds to the cell (the look suite compares them), and the fish appear as the survey finishes, long before the intro lets them be seen. The survey's one ray query is now reused for all its rays.
+- **The first frame after the load (not Look's; a change request).** What is left is one frame of 535 ms with the intro off and 561 ms with it on, at the room's ready: `process` 410 to 430 ms, one physics step the engine reports as 1.1 to 1.3 s (it runs beside the frame), 55 to 61 pipelines compiled, 19 collections (35 ms of pause). The intro's own start (its data read, 600 land instances marked, two textures made, its walls built) adds 26 ms to it, so the textures `CreateFromImage` is not the cost. A hand-made draw of the ready room (`RenderingServer.ForceDraw`) takes 211 ms and compiles the 56 pipelines, yet the next frame still takes 404 ms, so the shaders are not it either: it is the first process and physics step after a load frame of 6 to 7 s (the engine owes up to 8 catch-up physics steps, and the first of everything runs in them). That frame is the black cover's first moment; nothing of the island is drawn yet that the player could see stutter. The change request is below.
+
+## Hitch 2, 0:44: not the island's reveal, and not reproduced
+
+The intro ended at about 0:29, a quarter of a minute before. The window after the founder's two T presses has the frame and 12.2 MB of new video memory (a viewport-sized buffer, the founder's window being 1793 by 1009), and the HUD's `time_step` events are 0.5 s and 1.4 s before the window began. Replayed on the same island with the presses at 42.7 s and 43.5 s after launch (posted to the window, logged as `time_step` actions), the two windows after them hold: before the fix with the intro on 22.0 and 20.5 ms, with it off 22.9 and 22.1 ms, and after the fix with it off 18.6 and 18.2 ms; two plays with no presses at all (before and after the fix, the intro on) have no frame over 58 ms after their first window. So the hitch needs something the founder did that these plays did not (the window's size, a focus change, a click) or something of the machine's at the moment; nothing in Look's source runs then (the clock step builds a 3D grading texture of 0.5 MB, the sea and sky move their parameters). To catch it next time the recorder's `frame` event needs the longest frame's process and physics time and the window's collections: the diff is in the report (`longest_process_ms`, `longest_physics_ms`, `gc_pause_ms`, `gc_collections`).
+
+## The 35 to 41 ms frames
+
+What they are, with `-NoRecord` and with the recorder on side by side (the frame probe in the same window, the intro off, 40 s each; the longest frame of each quiet five seconds):
+
+| | window 10-15 | 15-20 | 20-25 | 25-30 | 30-35 | 35-40 |
+|---|---|---|---|---|---|---|
+| `-NoRecord` | 19.8 | 18.8 | 20.3 | 19.0 | 21.2 | 20.1 ms |
+| recorder on | 18.6 | 18.6 | 21.4 | 21.0 | 18.2 | 18.3 ms |
+
+- **Not the recorder, not the intro, not Look.** They are the same with the recorder off and with the intro off. Look's frame costs nothing: the director, the open sea (its follow, its mist, the shore) and the sea's fish allocate 0 bytes a frame, the ponds' fish 3.5 KB, and 33.8 KB a frame without the whole look against 34.8 with it (`IslandFrameProbe --parts`).
+- **A physics-step job and a garbage collection landing in one frame, in the host.** At rest the island's frame is 6.94 ms (the screen's 144 Hz); a frame that also runs the command host's periodic work is longer: its nature step (every 0.5 s, 10.4 ms called directly, up to 17.6 ms), its sight sweep (6.4 ms for a whole one, 1,481 rays), the HUD's focus query (0.3 ms). A frame allocates 35 KB, 25 KB of it the host's (`CommandHost.Entities()` alone 330 KB a call), which is about 1.7 generation-1 collections a second with pauses of 3 to 25 ms (the worst 25.2 ms), and a collection on such a frame makes 18 to 21 ms in a quiet play here. Headless, the island's worst frames (41 to 54 ms) are physics steps of 27 to 53 ms, and with the command host switched off the worst is 13.3 ms against 54.1. The founder's windows were 30 to 38 ms because his island held more for the host to do (goals, blooms, fireworks, a day's clock steps).
+- So the guess in the debrief ("the island's own, to be checked by eye with `-NoRecord`") holds: the recorder is not the cost, and the cost is the kernel's periodic work (Lane P's).
+
+## Change requests (the diffs are in the report)
+
+1. The recorder's `frame` event gains the longest frame's process and physics time and the window's garbage collections and pause (`PlaytestRecorder.cs`); the reader (`tools/playtest/report.py`) lists them in its five worst windows.
+2. The first frame after the load, 535 to 561 ms (`RoomWorld` and the kernel's first physics step): the engine's catch-up steps after a 6 to 7 s load frame. The probe's numbers are above; the guess to try first is clamping `Engine.MaxPhysicsStepsPerFrame` for the first second after ready, or running the first step's work (the terrain's collision tiles near the spawns, the host's first sweep and nature step) inside the load.
+3. The host's periodic work (Lane P): the nature step and the sweep at 10 to 18 ms a call and `CommandHost.Entities()`'s 330 KB a call are the 35 to 41 ms frames; spread the step over ticks as the sweep is, and keep the entity list between sweeps.

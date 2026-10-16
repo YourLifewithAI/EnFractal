@@ -273,7 +273,9 @@ public partial class RoomHud
     {
         var frozen = AskFrozen ?? default;
         AskFrozen = null;
-        switch (_wheel.End(out var wedge))
+        var outcome = _wheel.End(out var wedge);
+        RecordAsk(outcome, wedge, frozen);
+        switch (outcome)
         {
             case GubbleWheel.Outcome.Tap: Ask(frozen); break;
             case GubbleWheel.Outcome.Wedge: ChooseWedge(wedge, frozen.Aim); break;
@@ -445,7 +447,7 @@ public partial class RoomHud
         var reason = result["error"]?["message"]?.GetValue<string>();
         // An empty pool: the pips blink, and the host's words ("The Gubble needs a moment.") are the Gubble's head-shake.
         if (result["error"]?["code"]?.GetValue<string>() == "energy_exhausted") FlashPipMeters();
-        _cue.Refuse(reason);
+        _cue.Refuse(reason, result["error"]?["code"]?.GetValue<string>(), result["action_id"]?.GetValue<string>());
         if (reason != null) _noticeText = reason;
         return false;
     }

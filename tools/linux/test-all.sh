@@ -96,6 +96,8 @@ run native_contract_probe "Native release probe passed" --headless --path "$P" r
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
 run native_characters "NATIVE_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_characters.tscn -- --skip-budget
 run native_body_knacks "NATIVE_BODY_KNACKS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_body_knacks.tscn
+run native_kernel_bubble "NATIVE_KERNEL_BUBBLE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_bubble.tscn
+run native_playtest "NATIVE_KERNEL_PLAYTEST: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_playtest.tscn
 run native_body_knacks_boot "NATIVE_BODY_KNACKS_BOOT: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_body_knacks.tscn -- --boot-room --knack=quick_feet:3 --knack=cat_feet:2
 run native_team_saves "NATIVE_TEAM_SAVES: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_team_saves.tscn
 run native_character_gaits "NATIVE_CHARACTER_GAITS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_gaits.tscn -- --skip-budget
@@ -156,6 +158,10 @@ echo "== contracts"
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -m unittest discover -s contracts/tests > "$LOG/contracts.log" 2>&1); then
   echo "PASS contracts: $(grep -E '^Ran' "$LOG/contracts.log")"
 else cat "$LOG/contracts.log"; failed=1; fi
+echo "== playtest reader (R2; the contact sheet's tests skip without Pillow)"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -m unittest discover -s tools/playtest/tests > "$LOG/playtest.log" 2>&1); then
+  echo "PASS playtest reader: $(grep -E '^Ran' "$LOG/playtest.log")"
+else cat "$LOG/playtest.log"; failed=1; fi
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py game/rooms/test_room game/styles/*/v*.json game/rules/*/v*.json > "$LOG/validate.log" 2>&1); then
   echo "PASS shipped rooms, presets and island rules validate"
 else cat "$LOG/validate.log"; failed=1; fi

@@ -24,6 +24,14 @@ public partial class RoomHud : CanvasLayer
     public const string DefaultProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
     private Label _state = null!;
+    /// <summary>The panel at the upper left: the hearts, the bar and the pips' row, and nothing else (it hides with them).</summary>
+    private PanelContainer _meterPanel = null!;
+    /// <summary>The lines the upper-left card used to hold, now the top of the H help: the room's title, the state, the clock, the mode and the settings.</summary>
+    private VBoxContainer _statusLines = null!;
+    /// <summary>The upper-left panel (the meters only), for the HUD suite.</summary>
+    public PanelContainer MeterPanel => _meterPanel;
+    /// <summary>The status lines at the top of the H help (title, state, clock, mode, settings), for the HUD suite.</summary>
+    public VBoxContainer StatusLines => _statusLines;
     /// <summary>The wash-ashore fade (the sea's edge): a full-screen veil the player's body darkens and lifts.</summary>
     private ColorRect _washVeil = null!;
     // The focus (RUN-2-OPEN-SEA.md, "Things to touch"): the thing the next hand key would act on, lit by the look, with a tag.
@@ -198,7 +206,7 @@ public partial class RoomHud : CanvasLayer
         Look.SetClock(TimeStop >= 0 ? TimeStopHour(Look.Preset, TimeStop, day) : real.Hour, day);
     }
 
-    /// <summary>The clock line of the top panel: the hour and where it comes from, then the season and date likewise.</summary>
+    /// <summary>The clock line of the H help's status lines: the hour and where it comes from, then the season and date likewise.</summary>
     public string ClockText()
     {
         if (Look?.Moment is not { } moment) return "";
@@ -218,7 +226,11 @@ public partial class RoomHud : CanvasLayer
     private Camera3D _diorama = null!;
     private int _playerColor;
     private int _companionColor = 1;
-    private string _noticeText = "Placeholder room · captured rooms and the AI connection come next";
+    /// <summary>
+    /// The notice line's words. It starts empty: the first notice of a play is a real one (the look's, a key's, an action's), never Run 0's
+    /// placeholder sentence (the first recorded play, 16 October: its first notice at 0:14 was that sentence).
+    /// </summary>
+    private string _noticeText = "";
 
     public override void _Ready()
     {
@@ -247,16 +259,20 @@ public partial class RoomHud : CanvasLayer
         compactTheme.SetStylebox("panel", "PanelContainer", compactShade);
         compactTheme.SetConstant("separation", "VBoxContainer", 2);
         compactTheme.SetConstant("separation", "HBoxContainer", 3);
-        var top = new PanelContainer { Position = new Vector2(18, 18), Theme = compactTheme };
-        AddChild(top);
-        var column = new VBoxContainer(); top.AddChild(column);
-        column.AddChild(new Label { Text = RoomTitle });
-        // The hearts and the bar, drawn (RoomHud.Meters.cs).
+        // The upper left holds the three meters and nothing else (decision 66, 16 October: "just have Health, Stamina, and Pips on the
+        // upper left"): the hearts, the bar and the pips' row, drawn (RoomHud.Meters.cs). It shows only while the meters do.
+        _meterPanel = new PanelContainer { Name = "MeterPanel", Position = new Vector2(18, 18), Theme = compactTheme, Visible = false };
+        AddChild(_meterPanel);
+        var column = new VBoxContainer { Name = "MeterColumn" }; _meterPanel.AddChild(column);
         BuildMeters(column);
-        _state = new Label { Name = "State" }; column.AddChild(_state);
-        _clock = new Label { Visible = false }; column.AddChild(_clock);
+        // What the card used to say and hold lives in the H help below, the one place every key and setting is read: the room's title, the
+        // state, the clock and the mode (the status lines), the Gubble's buttons and the hand buttons (they work there). Built here, placed there.
+        _statusLines = new VBoxContainer { Name = "StatusLines" };
+        _statusLines.AddChild(new Label { Name = "RoomTitle", Text = RoomTitle });
+        _state = new Label { Name = "State" }; _statusLines.AddChild(_state);
+        _clock = new Label { Name = "Clock", Visible = false }; _statusLines.AddChild(_clock);
         // The Gubble's orders as buttons too: the same commands as the keys, the wheel and the smart ask (RoomHud.Gubble.cs).
-        var actions = new HBoxContainer { Name = "CompanionActions" }; column.AddChild(actions);
+        var actions = new HBoxContainer { Name = "CompanionActions" };
         // The Gubble's keys under its name (the Glow playtest: whose abilities these are).
         AddKeyLine(actions, () => Companion.NameTag + ":", "CompanionName");
         AddButton(actions, "Follow", () => Order("follow"), 26);
@@ -267,7 +283,7 @@ public partial class RoomHud : CanvasLayer
         BuildSlotPrice(actions);
         AddButton(actions, "Customize", ToggleCustomization, 26);
         // The hand keys send the same sandbox commands the companion uses (CommandHost.PlayerHands, PlayerPush).
-        var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
+        var hands = new HBoxContainer { Name = "HandActions" };
         AddKeyButton(hands, () => $"{K(Act.Hands)} Pick up / put down", Hands, 26);
         AddKeyButton(hands, () => $"{K(Act.Push)} Push", Push, 26);
         AddKeyButton(hands, () => $"{K(Act.ItemGather)} Gather", Gather, 26);
@@ -294,21 +310,32 @@ public partial class RoomHud : CanvasLayer
         _helpHint = new Label(); help.AddChild(_helpHint);
         _keyTexts.Add((words => _helpHint.Text = words, () => $"{K(Act.HudHelp)} " + (_keyHelp.Visible ? "hide keys" : "keys")));
         _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
+        // First what the card said (the title, the state, the clock, the mode, the settings), then every key.
+        _keyHelp.AddChild(_statusLines);
         // Every key named below comes from the input map (PlayerControls.Label), so a remapped key shows here.
         AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} first person · {K(Act.ViewShoulder)} third person: {PlayerControls.ZoomLabel()} zooms out to look around, and zoomed out {PlayerControls.DragLabel()} orbits and {PlayerControls.MoveLabel()} follows the view");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best zoomed out) · {K(Act.HudCustomize)} customize · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
+        // The window (RoomHud.Screen.cs): the key, and what the game remembers for the next launch.
+        AddKeyLine(_keyHelp, ScreenKeysLine, "ScreenKeys");
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm · {K(Act.ItemGather)} gather a log or stone you hold into your wallet");
-        // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
+        // The hand buttons, under the hand keys.
+        _keyHelp.AddChild(hands);
+        // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is), the buttons first.
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
+        _keyHelp.AddChild(actions);
         AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop · {K(Act.GubbleEyes)} look through its eyes", "GubbleKeys");
         AddKeyLine(_keyHelp, MagicKeysLine, "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
         AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps · {K(Act.BounceStep)} your character's bounce (x0.5, x1, x1.5) · {K(Act.BouncePrint)} print its motion profile", "TestingKeys");
-        _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
-        help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
+        // The playtest record's keys and its beat (RoomHud.Playtest.cs).
+        AddKeyLine(_keyHelp, PlaytestKeysLine, "PlaytestKeys");
+        // The notice line shows only when it has words: folded, the footer is the one small "H keys" line.
+        _notice = new Label { Name = "Notice", Text = _noticeText, Visible = _noticeText.Length > 0 }; help.AddChild(_notice);
+        // The footer is a line of no height at the bottom edge that grows up to the size its content needs, and gives it back when the help folds.
+        // (It was told its size here once, which moved its top edge nowhere: the unfolded help ran off the bottom of the screen.)
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
         AddChild(_customization);
         var options = new VBoxContainer(); _customization.AddChild(options);
@@ -328,16 +355,23 @@ public partial class RoomHud : CanvasLayer
         BuildNumbersSetting(settings);
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
-        BuildMagicPanel(actions, column, theme);
+        BuildSwimHint(compactTheme);
+        BuildMagicPanel(actions, _statusLines, theme);
+        // The settings read last in the status lines, under the mode line the Magic panel's builder added (RoomHud.Screen.cs).
+        BuildSettingsLine(_statusLines);
         // The journal last: the book opens over everything else on screen (RoomHud.Journal.cs). Then the eye icon above its dock,
         // whose view through the Gubble's eyes covers the whole screen, the book's dock too (RoomHud.GubbleView.cs).
         BuildMinimap();
         BuildJournal();
         BuildGubbleView(compactTheme);
+        WatchForPlaytest();
         ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
+        // An empty line has nothing to report: the record's first notice is a real one (RoomHud.Playtest.cs).
+        else if (_noticeText.Length == 0) _noticeShown = _noticeText;
         Input.MouseMode = Input.MouseModeEnum.Visible;
+        StartFullscreenIfAsked();
         RefreshKeyText();
     }
 
@@ -368,17 +402,18 @@ public partial class RoomHud : CanvasLayer
     /// <summary>
     /// Every frame: the key texts again only when something they are made from changed (S12: some twenty strings rebuilt and handed
     /// to the engine sixty times a second). They are made from the keys' names (PlayerControls.MapVersion), whether the help is open,
-    /// the Gubble's name, the way home, the island's abilities and which of them the pool can pay (PoolHint).
+    /// the Gubble's name, the way home, the island's abilities and which of them the pool can pay (PoolHint), the playtest beat and the
+    /// switches the help reads out (SettingsBits).
     /// </summary>
     private void RefreshKeyTextIfChanged()
     {
         if (KeyTextInputs() != _keyTextsAsOf) RefreshKeyText();
     }
 
-    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool) KeyTextInputs() =>
-        (PlayerControls.MapVersion, _keyHelp.Visible, Companion.CompanionName, Player.HomeName, Host?.Rules, PoolHint());
+    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool, int Beat, int Settings) KeyTextInputs() =>
+        (PlayerControls.MapVersion, _keyHelp.Visible, Companion.CompanionName, Player.HomeName, Host?.Rules, PoolHint(), PlaytestBeat(), SettingsBits());
 
-    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool)? _keyTextsAsOf;
+    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool, int Beat, int Settings)? _keyTextsAsOf;
 
     private static void AddButton(Node parent, string text, System.Action action, int minimumHeight = 38)
     {
@@ -391,7 +426,13 @@ public partial class RoomHud : CanvasLayer
     {
         // Over-the-shoulder framing scales with the body (0.10 m player: 8 cm up, 32 cm behind).
         var height = Player.BodyHeightM;
-        _arm = new SpringArm3D { Name = "FollowCameraArm", Position = new Vector3(Player.BodyRadiusM * 2.2f, height * 0.8f, 0), SpringLength = height * 3.2f, Margin = height * 0.1f, CollisionMask = 1 };
+        // The arm sweeps a lens-sized sphere, not a ray, so a camera held in along a face never stands closer to it than the lens's near
+        // plane (mark 1's arm part: a ray grazing a slope left the lens just behind the face).
+        _arm = new SpringArm3D
+        {
+            Name = "FollowCameraArm", Position = new Vector3(Player.BodyRadiusM * 2.2f, height * 0.8f, 0), SpringLength = height * 3.2f, Margin = height * 0.1f,
+            CollisionMask = Room.RoomBuilder.WorldLayer, Shape = new SphereShape3D { Radius = height * ArmLensRadiusHeights },
+        };
         Player.AddChild(_arm);
         _armLength = _arm.SpringLength;
         ShoulderDistanceM = _armLength;
@@ -495,9 +536,56 @@ public partial class RoomHud : CanvasLayer
     private void UpdateShoulderArm()
     {
         var slide = Mathf.SmoothStep(ShoulderNearM, OrbitFromM, ShoulderDistanceM);
-        _arm.Position = slide <= 0 ? _shoulderAt : _shoulderAt.Lerp(_centreAt, slide);
+        var pivot = slide <= 0 ? _shoulderAt : _shoulderAt.Lerp(_centreAt, slide);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - ShoulderArmPitchOffsetRad, ShoulderArmPitchMinRad, ShoulderArmPitchMaxRad), 0, 0);
-        _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, Mathf.Min(ShoulderDistanceM, OrbitFromM), Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
+        var length = Mathf.Min(ShoulderDistanceM, OrbitFromM);
+        // Mark 1 of the first recorded play (16 October), the arm's part: hung from the right shoulder, 2.2 radii out from the body's
+        // middle, the arm met a face on the body's right within centimetres and the camera stood beside the body, which left the frame.
+        // When the camera the shoulder's arm would give loses the body toward the frame's edge, the pivot comes in to just behind the
+        // head on the body's middle line, so a camera held in stays behind the body, a body radius and more from it.
+        var held = ViewMode == 1 && !Orbiting ? ShoulderHeldIn(pivot, length) : 0;
+        _arm.Position = held > 0 ? pivot.Lerp(new Vector3(0, pivot.Y, Player.BodyRadiusM * ArmBehindHeadRadii), held) : pivot;
+        _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, length, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
+    }
+
+    /// <summary>F2's arm sweeps a sphere this many body heights round (6 mm for the 10 cm body: more than the lens's 5 mm near plane).</summary>
+    public const float ArmLensRadiusHeights = 0.06f;
+    /// <summary>Held in, F2's arm hangs from this many body radii behind the body's middle line, at the shoulder's height: outside the body.</summary>
+    public const float ArmBehindHeadRadii = 1.5f;
+    /// <summary>The share of the way from the frame's middle to its edge where the body's middle starts the arm's pivot in from the shoulder.</summary>
+    private const float ArmHeldFromEdge = 0.6f;
+    private Godot.Collections.Array<Rid>? _armExclude;
+
+    /// <summary>
+    /// How far F2's arm pivot comes in from the shoulder (0 to 1): 0 while the camera the shoulder's arm gives, held in by whatever
+    /// it meets, has the body's middle well inside its frame (the view as it always was); 1 once that middle would be at the
+    /// frame's edge, beside the camera or behind it. Measured from the shoulder's own arm each frame, so it never feeds on itself.
+    /// </summary>
+    private float ShoulderHeldIn(Vector3 pivot, float length)
+    {
+        var basis = Player.GlobalBasis * _arm.Basis;
+        var from = Player.GlobalTransform * pivot;
+        var space = Player.GetWorld3D().DirectSpaceState;
+        _armExclude ??= new Godot.Collections.Array<Rid> { Player.GetRid() };
+        // A shoulder in, past or against a wall beside the body (walking along it, or a face on the right; the lens's sphere would start
+        // in it): nothing the arm meets from there counts.
+        var middleLine = Player.GlobalTransform * new Vector3(0, pivot.Y, pivot.Z);
+        var outward = from - middleLine;
+        var beyond = outward.LengthSquared() > 1e-10f ? from + outward.Normalized() * (Player.BodyHeightM * ArmLensRadiusHeights + 0.001f) : from;
+        using (var reach = PhysicsRayQueryParameters3D.Create(middleLine, beyond, _arm.CollisionMask, _armExclude))
+        using (var wall = space.IntersectRay(reach))
+            if (wall.Count > 0) return 1;
+        using var query = PhysicsRayQueryParameters3D.Create(from, from + basis.Z * length, _arm.CollisionMask, _armExclude);
+        using var hit = space.IntersectRay(query);
+        if (hit.Count == 0) return 0;
+        var free = Mathf.Max(0, from.DistanceTo(hit[Kernel.KernelNames.HitPosition].AsVector3()) - _arm.Margin - Player.BodyHeightM * ArmLensRadiusHeights);
+        // The body's middle as that camera would see it (its space: -Z ahead).
+        var seen = basis.Inverse() * (Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.5f) - (from + basis.Z * free));
+        if (seen.Z > -1e-4f) return 1;
+        var size = GetViewport().GetVisibleRect().Size;
+        var tanHalf = Mathf.Tan(Mathf.DegToRad(ShoulderFovDeg * 0.5f));
+        var edge = Mathf.Max(Mathf.Abs(seen.Y) / tanHalf, Mathf.Abs(seen.X) / (tanHalf * (size.Y > 0 ? size.X / size.Y : 16f / 9f))) / -seen.Z;
+        return Mathf.SmoothStep(ArmHeldFromEdge, 1f, edge);
     }
 
     /// <summary>Orbit the diorama camera by a mouse movement in pixels: sideways turns around the player, up and down tilts.</summary>
@@ -611,9 +699,15 @@ public partial class RoomHud : CanvasLayer
         }
         // An island held because its mode could not be set (M3's fix round) says why, once, without waiting for a refused change.
         if (Host is { IslandHeld: true, TeamNotice: { Length: > 0 } heldWords } && !ReferenceEquals(heldWords, _teamNoticeShown)) _noticeText = _teamNoticeShown = heldWords;
-        if (!ReferenceEquals(_noticeShown, _noticeText)) _notice.Text = _noticeShown = _noticeText;
+        if (!ReferenceEquals(_noticeShown, _noticeText))
+        {
+            _notice.Text = _noticeShown = _noticeText;
+            _notice.Visible = _noticeText.Length > 0;
+            NoticeLineShown(_noticeText);
+        }
         UpdateFocus(delta);
         UpdateAskTag(delta);
+        UpdateSwimHint();
         UpdateChains();
         MeterCost.CloseFrame();
         var meterStart = MeterCost.Begin();
@@ -714,6 +808,11 @@ public partial class RoomHud : CanvasLayer
         // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
         var press = PlayerControls.Normalise(input);
         var fresh = PlayerControls.Fresh(press);
+        // The playtest record sees every key first, and its own four keys work in every context (RoomHud.Playtest.cs).
+        if (fresh) RecordActions(press);
+        if (fresh && HandlePlaytestKeys(press)) { GetViewport().SetInputAsHandled(); return; }
+        // The window's key is live in every context too (RoomHud.Screen.cs): the panels and the Gubble's eyes fill the screen as well.
+        if (fresh && PlayerControls.Hit(press, Act.ViewFullscreen)) { ToggleFullscreen(); GetViewport().SetInputAsHandled(); return; }
         if (HandleMagicSpotInput(press, fresh)) { GetViewport().SetInputAsHandled(); return; }
         // The look drag (the cursor is free): once the pointer has moved LookDrag.StartPx with the button down, the cursor hides
         // and the motion turns the view as the captured mouse did; the release brings the cursor back where it was pressed.

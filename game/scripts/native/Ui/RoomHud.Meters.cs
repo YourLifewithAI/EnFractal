@@ -7,8 +7,9 @@ namespace EnFractal.Native;
 
 /// <summary>
 /// The three meters (docs/game/MECHANICS.md sections 1, 4 and 5; the mechanics round's packet M2): hearts in quarters and the bar
-/// under them, always visible at the top of the status panel, and the pips trailing the Gubble, or, while it is out of frame, a
-/// small row of them under the bar (decision 38: hearts, then stamina, then pips). They are drawn, not written: no
+/// under them, always visible in the panel at the upper left (which holds nothing else since decision 66: the title, the state lines and
+/// the buttons are in the H help), and the pips trailing the Gubble, or, while it is out of frame, a small row of them under the bar
+/// (decision 38: hearts, then stamina, then pips). They are drawn, not written: no
 /// numbers unless the player's own setting "Show numbers on the meters" is on (it lives in the machine's profile, off by default,
 /// as the other switches do). Everything is read from the host (Vitals, BodyRules, Mode), never kept here; the HUD asks no
 /// command for it and changes nothing.
@@ -60,7 +61,7 @@ public partial class RoomHud
         return value.VariantType == Variant.Type.Bool && value.AsBool();
     }
 
-    /// <summary>The hearts and the bar at the top of the status panel; the pips' layer under every panel.</summary>
+    /// <summary>The hearts, the bar and the pips' row in the upper-left panel; the pips' layer under every panel.</summary>
     private void BuildMeters(Node column)
     {
         MeterNumbers = LoadMeterNumbers(ProfilePath);
@@ -89,7 +90,7 @@ public partial class RoomHud
         _pips.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
     }
 
-    /// <summary>The price beside the Gubble's first key in the status panel: dots, or "needs N" (faint in Creative).</summary>
+    /// <summary>The price beside the Gubble's first key in the H help's buttons: dots, or "needs N" (faint in Creative).</summary>
     private void BuildSlotPrice(Node actions)
     {
         _slotPrice = new Label { Name = "SlotPrice", Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -109,12 +110,20 @@ public partial class RoomHud
         _numbersToggle = new CheckButton
         {
             Name = "MeterNumbersSetting", Text = "Show numbers on the meters", ButtonPressed = MeterNumbers,
-            TooltipText = "Hearts, the stamina bar and the pips are drawn, not written. This adds their numbers beside them.",
+            TooltipText = NumbersTooltip(),
             FocusMode = Control.FocusModeEnum.All, CustomMinimumSize = new Vector2(0, 38),
         };
         _numbersToggle.Toggled += SetMeterNumbers;
         options.AddChild(_numbersToggle);
     }
+
+    /// <summary>
+    /// The switch's hint, in the island's words for the three meters (the pack's names block: MeterWords); today's words when the pack
+    /// has none. Made again when the meters are (the rules they are drawn under are part of their state).
+    /// </summary>
+    private string NumbersTooltip() => Host?.Rules?.Names == null
+        ? "Hearts, the stamina bar and the pips are drawn, not written. This adds their numbers beside them."
+        : $"{MeterWords.Name(Host, "hearts")}, the {MeterWords.Lower(Host, "stamina")} and the {MeterWords.Lower(Host, "pips")} are drawn, not written. This adds their numbers beside them.";
 
     /// <summary>The player's choice, kept in the profile (this session only if it cannot be written).</summary>
     public void SetMeterNumbers(bool shown)
@@ -188,12 +197,12 @@ public partial class RoomHud
         var host = Host;
         if (host == null || !IsInstanceValid(host) || IntroPlaying)
         {
-            if (_meterBox.Visible) _meterBox.Visible = false;
+            if (_meterBox.Visible) _meterBox.Visible = _meterPanel.Visible = false;
             _pips.Follow(null, 0, delta);
             _pipsMarker.Present(false, delta);
             return;
         }
-        if (!_meterBox.Visible) _meterBox.Visible = true;
+        if (!_meterBox.Visible) _meterBox.Visible = _meterPanel.Visible = true;
         var rules = host.BodyRules;
         var vitals = host.Vitals;
         var creative = host.Mode == "creative";
@@ -222,6 +231,7 @@ public partial class RoomHud
             _pipsMarker.SetPool(pips, maxPips, shadow, aura);
             _pipsMarker.SetNumbers(pipsNumbers);
             _heartsNumbers.Visible = _barNumbers.Visible = MeterNumbers;
+            if (_numbersToggle != null) _numbersToggle.TooltipText = NumbersTooltip();
             if (MeterNumbers)
             {
                 _heartsNumbers.Text = MeterMath.HeartsNumbers(MeterWords.Name(host, "hearts"), quarters, maxQuarters);

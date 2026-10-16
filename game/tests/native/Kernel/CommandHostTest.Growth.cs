@@ -149,8 +149,9 @@ public partial class CommandHostTest
         GrowthStop("after-lanterns");
         Check(Ok(Send(Glow("growth-point", PointArgs(InTheOpen)), Companion)) && _host.GlowProgress.SuccessfulCasts == 3 &&
             _host.GlowProgress.Discoveries.SequenceEqual(new[] { "lantern" }), "a point cast counts as practice without awarding an unimplemented Glow behaviour");
-        Check(Ok(Send(Glow("growth-bubbles", SelfArgs(capability: "bubbles")), Player)) && _host.GlowProgress.SuccessfulCasts == 3 && store.Saves == 3,
+        Check(Ok(Send(Glow("growth-bubbles", PointArgs(InTheOpen, capability: "bubbles")), Player)) && _host.GlowProgress.SuccessfulCasts == 3 && store.Saves == 3,
             "a successful Bubbles cast does not count as Glow practice");
+        Send(Command("growth-bubbles-pop", "effect.stop", new JsonObject { ["effect"] = "all" }), Player);
         _host.UseRules(Rules(Variant("\"tier\": \"auto\"", "\"tier\": \"keyed_yes\"")));
         var held = Send(Glow("growth-held", SelfArgs()), Companion);
         var approval = held["approval_needed"]?["request_id"]?.GetValue<string>() ?? "";
@@ -207,11 +208,13 @@ public partial class CommandHostTest
             "progression never raises the pinned v2 island limit");
         _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         for (var i = 0; i < 5; i++) Send(Glow($"growth-global-glow-{i}", SelfArgs()), Player);
-        for (var i = 0; i < 2; i++) Send(Glow($"growth-global-bubbles-{i}", SelfArgs(capability: "bubbles")), Player);
-        Send(Glow("growth-global-fireworks", SelfArgs(capability: "fireworks", duration: 4)), Player);
+        // One bubble at a time (Kernel/Bubble): it counts toward the room's cap, though the look draws it as no effect.
+        Send(Glow("growth-global-bubbles", PointArgs(InTheOpen, capability: "bubbles")), Player);
+        for (var i = 0; i < 2; i++) Send(Glow($"growth-global-fireworks-{i}", SelfArgs(capability: "fireworks", duration: 4)), Player);
         var ninth = Send(Glow("growth-global-over", SelfArgs(capability: "fireworks", duration: 4)), Companion);
-        Check(_host.ActiveEffectIds.Count == 8 && look.EffectCount == 8 && Code(ninth) == "budget_exceeded" && ninth["error"]!["allowed"]!.GetValue<int>() == 8,
-            "five earned lights share the unchanged eight-effect room cap with Bubbles and Fireworks");
+        Check(_host.ActiveEffectIds.Count == 7 && _host.ActiveBubbles.Count == 1 && look.EffectCount == 7 && Code(ninth) == "budget_exceeded" &&
+              ninth["error"]!["allowed"]!.GetValue<int>() == 8 && ninth["error"]!["actual"]!.GetValue<int>() == 8,
+            "five earned lights share the unchanged eight-effect room cap with the Bubble and Fireworks, the bubble counted");
         GrowthStop("finished");
     }
 
@@ -334,14 +337,15 @@ public partial class CommandHostTest
         Check(Ok(touched) && look.GlowTouch(Effect(touched)) == "ember" && look.GlowVariant(Effect(touched)) == "lantern",
             "manual Glow carries the saved cosmetic touch into its real Lantern drawing");
         GrowthStop("touch");
-        var bubbles = Send(Glow("growth-lit-bubble-source", SelfArgs(capability: "bubbles")), Player);
+        // Glow's "Light the bubbles" lit the stream of small bubbles, which the founder's redesign removed (decision 55): with only the
+        // one bubble now, it finds no stream to light and is refused, until the founder decides whether it lights the Bubble.
+        var bubbles = Send(Glow("growth-lit-bubble-source", PointArgs(InTheOpen, capability: "bubbles")), Player);
         var bubbleGlowArgs = SelfArgs(); bubbleGlowArgs["variant"] = "glowing_bubbles";
         var litBubbles = Send(Glow("growth-lit-bubbles", bubbleGlowArgs), Player);
-        Check(Ok(bubbles) && Ok(litBubbles) && look.GlowVariant(Effect(litBubbles)) == "glowing_bubbles" && look.EffectCount == 2,
-            "a real bubble stream can carry Glow while both effects share the room budget");
-        Send(Command("growth-stop-lit-bubble-source", "effect.stop", new JsonObject { ["effect"] = Effect(bubbles) }), Player);
-        Check(_host.ActiveEffectIds.Count == 0 && look.EffectCount == 0,
-            "stopping the bubble stream also removes its dependent Glow and light");
+        Check(Ok(bubbles) && Code(litBubbles) == "target_not_found" && litBubbles["error"]?["field_path"]?.GetValue<string>() == "$.args.variant" && look.EffectCount == 0,
+            "with the stream of small bubbles gone, Glow's glowing_bubbles finds none to light and is refused: " + Code(litBubbles));
+        Send(Command("growth-stop-lit-bubble-source", "effect.stop", new JsonObject { ["effect"] = "all" }), Player);
+        Check(_host.ActiveEffectIds.Count == 0 && _host.ActiveBubbles.Count == 0 && look.EffectCount == 0, "and the bubble pops with the player's stop of everything");
         _host.ConfigureGlowProgress(new GrowthTestStore(GrowthComplete()));
         for (var index = 0; index < 3; index++)
         {

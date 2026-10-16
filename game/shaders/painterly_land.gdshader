@@ -14,6 +14,8 @@ shader_type spatial;
 // paint block; what remains here is the algorithm.
 render_mode blend_mix, depth_draw_opaque, cull_back;
 
+#include "res://shaders/shore_wash.gdshaderinc"
+
 const int K_NONE = 0;
 const int K_MEADOW = 1;
 const int K_SOIL = 2;
@@ -91,6 +93,48 @@ uniform float haze_end_m = 1.0;
 uniform float haze_max : hint_range(0.0, 1.0) = 0.0;
 // The camera's far plane: toward it the land turns wholly into the horizon, so an island the far plane cuts leaves no sliver.
 uniform float haze_far_m = 0.0;
+
+group_uniforms shore;
+// The living shore (ShoreWash; painterly_water paints the sea's half): where the sea meets the land the wash climbs the ground and
+// draws back, every shore_period_s, and the ground it has reached stays damp. Only within shore_reach_m of the island's coast (the
+// field texture holds each place's distance to it) and only on ground that slopes (a beach, not a flat), between the sea's level
+// less shore_draw_back_m and its crest (up to shore_run_up_m over it) plus the damp band. Off for every room without a sea.
+uniform bool shore_on = false;
+// The shore's clock is the engine's TIME, as the water's (see painterly_water): shore_hold_s holds it at a second for a capture.
+uniform float shore_hold_s = -1.0;
+uniform float shore_sea_level = 0.0;
+uniform float shore_period_s : hint_range(1.0, 30.0) = 8.0;
+uniform float shore_run_up_m : hint_range(0.0, 0.2) = 0.045;
+uniform float shore_draw_back_m : hint_range(0.0, 0.2) = 0.04;
+uniform float shore_lane_m : hint_range(0.1, 10.0) = 1.3;
+uniform float shore_rise_share : hint_range(0.1, 0.9) = 0.4;
+uniform float shore_foam_m : hint_range(0.0, 0.05) = 0.008;
+// The foam on the wash's leading edge is this wide along the ground (metres), never deeper than shore_foam_m: the same lace on a beach and on a flat.
+uniform float shore_foam_w_m : hint_range(0.0, 0.2) = 0.04;
+uniform float shore_brush_m : hint_range(0.01, 1.0) = 0.09;
+uniform float shore_brush_amp_m : hint_range(0.0, 0.02) = 0.004;
+// How far above the wash's reach the damp band goes, and how softly it fades out (metres of height).
+uniform float shore_wet_above_m : hint_range(0.0, 0.05) = 0.012;
+uniform float shore_wet_fade_m : hint_range(0.001, 0.05) = 0.012;
+// How far from the coast the shore reaches (metres) and the slope (rise over run) below which the ground is a flat, not a beach.
+uniform float shore_reach_m : hint_range(0.05, 5.0) = 0.8;
+uniform float shore_flat_slope : hint_range(0.0, 0.5) = 0.03;
+// The damp ground: how much darker it is (a multiplier) and how much shinier; the wash over it, as the water paints its own
+// shallows (the least and the most it hides, the metres that hide two thirds), in the sea's shallow colour, with the foam's colour.
+uniform vec3 shore_wet_tint = vec3(0.7, 0.7, 0.73);
+uniform float shore_wet_gloss : hint_range(0.0, 1.0) = 0.35;
+uniform float shore_film_alpha_min : hint_range(0.0, 1.0) = 0.1;
+uniform float shore_film_alpha_max : hint_range(0.0, 1.0) = 0.93;
+uniform float shore_film_clarity_m : hint_range(0.005, 2.0) = 0.1;
+uniform vec3 shore_film_color : source_color = vec3(0.62, 0.82, 0.82);
+uniform vec3 shore_foam_color : source_color = vec3(0.95, 0.97, 0.95);
+// Water reflects the sky most at grazing angles, the wash over the sand as the sea does (painterly_water's sky_color and sky_rim).
+uniform vec3 shore_sky_color : source_color = vec3(0.78, 0.88, 0.96);
+uniform float shore_sky_rim : hint_range(0.0, 1.0) = 0.75;
+// Each place's distance to the coast, metres divided by shore_field_range_m (R8), over the square (x0, z0, 1 / width, 1 / depth).
+uniform sampler2D shore_field : filter_linear, repeat_disable, hint_default_white;
+uniform vec4 shore_field_area = vec4(0.0, 0.0, 1.0, 1.0);
+uniform float shore_field_range_m : hint_range(0.1, 10.0) = 1.6;
 
 // A prop's own seed (a cottage); the land's parts leave it at zero so marks continue across them.
 instance uniform float paint_seed = 0.0;
@@ -176,6 +220,11 @@ varying float season_tree;
 // Broad noise over a grove (1.4 m), so the land's merged meshes, which share one origin, still turn and flower grove by grove. It
 // varies slowly, so the vertices carry it and no leaf pixel pays for it; 0.5 where no leaf turns or flowers.
 varying float season_grove;
+// The living shore: the ground's place in the world (as the intro leaves it) and how level it is (its normal's height).
+varying vec3 shore_world;
+varying float shore_ny;
+// How much of light()'s highlight the damp ground and the wash on it add (set in fragment()).
+varying float shore_gloss_v;
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -407,6 +456,8 @@ void vertex() {
 	season_tree = hash12(MODEL_MATRIX[3].xz * 0.37 + vec2(0.71, 0.13));
 	season_grove = kind == K_FOLIAGE && (season_leaf.y > 0.0 || season_leaf.w > 0.0)
 		? noise_r((VERTEX + fract(vec3(paint_seed) * vec3(0.1731, 0.0577, 0.1113)) * 37.0) / 1.4 + vec3(7.1, 3.3, 5.9)).x : 0.5;
+	shore_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	shore_ny = normalize(mat3(MODEL_MATRIX) * NORMAL).y;
 }
 
 void fragment() {
@@ -703,6 +754,54 @@ void fragment() {
 	color += vec3(0.5, 0.48, 0.42) * glint * 0.35;
 	color = mix(color, vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), role_calm);
 
+	// The living shore: within reach of the coast, on ground that slopes, between a little under the sea's level and the top of the
+	// damp band, the ground is darker and shinier (it is wet), and where the wash stands higher than the ground there is water over
+	// it, in the sea's own shallow colour and as much as the water shader would hide, with a lace of foam on its leading edge. The
+	// same shore_level as painterly_water's, so the wash on the sand and the sea's edge are one line. (While the intro plays the land
+	// is not yet where it will be and the sea is still rising: the shore, on both sides, waits until it ends.)
+	shore_gloss_v = 0.0;
+	if (shore_on && intro_rise.w < 0.5) {
+		float rel = shore_world.y - shore_sea_level;
+		if (rel > -shore_draw_back_m - 0.04 && rel < shore_run_up_m + shore_wet_above_m + 0.01) {
+			float ny = max(shore_ny, 0.05);
+			float slope = sqrt(max(1.0 - ny * ny, 0.0)) / ny;
+			float coast_m = textureLod(shore_field, (shore_world.xz - shore_field_area.xy) * shore_field_area.zw, 0.0).r * shore_field_range_m;
+			float gate = (1.0 - smoothstep(0.7 * shore_reach_m, shore_reach_m, coast_m)) * smoothstep(shore_flat_slope, 2.0 * shore_flat_slope, slope);
+			if (gate > 0.0) {
+				float shore_now = shore_hold_s >= 0.0 ? shore_hold_s : TIME;
+				vec2 level = shore_level(shore_world.xz, shore_now, shore_period_s, shore_run_up_m, shore_draw_back_m, shore_lane_m, shore_rise_share);
+				float brush = (shore_noise(shore_world.xz / shore_brush_m) - 0.5) * shore_brush_amp_m;
+				// Damp from a little under the least the wash draws back to up to the top of the band, fading out above it.
+				float damp_top = level.y + shore_wet_above_m;
+				float wet = (1.0 - smoothstep(damp_top - shore_wet_fade_m, damp_top, rel + brush)) * smoothstep(-shore_draw_back_m - 0.035, -shore_draw_back_m + 0.015, rel) * gate;
+				color = mix(color, color * shore_wet_tint, wet);
+				rough = mix(rough, 0.3, wet * 0.7);
+				// The wash over the ground above the sea's level: its depth here (the water shader's own, for the ground just under the
+				// sea's level, is the same number, so the wash runs on across the old waterline without a seam).
+				float depth = level.x + brush - rel;
+				float film = step(0.0, rel) * smoothstep(0.0, 0.0015, depth) * gate;
+				if (film > 0.0) {
+					vec3 view_up = (INV_VIEW_MATRIX * vec4(normalize(VIEW), 0.0)).xyz;
+					float path = depth / max(abs(view_up.y), 0.5);
+					float film_alpha = mix(shore_film_alpha_min, shore_film_alpha_max, 1.0 - exp(-path / shore_film_clarity_m));
+					// As the water shader paints the sea at this angle, so the wash over the sand meets it without a seam.
+					float film_fresnel = pow(1.0 - clamp(abs(view_up.y), 0.0, 1.0), 4.0) * shore_sky_rim;
+					vec3 film_colour = mix(shore_film_color, shore_sky_color * mix(vec3(1.0), shore_film_color * 1.6, 0.25), film_fresnel * 0.6);
+					film_alpha = mix(film_alpha, 1.0, film_fresnel * 0.7) * film;
+					float lace_mask = smoothstep(0.1, 0.4, shore_noise(shore_world.xz / 0.035 + vec2(shore_now * 0.15, 0.0)) * 0.55 + shore_noise(shore_world.xz / 0.09) * 0.45 + 0.1);
+					float foam_h = clamp(shore_foam_w_m * slope, 0.0015, shore_foam_m);
+					float lace = smoothstep(0.0, 0.0012, depth) * (1.0 - smoothstep(0.3 * foam_h, foam_h, depth)) * lace_mask * film;
+					color = mix(color, film_colour, film_alpha);
+					color = mix(color, shore_foam_color, lace * 0.9);
+					rough = mix(rough, 0.18, film_alpha);
+					bump *= 1.0 - 0.7 * film_alpha;
+					wet = max(wet, film_alpha);
+				}
+				shore_gloss_v = wet * shore_wet_gloss;
+			}
+		}
+	}
+
 	// Stroke normals: tilt the normal by the marks' gradient.
 	vec3 tangential = bump - n * dot(bump, n);
 	n = normalize(n - tangential * stroke_normal_strength * stroke_normal_gain);
@@ -752,5 +851,5 @@ void light() {
 	float visibility = 0.25 / max((ndl_c * (1.0 - k) + k) * (ndv * (1.0 - k) + k), 1e-4);
 	vec3 f0 = mix(vec3(0.04), ALBEDO, METALLIC);
 	vec3 fresnel = f0 + (1.0 - f0) * pow(1.0 - clamp(dot(VIEW, halfway), 0.0, 1.0), 5.0);
-	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * specular_strength * (1.0 - haze_v);
+	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * (specular_strength + shore_gloss_v) * (1.0 - haze_v);
 }

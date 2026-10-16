@@ -27,6 +27,11 @@ public sealed class VitalsRules
     public FractalsRules? FractalRules { get; }
     /// <summary>The modes block's row this mode plays by (Live plays as Challenge Standard until Live exists), or null.</summary>
     public ModeRow? Row { get; }
+    /// <summary>
+    /// The Live row this body would play by once Live exists (the cooperative variant's: the first Live row when the pack has no such
+    /// variant), or null. Not read for damage or refill while Live is refused: Live plays as Challenge Standard (Row).
+    /// </summary>
+    public ModeRow? LiveRow { get; }
 
     /// <summary>Hearts in quarters (traits.hearts present): every harm and heal a whole number of quarters.</summary>
     public bool InQuarters => Hearts != null;
@@ -41,6 +46,18 @@ public sealed class VitalsRules
     /// <summary>The pool's refill pace is multiplied by this (Gentle 1.5, Standard 1, Brave 0.75).</summary>
     public double RefillMultiplier { get; }
     public bool Consequences { get; }
+    /// <summary>
+    /// Whether the room's undo works under these rules: the row's `undo` (Creative's alone in v5: "what happens there stays" in
+    /// Challenge and Live). The command path refuses room.undo outside Creative by the mode today (CommandHost's Unsupported), which
+    /// agrees with every row of v5; this is the row's own word for it.
+    /// </summary>
+    public bool Undo { get; }
+    /// <summary>
+    /// A torch left lying in dry grass catches by itself, with a warning first (the torch round, docs/runs/RUN-2-TORCH.md): the Live
+    /// row's `torch_self_ignite`, true only while this body plays Live. Never in Creative or Challenge (the pack's loader refuses a
+    /// pack that says so), and nothing reads it while Live is refused at the menu and at the boot.
+    /// </summary>
+    public bool TorchSelfIgnite { get; }
     /// <summary>Creative's pool: it drains and refills but never refuses.</summary>
     public bool ShadowPool { get; }
     /// <summary>The most quarters one fall may take: the mode's row over traits.harm's; null, no cap (the design names no number).</summary>
@@ -59,6 +76,16 @@ public sealed class VitalsRules
     /// <summary>... once this many seconds have passed without harm, on safe ground.</summary>
     public double HealAfterUnharmedS => Hearts?.HealAfterUnharmedS ?? 10;
     public double RefillMPerS => Stamina?.RefillMPerS ?? PlayerVitals.GroundRecoveryPerSecond;
+    /// <summary>
+    /// The metres a climber rises for each metre of bar, before Steady climber: the pack's climb_m_per_bar_m (1.5 in v5, decision 65);
+    /// 1 without it, today's.
+    /// </summary>
+    public double ClimbMPerBarM => Stamina?.ClimbMPerBarM ?? 1;
+    /// <summary>
+    /// What hanging still on a face costs a second, before Steady climber: the pack's holding_m_per_s (0 in v5, decision 64); today's
+    /// 0.01 m without it.
+    /// </summary>
+    public double HoldingMPerS => Stamina?.HoldingMPerS ?? PlayerVitals.HoldingCostPerSecond;
 
     private VitalsRules(IslandRules? rules, string mode, string difficulty, IReadOnlyDictionary<string, int>? knacks, int expertise)
     {
@@ -75,7 +102,10 @@ public sealed class VitalsRules
         var modes = rules?.Modes;
         Row = modes == null ? null : mode == "creative" ? modes.Row("creative", null)
             : modes.Row("challenge", mode == "challenge" ? difficulty : "standard") ?? modes.Row("challenge", "standard") ?? FirstChallenge(modes);
+        LiveRow = modes == null ? null : modes.Row("live", null, "cooperative") ?? modes.Row("live", null);
+        TorchSelfIgnite = mode == "live" && LiveRow?.TorchSelfIgnite == true;
         Consequences = Row?.Consequences ?? mode != "creative";
+        Undo = Row?.Undo ?? mode == "creative";
         ShadowPool = Row?.ShadowPool ?? mode == "creative";
         DamageMultiplier = Row?.DamageMultiplier ?? (mode == "creative" ? 0 : 1);
         RefillMultiplier = Row?.RefillMultiplier ?? 1;
@@ -152,15 +182,22 @@ public sealed class VitalsRules
     /// <summary>
     /// The quarters a hurt of this many health points takes: multiplied by the difficulty, rounded to the nearest quarter at
     /// the moment of harm (never on the screen), a fall capped where the rules cap it. Fall damage stays in health points
-    /// (decision K), so Big heart's larger quarter takes fewer of them from the same fall.
+    /// (decision K), so Big heart's larger quarter takes fewer of them from the same fall. <b>No hurt is removed</b> (decision 11:
+    /// Gentle "halves every hurt and removes none"): wherever damage counts at all (a multiplier above 0, so not Creative), a
+    /// hurt costs at least one quarter, and the rounding never makes one free.
     /// </summary>
     public int HarmQuarters(float healthPoints, bool fall)
     {
         if (!float.IsFinite(healthPoints) || healthPoints <= 0) return 0;
         var quarters = (int)Math.Min(1000, Math.Round(healthPoints * DamageMultiplier / HealthPerQuarter, MidpointRounding.AwayFromZero));
+        // No hurt removed (decision 11): a hurt Standard counts costs at least a quarter wherever damage counts; a scrape Standard rounds to none stays none.
+        if (DamageMultiplier > 0 && Math.Round(healthPoints / HealthPerQuarter, MidpointRounding.AwayFromZero) >= 1) quarters = Math.Max(MinimumHurtQuarters, quarters);
         if (fall && FallCapQuarters is { } cap) quarters = Math.Min(quarters, cap);
         return Math.Max(0, quarters);
     }
+
+    /// <summary>The least a hurt Standard counts costs wherever damage counts (decision 11: Gentle removes none): one quarter.</summary>
+    public const int MinimumHurtQuarters = 1;
 
     /// <summary>Quarters taken from the body (in quarters only).</summary>
     public PlayerVitals Harmed(PlayerVitals v, int quarters) =>
@@ -197,12 +234,19 @@ public sealed class VitalsRules
 
     // ---- the bar ----
 
-    /// <summary>Climbing as today: the rise or the holding cost, whichever is more, divided by Steady climber's factor.</summary>
+    /// <summary>
+    /// A climb's price for a tick: the rise at the pack's metres per metre of bar (climb_m_per_bar_m) or the seconds at its holding
+    /// cost (holding_m_per_s), whichever is more, divided by Steady climber's factor. Under v5 a 0.4 m bar buys 0.6 m of rise and a
+    /// climber hanging still pays nothing (decisions 64 and 65); a pack without the two values, and the legacy rules, charge as
+    /// before them: a metre of bar a metre risen, 0.01 m a second hanging, to the same float.
+    /// </summary>
     public PlayerVitals SpendClimb(PlayerVitals v, float seconds, float rise, out bool enough)
     {
         if (!float.IsFinite(seconds) || !float.IsFinite(rise) || seconds < 0 || rise < 0)
             throw new PlayerVitalsException("Climbing needs a finite duration and rise.");
-        var cost = (float)(Math.Max(rise, PlayerVitals.HoldingCostPerSecond * seconds) / ClimbFactor);
+        double risen = Stamina?.ClimbMPerBarM is { } perBar ? rise / perBar : rise;
+        double held = Stamina?.HoldingMPerS is { } holding ? holding * seconds : PlayerVitals.HoldingCostPerSecond * seconds;
+        var cost = (float)(Math.Max(risen, held) / ClimbFactor);
         enough = v.Stamina + 0.000001f >= cost && v.Stamina > 0;
         return v.With(stamina: Math.Max(0, v.Stamina - cost));
     }

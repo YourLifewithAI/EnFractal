@@ -7,11 +7,13 @@ Usage:
   python contracts/validate.py --state path/to/state.json --room path/to/room_dir
   python contracts/validate.py --check-style-pins game/rooms/<room>     # also verify style pins
   python contracts/validate.py game/rules/storybook_wild/v1.json        # an island rules pack
+  python contracts/validate.py contracts/examples/playtests/<record>    # a playtest record's folder
   python contracts/validate.py --pin FILE                                # print a file's SHA-256 pin
 
 A directory containing room.json is validated as a room: the manifest, every asset.json it
 references, every listed file (hash, size, self-contained GLB), its plant tables and tiled terrain
-GLBs (the 10x world), and the semantic rules JSON Schema cannot express. A .json file is validated by its own 'schema' field (a style preset or an
+GLBs (the 10x world), and the semantic rules JSON Schema cannot express. A directory containing manifest.json
+is validated as a playtest record: the manifest, then every line of events.jsonl. A .json file is validated by its own 'schema' field (a style preset or an
 island rules pack is one such file). Exit status is 0 only when everything passes. Requires the packages in contracts/requirements.txt.
 """
 from __future__ import annotations
@@ -53,6 +55,19 @@ SCHEMA_FILES = {
     "enfractal.glow_progress": "team.schema.json",
 }
 TEAM_DOCUMENTS = ("enfractal.team", "enfractal.player_modes", "enfractal.glow_progress")
+# The playtest record (R0, 15 October): one folder per play under user://playtests/<record_id>/ (manifest.json, events.jsonl,
+# stills/), docs/runs/RUN-2-PLAYTEST-LOOP.md. The manifest is a document of its own; each line of events.jsonl is the
+# schema's $defs/event, checked here line by line.
+PLAYTEST_MANIFEST = "enfractal.playtest_manifest"
+SCHEMA_FILES[PLAYTEST_MANIFEST] = "playtest-record.schema.json"
+PLAYTEST_MANIFEST_LIMIT = 16384  # bytes of canonical JSON
+PLAYTEST_EVENT_LINE_LIMIT = 8192  # bytes of one line of events.jsonl
+PLAYTEST_STILLS_LIMIT = 600  # stills per play (the recorder's cap)
+# Never in a record, at any depth: result data, a picture, a token, a session file, a save, a secret. The schema refuses
+# these at the top of a line and in a result; the check below refuses them wherever they are.
+PLAYTEST_FORBIDDEN_KEYS = frozenset({"data", "picture", "base64", "token", "session_file", "save", "secret", "password", "credential"})
+PLAYTEST_STILL_FILE = re.compile(r"^([0-9]{4})-(steady|mark|keep|refusal|home|mode|quit)(?:-([1-9][0-9]{0,3}))?\.jpg\Z")
+PLAYTEST_UTC = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,6}))?Z\Z")
 MESSAGE_LIMITS = {"enfractal.command": 65536, "enfractal.query": 65536, "enfractal.result": 262144}
 CREATION_SOURCE_LIMIT = 32768
 QUAT_TOLERANCE = 1e-3
@@ -284,15 +299,9 @@ def _json_path(error) -> str:
     return path
 
 
-def schema_errors(document, expected: str | None = None) -> list[str]:
-    if not isinstance(document, dict) or not isinstance(document.get("schema"), str):
-        return ["$: document must be an object with a string 'schema' field"]
-    if expected is not None and document["schema"] != expected:
-        return [f"$.schema: expected {expected!r}, found {document['schema']!r}"]
-    if document["schema"] not in SCHEMA_FILES:
-        return [f"$.schema: unknown schema {document['schema']!r}"]
+def _schema_messages(validator, document) -> list[str]:
     messages = []
-    for error in sorted(validator_for(document["schema"]).iter_errors(document), key=lambda e: list(map(str, e.absolute_path))):
+    for error in sorted(validator.iter_errors(document), key=lambda e: list(map(str, e.absolute_path))):
         detail = error.message
         if error.validator == "not":
             detail = f"must not match {json.dumps(error.validator_value, sort_keys=True)}"
@@ -300,6 +309,17 @@ def schema_errors(document, expected: str | None = None) -> list[str]:
             deepest = best_match(error.context)
             detail = f"{detail} (closest: {_json_path(deepest)}: {deepest.message})"
         messages.append(f"{_json_path(error)}: {detail}")
+    return messages
+
+
+def schema_errors(document, expected: str | None = None) -> list[str]:
+    if not isinstance(document, dict) or not isinstance(document.get("schema"), str):
+        return ["$: document must be an object with a string 'schema' field"]
+    if expected is not None and document["schema"] != expected:
+        return [f"$.schema: expected {expected!r}, found {document['schema']!r}"]
+    if document["schema"] not in SCHEMA_FILES:
+        return [f"$.schema: unknown schema {document['schema']!r}"]
+    messages = _schema_messages(validator_for(document["schema"]), document)
     hidden = _text_problems(document)
     if hidden:
         return messages + hidden  # an unpaired surrogate cannot be measured in UTF-8 either
@@ -1285,6 +1305,199 @@ def check_message(document: dict, label: str) -> list[str]:
     return problems
 
 
+_EVENT_VALIDATOR: Draft202012Validator | None = None
+
+
+def _event_validator():
+    """One line of events.jsonl is the record schema's $defs/event, not a document with a schema field of its own."""
+    global _REGISTRY, _EVENT_VALIDATOR
+    if _EVENT_VALIDATOR is None:
+        if _REGISTRY is None:
+            _REGISTRY = _registry()
+        root = load_strict(CONTRACTS_DIR / SCHEMA_FILES[PLAYTEST_MANIFEST])["$id"]
+        _EVENT_VALIDATOR = StrictValidator({"$ref": f"{root}#/$defs/event"}, registry=_REGISTRY)
+    return _EVENT_VALIDATOR
+
+
+def _forbidden_keys(value, path: str = "$") -> list[str]:
+    """The keys a record never carries, at any depth: a summary cannot smuggle a picture under a nested name."""
+    problems = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in PLAYTEST_FORBIDDEN_KEYS:
+                problems.append(f"{path}.{key}: a record never carries '{key}'")
+            problems += _forbidden_keys(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            problems += _forbidden_keys(item, f"{path}[{index}]")
+    return problems
+
+
+def event_errors(event) -> list[str]:
+    """One event of a playtest record: the envelope and its kind's fields, the text rules, and the keys never carried."""
+    if not isinstance(event, dict):
+        return ["$: an event must be an object"]
+    messages = _schema_messages(_event_validator(), event)
+    hidden = _text_problems(event)
+    if hidden:
+        return messages + hidden
+    return messages + _forbidden_keys(event)
+
+
+def _utc_key(text: str) -> tuple:
+    """A utc_timestamp as a tuple that orders correctly whether or not a fraction is written."""
+    match = PLAYTEST_UTC.match(text)
+    parts = tuple(int(group) for group in match.groups()[:6])
+    return parts + (int((match.group(7) or "0").ljust(6, "0")),)
+
+
+def check_playtest(record_dir: Path, manifest_name: str = "manifest.json") -> list[str]:
+    """A play's record: the manifest, then events.jsonl line by line (a line that is not strict JSON, a truncated last line,
+    a line past its limit), then what the schema cannot say: the folder is named for the record, t and utc never run
+    backwards, at most one ready and the quit last, the stills numbered in order and named for their reason, a mark's still
+    the one it took, no more stills than the cap, and at a clean quit the manifest's counts, the quit line's totals and the
+    file agreeing. The stills themselves are never read: a missing one is the reader's finding, not the contract's."""
+    record_dir = Path(record_dir)
+    label = f"{record_dir.name}/{manifest_name}"
+    try:
+        manifest = load_strict(record_dir / manifest_name)
+    except (OSError, ContractError) as error:
+        return [f"{label}: {error}"]
+    problems = [f"{label} {message}" for message in schema_errors(manifest, PLAYTEST_MANIFEST)]
+    if problems:
+        return problems
+    if len(canonical_bytes(manifest)) > PLAYTEST_MANIFEST_LIMIT:
+        problems.append(f"{label}: the manifest is {len(canonical_bytes(manifest))} bytes of canonical JSON; the limit is {PLAYTEST_MANIFEST_LIMIT}")
+    if manifest["record_id"] != record_dir.name:
+        problems.append(f"{label}: record_id {manifest['record_id']!r} must match its directory name {record_dir.name!r}")
+    if not manifest["record_id"].endswith("-" + manifest["room_id"]):
+        problems.append(f"{label}: record_id {manifest['record_id']!r} does not end with its room_id {manifest['room_id']!r}")
+
+    events_label = f"{record_dir.name}/events.jsonl"
+    try:
+        data = (record_dir / "events.jsonl").read_bytes()
+    except OSError as error:
+        return problems + [f"{events_label}: {error}"]
+    if data.startswith(b"\xef\xbb\xbf"):
+        problems.append(f"{events_label}: starts with a byte-order mark")
+        data = data[3:]
+    truncated = bool(data) and not data.endswith(b"\n")
+    lines = data.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
+    events: list[tuple[int, dict]] = []
+    for number, raw in enumerate(lines, 1):
+        where = f"{events_label} line {number}"
+        last = number == len(lines)
+        if raw.endswith(b"\r"):
+            problems.append(f"{where}: ends in CR LF; a line ends in LF alone")
+            raw = raw[:-1]
+        if not raw.strip():
+            problems.append(f"{where}: blank")
+            continue
+        if len(raw) > PLAYTEST_EVENT_LINE_LIMIT:
+            problems.append(f"{where}: {len(raw)} bytes; the limit is {PLAYTEST_EVENT_LINE_LIMIT}")
+        try:
+            event = loads_strict(raw.decode("utf-8"))
+        except UnicodeDecodeError:
+            problems.append(f"{where}: not UTF-8" + (" (a truncated last line?)" if last and truncated else ""))
+            continue
+        except ContractError as error:
+            problems.append(f"{where}: {error}" + (" (a truncated last line?)" if last and truncated else ""))
+            continue
+        errors = event_errors(event)
+        if errors:
+            problems += [f"{where} {message}" for message in errors]
+            continue
+        events.append((number, event))
+    if truncated:
+        problems.append(f"{events_label}: no newline after the last line (a truncated last line?)")
+
+    started = _utc_key(manifest["started_utc"])
+    previous_t = previous_utc = None
+    stills: dict[str, tuple[str, str | None]] = {}
+    last_still_number = None
+    marks = {"off": 0, "keep": 0}
+    mark_events = ready_line = quit_line = 0
+    for number, event in events:
+        where = f"{events_label} line {number}"
+        if quit_line:
+            problems.append(f"{where}: after the quit on line {quit_line}; quit is the last line")
+            break
+        utc = _utc_key(event["utc"])
+        if previous_t is not None and event["t"] < previous_t:
+            problems.append(f"{where}: t {event['t']} is before the line before ({previous_t})")
+        if utc < started:
+            problems.append(f"{where}: utc {event['utc']} is before started_utc {manifest['started_utc']}")
+        elif previous_utc is not None and utc < previous_utc:
+            problems.append(f"{where}: utc {event['utc']} is before the line before")
+        previous_t, previous_utc = event["t"], utc
+        kind = event["kind"]
+        if kind == "ready":
+            if ready_line:
+                problems.append(f"{where}: a second ready (the first is line {ready_line})")
+            ready_line = ready_line or number
+        elif kind == "still":
+            still_number, why, mark_number = PLAYTEST_STILL_FILE.match(event["file"]).groups()
+            if why != event["why"]:
+                problems.append(f"{where}: still {event['file']} is named for {why!r} but why is {event['why']!r}")
+            if event["file"] in stills:
+                problems.append(f"{where}: still {event['file']} was already taken")
+            if last_still_number is not None and int(still_number) <= last_still_number:
+                problems.append(f"{where}: still {event['file']} is not numbered after the still before ({last_still_number:04d})")
+            last_still_number = int(still_number)
+            stills[event["file"]] = (why, mark_number)
+            if len(stills) == PLAYTEST_STILLS_LIMIT + 1:
+                problems.append(f"{where}: more than {PLAYTEST_STILLS_LIMIT} stills in one play")
+        elif kind == "mark":
+            mark_events += 1
+            flag, expected = event["flag"], marks[event["flag"]] + 1
+            if event["number"] != expected:
+                problems.append(f"{where}: {flag} mark {event['number']} out of order; the next {flag} mark is {expected}")
+            marks[flag] = max(marks[flag], event["number"])
+            want = "mark" if flag == "off" else "keep"
+            if event["still"] not in stills:
+                problems.append(f"{where}: the mark's still {event['still']} was never taken (no still event names it)")
+            elif stills[event["still"]] != (want, str(event["number"])):
+                problems.append(f"{where}: the mark's still {event['still']} is not the {want} still numbered {event['number']}")
+        elif kind == "quit":
+            quit_line = number
+
+    counted = {"events": len(lines), "stills": len(stills), "marks": mark_events}
+    if "ended_utc" in manifest:
+        ended = _utc_key(manifest["ended_utc"])
+        if ended < started:
+            problems.append(f"{label}: ended_utc {manifest['ended_utc']} is before started_utc {manifest['started_utc']}")
+        elif previous_utc is not None and ended < previous_utc:
+            problems.append(f"{label}: ended_utc {manifest['ended_utc']} is before the last event")
+        if not quit_line:
+            problems.append(f"{label}: ended_utc is set but events.jsonl has no quit line")
+        elif quit_line == len(lines):
+            quit = events[-1][1]
+            for name, count in counted.items():
+                if manifest["counts"][name] != count:
+                    problems.append(f"{label}: counts.{name} is {manifest['counts'][name]} but the events file holds {count}")
+                if quit[name] != manifest["counts"][name]:
+                    problems.append(f"{events_label} line {quit_line}: the quit's {name} {quit[name]} disagrees with the manifest's counts.{name} {manifest['counts'][name]}")
+            if quit["played_s"] != manifest["played_s"]:
+                problems.append(f"{events_label} line {quit_line}: the quit's played_s {quit['played_s']} disagrees with the manifest's {manifest['played_s']}")
+            if manifest["played_s"] < quit["t"]:
+                problems.append(f"{label}: played_s {manifest['played_s']} is before the quit's t {quit['t']}")
+    elif quit_line:
+        problems.append(f"{events_label} line {quit_line}: a quit line, but the manifest has no ended_utc (a clean quit rewrites the manifest)")
+    return problems
+
+
+def check_path(path: Path, check_style_pins: bool = False) -> list[str]:
+    """A directory is a room (room.json) or a playtest record (manifest.json); a file is validated as what its schema says."""
+    path = Path(path)
+    if not path.is_dir():
+        return check_document(path, check_style_pins)
+    if (path / "manifest.json").is_file() and not (path / "room.json").is_file():
+        return check_playtest(path)
+    return check_room(path, check_style_pins)
+
+
 def check_document(path: Path, check_style_pins: bool = False) -> list[str]:
     """Schema plus per-kind semantic checks for one file, validated as that file."""
     path = Path(path)
@@ -1309,6 +1522,8 @@ def check_document(path: Path, check_style_pins: bool = False) -> list[str]:
         return check_state(document, label, check_style_pins=check_style_pins)
     if kind in TEAM_DOCUMENTS:
         return check_team_document(document, label)
+    if kind == PLAYTEST_MANIFEST:
+        return check_playtest(path.parent, manifest_name=path.name)
     return check_message(document, label)
 
 
@@ -1338,7 +1553,7 @@ def main(argv: list[str]) -> int:
         problems += check_room(args.room, args.check_style_pins)
     for path in args.paths:
         checked += 1
-        problems += check_room(path, args.check_style_pins) if path.is_dir() else check_document(path, args.check_style_pins)
+        problems += check_path(path, args.check_style_pins)
     if not checked:
         parser.print_usage()
         return 2

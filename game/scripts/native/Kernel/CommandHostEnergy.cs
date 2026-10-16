@@ -97,11 +97,11 @@ public partial class CommandHost
     {
         var line = reward switch
         {
-            "fractal" => $"You found a Fractal ({count} found).",
-            "expertise" => $"The Gubble learned something new ({count} expertise).",
-            "pips" => $"The Gubble's pool grew to {count} pips.",
-            "heart" => $"You grew a new heart ({count} hearts).",
-            "band" => $"Your stamina bar grew a band ({count} bands).",
+            "fractal" => $"You found a {NamesRules.Singular(NameOf("fractals"))} ({count} found).",
+            "expertise" => $"The Gubble learned something new ({count} {NameOf("expertise").ToLowerInvariant()}).",
+            "pips" => $"The Gubble's pool grew to {count} {NameOf("pips").ToLowerInvariant()}.",
+            "heart" => $"You grew a new heart ({count} {NameOf("hearts").ToLowerInvariant()}).",
+            "band" => $"Your {NameOf("stamina").ToLowerInvariant()} grew a band ({count} bands).",
             _ => "",
         };
         if (line.Length == 0 || Authority == null) return;

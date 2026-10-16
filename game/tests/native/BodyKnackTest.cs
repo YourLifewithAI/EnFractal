@@ -251,7 +251,7 @@ public partial class BodyKnackTest : Node3D
         var diveSeconds = diveDrain > 0 ? bar / diveDrain : 0;
         var shape = body.GetNode<CollisionShape3D>("SmallBodyCollision").Shape as CapsuleShape3D ?? throw new InvalidOperationException("the body has no capsule");
         return new Numbers(body.WalkSpeedNowMps, body.RunSpeedNowMps, body.HopApexM, body.JumpApexNowM, body.JumpAirtimeS, body.RunSpeedNowMps * body.JumpAirtimeS, body.SwimSpeedNowMps, body.DiveSpeedNowMps,
-            body.DiveSpeedNowMps * diveSeconds, bar * (float)rules.ClimbFactor, body.Knacks.SafeDropM, (float)rules.HealthPerQuarter, bar, body.ReachM, body.BodyHeightM, body.BodyRadiusM,
+            body.DiveSpeedNowMps * diveSeconds, bar * (float)(rules.ClimbMPerBarM * rules.ClimbFactor), body.Knacks.SafeDropM, (float)rules.HealthPerQuarter, bar, body.ReachM, body.BodyHeightM, body.BodyRadiusM,
             body.EyeCamera.Position.Y, shape.Height, shape.Radius, body.StepHeightM, ProfileOf(body));
     }
 
@@ -274,8 +274,8 @@ public partial class BodyKnackTest : Node3D
         // The base body, to the numbers the design gives it.
         var none = baseline["prototype"];
         Check(Same(none.Walk, 0.32f) && Same(none.Run, 0.96f) && Same(none.Apex, 0.065f) && Same(none.Reach, 0.15f) && Same(none.Height, 0.10f) && Same(none.Radius, 0.02f) && Same(none.Eye, 0.087f) &&
-              Same(none.SafeDropM, 0.30f) && Same(none.StaminaBarM, 0.4f) && Same(none.ClimbM, 0.4f) && Same(none.HealthPerQuarter, 5f),
-            Inv($"with no knack the body is the design's base: walk {none.Walk} and run {none.Run} m/s, hop {none.Apex * 100:0.0} cm, reach {none.Reach} m, a 0.4 m bar climbs {none.ClimbM} m, 0.30 m safe drop, a quarter of {none.HealthPerQuarter} health"));
+              Same(none.SafeDropM, 0.30f) && Same(none.StaminaBarM, 0.4f) && Same(none.ClimbM, 0.6f) && Same(none.HealthPerQuarter, 5f),
+            Inv($"with no knack the body is the design's base: walk {none.Walk} and run {none.Run} m/s, hop {none.Apex * 100:0.0} cm, reach {none.Reach} m, a 0.4 m bar climbs {none.ClimbM} m (1.5 m a metre of bar, decision 65), 0.30 m safe drop, a quarter of {none.HealthPerQuarter} health"));
         Report(none.HopDistance > 0.33f && none.HopDistance < 0.40f, Inv($"the base running hop is about 0.36 m ({none.HopDistance:0.000} m)"));
         Check(baseline.Values.All(n => n.Reach == none.Reach && n.Height == none.Height && n.Radius == none.Radius && n.Eye == none.Eye && n.ShapeHeight == none.ShapeHeight && n.ShapeRadius == none.ShapeRadius &&
                                        n.Step == none.Step && Same(n.HopDistance, none.HopDistance) && Same(n.DiveLength, none.DiveLength) && Same(n.ClimbM, none.ClimbM)),
@@ -359,7 +359,7 @@ public partial class BodyKnackTest : Node3D
                 if (setting.Ranks.ContainsKey("quick_feet") && setting.Ranks.ContainsKey("high_hop"))
                     Check(Math.Abs(m.HopDistance / b0.HopDistance - 1.2 * Math.Sqrt(1.2)) < 0.02, Inv($"Quick feet and High hop at full rank stack on the hop: {m.HopDistance / b0.HopDistance:0.000} times the base (1.2 x sqrt 1.2)"));
                 if (setting.Ranks.ContainsKey("big_bar") && setting.Ranks.ContainsKey("steady_climber"))
-                    Check(Same(m.ClimbM, b0.ClimbM * 1.2f * 1.2f), Inv($"Big bar and Steady climber at full rank stack on the climb: {m.ClimbM:0.000} m (0.4 x 1.2 x 1.2)"));
+                    Check(Same(m.ClimbM, b0.ClimbM * 1.2f * 1.2f), Inv($"Big bar and Steady climber at full rank stack on the climb: {m.ClimbM:0.000} m (0.4 x 1.5 x 1.2 x 1.2)"));
                 if (setting.Ranks.ContainsKey("strong_swimmer") && setting.Ranks.ContainsKey("long_breath"))
                     Check(Same(m.DiveLength, b0.DiveLength * 1.2f / 0.8f), Inv($"Strong swimmer and Long breath at full rank stack on the dive: {m.DiveLength:0.000} m ({m.DiveLength / b0.DiveLength:0.00} times the base)"));
             }
@@ -602,9 +602,10 @@ public partial class BodyKnackTest : Node3D
             }
             body.SetControlInput(Vector2.Zero);
             // The kernel's gate says when the bar is empty; the climb ended because it could not be paid for.
-            var expected = rules.MaxStaminaOf(rules.Fresh()) * (float)rules.ClimbFactor;
+            var expected = rules.MaxStaminaOf(rules.Fresh()) * (float)(rules.ClimbMPerBarM * rules.ClimbFactor);
             results[name] = top;
-            Report(Math.Abs(top - expected) < 0.025f, Inv($"{name}: a full starting bar climbs {top:0.000} m of a vertical face before the grip fails (the vitals say {expected:0.000} m: bar {rules.MaxStaminaOf(rules.Fresh()):0.000} m x {rules.ClimbFactor:0.00})"));
+            Report(Math.Abs(top - expected) < 0.025f && rules.ClimbMPerBarM == 1.5,
+                Inv($"{name}: a full starting bar climbs {top:0.000} m of a vertical face before the grip fails (the vitals say {expected:0.000} m: bar {rules.MaxStaminaOf(rules.Fresh()):0.000} m x {rules.ClimbMPerBarM:0.00} a metre of bar x {rules.ClimbFactor:0.00})"));
             body.ClimbBudget = null;
             body.Knacks = BodyKnacks.None;
             body.QueueFree();

@@ -39,6 +39,7 @@ public partial class CommandHostTest
         TestVitalsArithmetic();
         TestStaminaLedgerFixture();
         TestGuardBudget();
+        TestModeRows();
         _host.UseRules(null, "The energy checks are over.");
         _host.ConfigurePlayerVitals(new ModeTestStore());
     }
@@ -48,9 +49,9 @@ public partial class CommandHostTest
         var v5 = IslandRules.Load("storybook_wild", 5);
         var traits = v5.Traits!;
         Check(traits.Hearts == new HeartsRules(5, 5, 30, 2.5, 10) && traits.Harm == new HarmRules(1, null) &&
-              traits.Stamina == new StaminaRules(0.4, 0.4, 10, 5, 0.02, 0.1, 0.02, 0.04, 1) &&
+              traits.Stamina == new StaminaRules(0.4, 0.4, 10, 5, 0.02, 0.1, 0.02, 0.04, 1, 1.5, 0) &&
               traits.Pips == new PipsRules(8, 5, 40, 5, 2, 15, 0.5) && traits.Wallet == new WalletRules(0, 0, 0, 0),
-            "v5's traits: 5 hearts of 5 health a quarter to 30, healing a quarter every 2.5 s after 10 s, fire a quarter a second and no fall cap, the bar 0.4 m in ten bands of 0.4 m, running and deep water 0.02 m/s, diving 0.04 m/s, the refill 0.1 m/s, no running from empty until the first bar is full, 8 pips to 40, an empty wallet (decision 26)");
+            "v5's traits: 5 hearts of 5 health a quarter to 30, healing a quarter every 2.5 s after 10 s, fire a quarter a second and no fall cap, the bar 0.4 m in ten bands of 0.4 m, running and deep water 0.02 m/s, diving 0.04 m/s, the refill 0.1 m/s, no running from empty until the first bar is full, a metre of bar buying 1.5 m of climb and hanging still free (decisions 64 and 65), 8 pips to 40, an empty wallet (decision 26)");
         var prices = v5.Cost!.Prices;
         Check(prices.Count == 8 && prices["glow"] is { Ordered: 2, OwnIdea: 1 } && prices["bloom"] is { Ordered: 4, OwnIdea: 2 } && prices["fire"] is { Ordered: 6, OwnIdea: 3 } &&
               prices["bubble_carry"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_boat"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_lift"] is { Ordered: 6, OwnIdea: 3 } && v5.Cost.TorchFire == 0,
@@ -134,7 +135,7 @@ public partial class CommandHostTest
         var fall = PlayerVitals.FallDamage(MathF.Sqrt(2 * 3.5f * 1.5f), false);
         Check(standard.HarmQuarters(7, false) == 1 && standard.HarmQuarters(7.5f, false) == 2 && standard.HarmQuarters(2, false) == 0 &&
               gentle.HarmQuarters(10, false) == 1 && brave.HarmQuarters(10, false) == 3 && gentle.HarmQuarters(5, false) == 1,
-            "harm rounds to the nearest quarter when it lands (7 health one quarter, 7.5 two, 2 none); Gentle halves it and removes none, Brave takes half again");
+            "harm rounds to the nearest quarter when it lands (7 health one quarter, 7.5 two) (2 health is none); Gentle halves it and removes none Standard counts, Brave takes half again");
         Check(Math.Abs(fall - 96) < 0.2f && standard.HarmQuarters(fall, true) == 19 && big2.HarmQuarters(fall, true) == 16 && standard.FallCapQuarters == null,
             $"a 1.5 m fall is the same {fall:0.0} health for every body: 19 quarters at 5 a quarter, 16 at Big heart's 6; v5 sets no fall cap, so none applies");
         var capped = IslandRules.Parse(V5("{ \"mode\": \"challenge\", \"difficulty\": \"gentle\", \"available\": true, \"damage_multiplier\": 0.5,",
@@ -157,8 +158,9 @@ public partial class CommandHostTest
         var steady = VitalsRules.For(v5, "challenge", knacks: new Dictionary<string, int> { ["steady_climber"] = 3 });
         var farther = steady.SpendClimb(fresh, 1, 0.24f, out var reached);
         var plain = standard.SpendClimb(fresh, 1, 0.24f, out _);
-        Check(reached && Math.Abs(farther.Stamina - 0.2f) < 1e-5 && Math.Abs(plain.Stamina - 0.16f) < 1e-5,
-            "Steady climber climbs farther for the same stamina: 0.24 m costs 0.2 m at full rank, 0.24 m without");
+        Check(reached && Math.Abs(farther.Stamina - (0.4f - 0.24f / 1.8f)) < 1e-5 && Math.Abs(plain.Stamina - 0.24f) < 1e-5,
+            $"Steady climber climbs farther for the same stamina: under v5 0.24 m costs {0.4f - farther.Stamina:0.0000} m at full rank (0.24 / 1.5 / 1.2), {0.4f - plain.Stamina:0.0000} m without (0.24 / 1.5)");
+        TestClimbPrices(v5, standard, steady);
         // Prices by principal: the ordered price for the player, half for the Gubble's own idea, ordered again while a wish runs.
         Check(standard.Price("glow", false, false) == 2 && standard.Price("glow", true, false) == 1 && standard.Price("glow", true, true) == 2 &&
               standard.Price("bloom", false, false) == 4 && standard.Price("bloom", true, false) == 2 && standard.Price("fire", true, false) == 3 &&
@@ -173,6 +175,77 @@ public partial class CommandHostTest
         Check(legacy.Fresh() is { Health: 100, MaxHealth: 100, Stamina: 0.45f } && !legacy.InQuarters && !legacy.InBands && !legacy.HasPool && legacy.Price("glow", false, false) == 0 &&
               legacy.Drain(new BodyExertion(10, 0, 0)) == 0 && legacy.Gate(fresh, true) == StaminaGate.Free,
             "without the blocks: today's 100 health and 0.45 m, no pool, nothing charged, running free and nothing gated");
+    }
+
+    /// <summary>A climber's bar spent the way the body spends it: a tick at a time at the climb's speed, until the grip would fail. The rise it bought.</summary>
+    private static float ClimbUntilEmpty(VitalsRules rules, PlayerVitals body, float climbSpeedMps = 0.12f)
+    {
+        const float tick = 1f / 60;
+        var risen = 0f;
+        for (var i = 0; i < 100_000; i++)
+        {
+            body = rules.SpendClimb(body, tick, climbSpeedMps * tick, out var enough);
+            if (!enough) break;
+            risen += climbSpeedMps * tick;
+        }
+        return risen;
+    }
+
+    /// <summary>A climber hanging still for a while, a tick at a time: what is left of its bar.</summary>
+    private static float HangFor(VitalsRules rules, PlayerVitals body, float seconds)
+    {
+        const float tick = 1f / 60;
+        for (var i = (int)Math.Round(seconds * 60); i > 0; i--) body = rules.SpendClimb(body, tick, 0, out _);
+        return body.Stamina;
+    }
+
+    /// <summary>
+    /// The climb's two pack values (decisions 64 and 65; P1 of the first recorded play's fix round): under v5 a metre of bar buys 1.5 m
+    /// of climb and hanging still costs nothing, Steady climber multiplying the climb; a pack without the values, v4 and the legacy
+    /// rules charge as before them (a metre of bar a metre risen, 0.01 m a second hanging).
+    /// </summary>
+    private void TestClimbPrices(IslandRules v5, VitalsRules standard, VitalsRules steady)
+    {
+        var fresh = standard.Fresh();
+        Check(standard.ClimbMPerBarM == 1.5 && standard.HoldingMPerS == 0 && steady.ClimbMPerBarM == 1.5 && Math.Abs(steady.ClimbFactor - 1.2) < 1e-9,
+            "v5's climb: 1.5 m for each metre of bar, hanging still free; Steady climber at full rank 1.2 on top");
+        var bought = ClimbUntilEmpty(standard, fresh);
+        var whole = standard.SpendClimb(fresh, 5, 0.6f, out var wholeEnough);
+        var over = standard.SpendClimb(fresh, 5, 0.61f, out var overEnough);
+        Check(Math.Abs(bought - 0.6f) < 0.003f && wholeEnough && whole.Stamina < 1e-5 && !overEnough && over.Stamina == 0,
+            $"under v5 a full 0.4 m starting bar buys 0.6 m of rise ({bought:0.000} m climbed a tick at a time at 0.12 m/s; 0.6 m at once leaves {whole.Stamina:0.00000} m, 0.61 m cannot be paid)");
+        var hung = HangFor(standard, fresh, 10);
+        var hungOnce = standard.SpendClimb(fresh, 10, 0, out var hungEnough);
+        var tired = standard.SpendClimb(fresh.With(stamina: 0.05f), 1, 0.03f, out _);
+        Check(hung == fresh.Stamina && hungEnough && hungOnce.Stamina == fresh.Stamina && HangFor(standard, tired, 10) == tired.Stamina,
+            $"under v5 hanging still for ten seconds costs nothing, from a full bar ({hung:0.000} m left) or a nearly empty one ({tired.Stamina:0.000} m kept)");
+        var steadyBought = ClimbUntilEmpty(steady, steady.Fresh());
+        Check(Math.Abs(steadyBought - 0.72f) < 0.003f && HangFor(steady, steady.Fresh(), 10) == steady.Fresh().Stamina,
+            $"with Steady climber at full rank the same bar buys 0.72 m ({steadyBought:0.000} m: 0.4 x 1.5 x 1.2), and hanging is still free");
+        var empty = standard.SpendClimb(fresh.With(stamina: 0), 1, 0, out var emptyEnough);
+        Check(!emptyEnough && empty.Stamina == 0, "an empty bar still cannot hold on, even where hanging costs nothing: the grip fails at empty");
+        // Today's numbers wherever the pack says nothing of them: v4, a pack with the stamina block but without the two values, and the legacy rules.
+        var v4 = VitalsRules.For(IslandRules.Load("storybook_wild", 4), "challenge");
+        var v4Fresh = v4.Fresh();
+        var v4Bought = ClimbUntilEmpty(v4, v4Fresh);
+        var v4Hung = HangFor(v4, v4Fresh, 10);
+        Check(v4.ClimbMPerBarM == 1 && Math.Abs(v4.HoldingMPerS - 0.01) < 1e-6 && Math.Abs(v4Bought - 0.45f) < 0.003f && Math.Abs(v4Hung - (v4Fresh.Stamina - 0.1f)) < 1e-4,
+            $"under v4 today's numbers: the 0.45 m bar buys {v4Bought:0.000} m of rise and ten seconds hanging cost {v4Fresh.Stamina - v4Hung:0.000} m");
+        var silent = VitalsRules.For(IslandRules.Parse(V5("\"climb_m_per_bar_m\": 1.5, \"holding_m_per_s\": 0,", "")), "challenge");
+        var silentBought = ClimbUntilEmpty(silent, silent.Fresh());
+        var silentHung = HangFor(silent, silent.Fresh(), 10);
+        Check(silent.InBands && silent.ClimbMPerBarM == 1 && Math.Abs(silentBought - 0.4f) < 0.003f && Math.Abs(silentHung - 0.3f) < 1e-4,
+            $"a pack with the stamina block but neither value charges as before them: 0.4 m of bar buys {silentBought:0.000} m, ten seconds hanging leave {silentHung:0.000} m");
+        var legacy = VitalsRules.Legacy;
+        var same = true;
+        foreach (var (seconds, rise) in new[] { (0.0166667f, 0.002f), (1f, 0f), (3f, 0.35f), (5f, 0.6f), (0.5f, 0.001f), (10f, 0.05f) })
+        {
+            var now = legacy.SpendClimb(PlayerVitals.Fresh, seconds, rise, out var nowEnough);
+            var before = Math.Max(0, PlayerVitals.Fresh.Stamina - (float)Math.Max(rise, PlayerVitals.HoldingCostPerSecond * seconds));
+            same &= now.Stamina == before && nowEnough == (PlayerVitals.Fresh.Stamina + 0.000001f >= (float)Math.Max(rise, PlayerVitals.HoldingCostPerSecond * seconds));
+        }
+        Check(same && legacy.ClimbMPerBarM == 1 && legacy.HoldingMPerS == PlayerVitals.HoldingCostPerSecond,
+            "VitalsRules.Legacy is untouched: the same float as before the pack's values for every climb tried");
     }
 
     /// <summary>

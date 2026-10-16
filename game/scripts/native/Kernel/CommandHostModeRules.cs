@@ -20,13 +20,37 @@ public partial class CommandHost
     private IReadOnlyDictionary<string, int> _knacks = new Dictionary<string, int>(StringComparer.Ordinal);
     private VitalsRules _vitalsRules = VitalsRules.For(null, "creative");
 
-    /// <summary>The boot's difficulty for this save (the menu's choice, kept in the island save). Anything else keeps the current one.</summary>
-    public void UseDifficulty(string difficulty)
+    /// <summary>
+    /// The boot's difficulty for this save (the menu's choice, kept in the island save). Anything else keeps the current one, and so does
+    /// a difficulty the island's pack does not offer (its modes rows say `available: false`, or leave the difficulty out): the rules
+    /// never play a row the pack withheld. A pack without a modes block has no difficulties to withhold. Returns whether it was used.
+    /// </summary>
+    public bool UseDifficulty(string difficulty)
     {
-        if (difficulty is not ("gentle" or "standard" or "brave")) return;
+        if (difficulty is not ("gentle" or "standard" or "brave")) return false;
+        if (Rules?.Modes != null && !Rules.ModeAvailable("challenge", difficulty)) return false;
         Difficulty = difficulty;
         ResolveVitalsRules();
+        return true;
     }
+
+    /// <summary>
+    /// A torch left lying in dry grass catches by itself: the Live row's switch, true only while this body plays Live (which the menu
+    /// and the boot refuse until Live is built, so it is false in every game today). The torch round reads it; nothing else does.
+    /// </summary>
+    public bool TorchSelfIgnite => _vitalsRules.TorchSelfIgnite;
+
+    // ---- the names block, served to the screen ----
+
+    /// <summary>
+    /// What the screen calls hearts, stamina, pips, fractals, expertise, camp and trust on this island (the pack's names block): the
+    /// pack's word through KernelText.DisplayText at the names' cap, never as the pack wrote it, else today's word when the pack has no
+    /// block or leaves the name out. A name is data for the screen and the journal: it never reaches a command, an id or an icon.
+    /// </summary>
+    public string NameOf(string key) => Rules?.Names?.Word(key) ?? NamesRules.Today(key);
+
+    /// <summary>What the screen calls a knack on this island: the pack's name (sanitised as NameOf's), else the knack's id in words.</summary>
+    public string KnackName(string id) => Rules?.Names?.Knack(id) ?? NamesRules.TodayKnack(id);
 
     /// <summary>The team's knacks (the team file's), by id and rank: a knack the pack lacks or has not made available counts for nothing.</summary>
     public void UseKnacks(IReadOnlyDictionary<string, int> ranks)
@@ -48,8 +72,8 @@ public partial class CommandHost
         if (Player != null && IsInstanceValid(Player)) Player.Knacks = BodyKnacks.FromPack(Rules?.Knacks, _knacks);
     }
 
-    /// <summary>The expertise learned by the pair, which raises the pool's maximum one pip per expertise_per_pip (today Glow's discoveries).</summary>
-    public int ExpertiseCount() => GlowProgress.Discoveries.Count;
+    /// <summary>The expertise learned by the pair in every ability (Glow's, Bubbles', Fire's and Grow's), which raises the pool's maximum one pip per expertise_per_pip.</summary>
+    public int ExpertiseCount() => GlowProgress.ExpertiseCount;
 
     private VitalsRules ResolvedRules(string mode) => VitalsRules.For(Rules, mode, Difficulty, _knacks, ExpertiseCount());
 

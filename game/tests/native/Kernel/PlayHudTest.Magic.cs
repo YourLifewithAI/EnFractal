@@ -35,7 +35,7 @@ public partial class PlayHudTest
             "in Challenge the page names the mode and its difficulty, and the status line carries no numbers until the setting asks for them: " + line.Text);
         _hud.SetMeterNumbers(true);
         await Frames(12);
-        Check(line.Text.Contains("Stamina 100%", StringComparison.Ordinal) && !line.Text.Contains("0/0", StringComparison.Ordinal),
+        Check(line.Text.Contains("Stamina bar 100%", StringComparison.Ordinal) && !line.Text.Contains("0/0", StringComparison.Ordinal),
             "with the numbers option on, the small starting stamina reads as a full percentage: " + line.Text);
         _hud.SetMeterNumbers(false);
         var undoButton = (Button)_hud.FindChild("NatureUndoButton", true, false)!;

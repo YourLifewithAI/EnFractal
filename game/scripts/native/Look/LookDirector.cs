@@ -663,13 +663,19 @@ public partial class LookDirector : Node3D
     private void FlushPending()
     {
         _flushQueued = false;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var meshes = _pending.Where(m => IsInstanceValid(m) && m.IsInsideTree()).Distinct().ToArray();
         _pending.Clear();
         Node3D? bakeRoot = null;
         foreach (var mesh in meshes)
             if (DressMesh(mesh)) bakeRoot ??= SubtreeRoot(mesh);
+        var dressed = clock.Elapsed.TotalMilliseconds;
         if (bakeRoot != null) Bake(bakeRoot);
+        var baked = clock.Elapsed.TotalMilliseconds;
         if (bakeRoot != null) BuildOpenSea(bakeRoot);
+        // The first recorded play's first frames: where the load's last frame went (a room's dressing, its bake, its sea).
+        if (clock.Elapsed.TotalMilliseconds > 30)
+            GD.Print(FormattableString.Invariant($"LOOK: dressed {meshes.Length} meshes in {dressed:0} ms, baked in {baked - dressed:0} ms, built the sea in {clock.Elapsed.TotalMilliseconds - baked:0} ms"));
     }
 
     /// <summary>
@@ -745,6 +751,8 @@ public partial class LookDirector : Node3D
             mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
             mesh.GIMode = GeometryInstance3D.GIModeEnum.Disabled;
         }
+        // Ground that arrives once the sea is built (a tile, a part) wears the shore like the ground that was there.
+        if (OpenSea != null && mesh.HasMeta(LandscapeLook.LandscapePaintedMeta)) OpenSea.AdoptLand(mesh);
         return isShell;
     }
 

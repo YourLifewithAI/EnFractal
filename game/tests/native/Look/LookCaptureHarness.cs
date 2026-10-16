@@ -105,7 +105,11 @@ public partial class LookCaptureHarness : Node
             // review capture shows the island, never the intro's shell. Found by name, so the harness still captures older commits.
             if (_world.GetNodeOrNull("RoomIntro") is { } intro && intro.HasMethod("Skip")) intro.Call("Skip");
             _look = _world.Look;
+            await SkipIntro();
             AttachPondLife();
+            // The fish are surveyed over the first few seconds (the game's way): the captures wait for them, as they wait for the copies.
+            if (_world.FindChild("PondLife", true, false) is Node pondLife && pondLife.HasMethod("SurveyNow"))
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 60 && !pondLife.Get("Surveyed").AsBool();) await NextFrame();
             // Review captures show the room, not the interface: hide the HUD and the companion's floating name.
             foreach (var layer in _world.FindChildren("*", "CanvasLayer", true, false).OfType<CanvasLayer>()) layer.Visible = false;
             foreach (var label in _world.FindChildren("*", "Label3D", true, false).OfType<Label3D>()) label.Visible = false;
@@ -134,6 +138,7 @@ public partial class LookCaptureHarness : Node
                 if (only.Count > 0 && !only.Contains(id)) continue;
                 var ownHour = entry.TryGetProperty("hour", out var hour) && root.TryGetProperty("clock", out var reviewClock)
                     && SetClock(hour.GetDouble(), DayOfYear(reviewClock.GetProperty("date").GetString()!));
+                await PrepareStage(entry);
                 Frame(entry);
                 LightGlows(entry);
                 if (entry.TryGetProperty("settle_s", out var settleS))
@@ -210,6 +215,37 @@ public partial class LookCaptureHarness : Node
         return png;
     }
 
+    /// <summary>
+    /// A review shows the island, not the room turning into it: the room-to-island intro a landscape plays when it loads is skipped
+    /// (found by name, so looks from before the intro are untouched), and the frames it needs to put everything back are waited for.
+    /// </summary>
+    private async Task SkipIntro()
+    {
+        Node? intro = null;
+        for (var i = 0; i < 180 && intro == null; i++)
+        {
+            intro = _world.GetNodeOrNull("RoomIntro");
+            if (intro == null) await NextFrame();
+        }
+        if (intro == null || !intro.HasMethod("Skip")) return;
+        // Its data is read off the main thread and it marks the island once it has: it can only be skipped when that is done.
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 60 && !intro.Get("Playing").AsBool() && !intro.Get("Finished").AsBool();) await NextFrame();
+        intro.Call("Skip");
+        for (var i = 0; i < 10; i++) await NextFrame();
+        GD.Print("LOOK_CAPTURE: the room-to-island intro was skipped" + (GodotObject.IsInstanceValid(intro) ? " (still ending)" : ""));
+    }
+
+    /// <summary>
+    /// A camera that stages the player somewhere on a big island builds the ground's collision there first and waits for the physics
+    /// server to have it: a teleport the same frame finds no ground and leaves the player where he stood.
+    /// </summary>
+    private async Task PrepareStage(JsonElement entry)
+    {
+        if (!entry.TryGetProperty("stage", out var stage) || !stage.TryGetProperty("player_m", out var at)) return;
+        EnFractal.Native.Room.TerrainCollision.EnsureAround(_world, Vec(at), holdS: 3.0);
+        for (var i = 0; i < 4; i++) await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
+    }
+
     /// <summary>Stand the avatars where a camera wants them before it is framed: the player at a spot facing a heading, the companion at a spot.</summary>
     private void Stage(JsonElement stage)
     {
@@ -217,7 +253,7 @@ public partial class LookCaptureHarness : Node
         if (stage.TryGetProperty("player_m", out var playerAt))
         {
             EnFractal.Native.Room.TerrainCollision.EnsureAround(_world, Vec(playerAt), holdS: 0.5);
-            _world.Player.TryTeleportTo(Vec(playerAt));
+            if (!_world.Player.TryTeleportTo(Vec(playerAt))) GD.Print($"LOOK_CAPTURE stage: the player could not be placed at {Vec(playerAt)} (no ground there yet?); the camera is wherever the player stood");
             _world.Player.Rotation = new Vector3(0, yaw, 0);
             _world.Player.ResetPhysicsInterpolation();
         }
@@ -380,12 +416,24 @@ public partial class LookCaptureHarness : Node
         return node.Name;
     }
 
+    /// <summary>
+    /// A camera may hold the living shore's wash at a second of its clock ("shore_clock_s"), so a before and an after show the same
+    /// moment and the wash can be shown up or drawn back; otherwise the wash runs. Found by name: looks from before the shore ignore it.
+    /// </summary>
+    private void HoldShore(JsonElement entry)
+    {
+        if (_look?.Get("OpenSea").AsGodotObject() is not GodotObject open) return;
+        if (entry.TryGetProperty("shore_clock_s", out var seconds) && open.HasMethod("HoldShoreAt")) open.Call("HoldShoreAt", (float)seconds.GetDouble());
+        else if (open.HasMethod("ReleaseShore")) open.Call("ReleaseShore");
+    }
+
     private void Frame(JsonElement entry)
     {
         // Leave the HUD rig a previous camera mirrored.
         _mirror = null;
         if (_hud != null && _hud.ViewMode != 1) _hud.SetViewMode(1);
         if (entry.TryGetProperty("stage", out var stage)) Stage(stage);
+        HoldShore(entry);
         var focused = StageFocus(entry);
         SetView(entry.TryGetProperty("view", out var view) ? view.GetString() : null);
         if (entry.TryGetProperty("eye_view", out var eyeView) && eyeView.GetBoolean())

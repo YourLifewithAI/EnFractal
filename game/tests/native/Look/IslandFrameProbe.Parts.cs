@@ -46,6 +46,18 @@ public partial class IslandFrameProbe
             ("Companion._PhysicsProcess", () => _world.Companion._PhysicsProcess(1 / 60.0)),
             ("Companion._Process", () => _world.Companion._Process(1 / 60.0)),
         };
+        // The look's own per-frame jobs (the first recorded play: what a frame of the sea, its fish and the director costs).
+        if (_world.Look is { } look)
+        {
+            parts.Add(("LookDirector._Process", () => look._Process(1 / 60.0)));
+            if (look.OpenSea is { } sea)
+            {
+                parts.Add(("OpenSea._Process (the sea's follow, the mist, the shore's clock)", () => sea._Process(1 / 60.0)));
+                if (sea.Life is { } fish) parts.Add(("SeaLife.Advance (the sea's fish)", () => fish.Advance(1 / 60f)));
+            }
+            if (_world.GetChildren().OfType<EnFractal.Native.Look.Fauna.PondLife>().FirstOrDefault() is { } ponds)
+                parts.Add(("PondLife.Advance (the ponds' fish)", () => ponds.Advance(1 / 60f)));
+        }
         foreach (var (name, call) in parts)
         {
             call();

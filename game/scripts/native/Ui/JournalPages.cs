@@ -70,6 +70,23 @@ public static class JournalPages
         ("skylight_sky", GlowProgress.Skylight, "Could we try a light above us, under the open sky?"),
     };
 
+    /// <summary>
+    /// The plain names of the other abilities' expertise, for a learned one to be listed by (M11): no words, no hints and no smudges
+    /// for Bubbles or Fire while their lists are not final.
+    /// </summary>
+    private static readonly (string Ability, string Name, (string Id, string Title)[] Entries)[] OtherExpertise =
+    {
+        (ExpertiseLists.Bubbles, "Bubbles", new[]
+        {
+            (ExpertiseLists.BubbleCarry, "Bubble carry"), (ExpertiseLists.BubbleBoat, "Bubble boat"), (ExpertiseLists.BubbleLift, "Bubble lift"),
+        }),
+        (ExpertiseLists.Fire, "Fire", new[]
+        {
+            (ExpertiseLists.FirstFire, "First fire"), (ExpertiseLists.Campfire, "Campfire"), (ExpertiseLists.Fireline, "Fireline"),
+            (ExpertiseLists.Snuff, "Snuff"), (ExpertiseLists.WillOWisp, "Will-o'-wisp"),
+        }),
+    };
+
     /// <summary>A page as the host's data writes it now. leaf counts PerLeaf entries from the start of a long page.</summary>
     public static JournalPage Build(string page, CommandHost? host, int leaf)
     {
@@ -109,7 +126,7 @@ public static class JournalPages
         for (var i = 0; i < Sections.Length; i++)
         {
             lines.Add(new JournalLine(JournalInk.Link, $"{i + 1:00}   {Title(Sections[i], host)}", Sections[i]));
-            lines.Add(Faint(SectionWords[i]));
+            lines.Add(Faint(Sections[i] == Character ? $"Your character sheet, and {MeterWords.Name(host, "fractals")} to spend" : SectionWords[i]));
         }
         return new(lines, false, "Written together, a little at a time.");
     }
@@ -124,6 +141,7 @@ public static class JournalPages
         {
             lines.Add(Heading("Magic we found"));
             lines.AddRange(GlowLines(host));
+            lines.AddRange(OtherLines(host));
         }
         lines.Add(Heading("Places & things"));
         if (leaf == 0) lines.Add(Faint(GroundWords(discovered)));
@@ -171,6 +189,21 @@ public static class JournalPages
         if (host.GlowProgressNotice.Length > 0) yield return Text(host.GlowProgressNotice);
     }
 
+    /// <summary>
+    /// The expertise the pair learned in the other abilities, each by its plain name under its ability's name, and nothing for an
+    /// ability with none learned: no words, no use counts and no smudge for what is still to come. The host's own record.
+    /// </summary>
+    public static IEnumerable<JournalLine> OtherLines(CommandHost host)
+    {
+        foreach (var (ability, name, entries) in OtherExpertise)
+        {
+            if (host.GlowProgress.Of(ability) is not { Discoveries.Count: > 0 } record) continue;
+            yield return Title(name);
+            foreach (var (id, title) in entries)
+                if (record.Has(id)) yield return Text(title);
+        }
+    }
+
     /// <summary>How much ground the team has looked over: the discovered cells of every level.</summary>
     private static string GroundWords(JsonObject discovered)
     {
@@ -200,7 +233,7 @@ public static class JournalPages
                 lines.Add(Faint($"Reaches {Distance(ability.ReachM)} from the Gubble · {(limit == 1 ? "one at a time" : $"up to {limit} at once")}"));
                 // What it costs you in pips (the ordered price: the player's order, never a field).
                 if (host.PriceFor(ability.Capability, CommandHost.PlayerPrincipal) is > 0 and var cost)
-                    lines.Add(Faint($"Costs {cost} {(cost == 1 ? "pip" : MeterWords.Name(host, "pips").ToLowerInvariant())}"));
+                    lines.Add(Faint($"Costs {cost} {MeterWords.Counted(host, "pips", cost)}"));
                 if (ability.Category == "light" && host.GlowProgress.Discoveries.Count > 0)
                     lines.Add(Faint("Learned together: " + string.Join(", ", GlowDiscoveries.Where(d => host.GlowProgress.HasDiscovery(d.Id)).Select(d => d.Title))));
             }
@@ -259,14 +292,14 @@ public static class JournalPages
             var mode = status["mode"]?.GetValue<string>() ?? "creative";
             lines.Add(Heading($"{ModeWords(mode)} mode"));
             if (status["consequences"]?.GetValue<bool>() != true)
-                lines.Add(Text("Explore freely: climbing uses no stamina, and falls do not hurt you."));
+                lines.Add(Text($"Explore freely: climbing uses no {MeterWords.Lower(host, "stamina")}, and falls do not hurt you."));
             else
             {
                 var stamina = Number(status["stamina"]);
                 var maxStamina = Number(status["max_stamina"]);
                 var share = maxStamina > 0 ? Math.Clamp(stamina / maxStamina * 100, 0, 100) : 0;
                 lines.Add(Text($"Health {Number(status["health"]):0}/{Number(status["max_health"]):0}"));
-                lines.Add(Text($"Stamina {share:0}% · climbing capacity {maxStamina:0.00} m"));
+                lines.Add(Text($"{MeterWords.Name(host, "stamina")} {share:0}% · climbing capacity {maxStamina:0.00} m"));
                 lines.Add(Text($"Climbs completed {Number(status["completed_climbs"]):0} · recoveries {Number(status["recoveries"]):0}"));
             }
         }

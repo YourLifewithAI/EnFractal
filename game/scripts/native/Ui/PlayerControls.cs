@@ -29,6 +29,8 @@ public static class Act
     public static readonly StringName ViewEye = "view_eye";
     public static readonly StringName ViewShoulder = "view_shoulder";
     public static readonly StringName ViewObserve = "view_observe";
+    /// <summary>F11: the window in full screen and back (the founder, 16 October, decision 66); the choice is kept in the machine's settings for the next launch.</summary>
+    public static readonly StringName ViewFullscreen = "view_fullscreen";
     /// <summary>F2 only: the wheel zooms the over-the-shoulder view in, towards the shoulder.</summary>
     public static readonly StringName ViewZoomIn = "view_zoom_in";
     /// <summary>F2 only: the wheel zooms the over-the-shoulder view out, to look around.</summary>
@@ -74,6 +76,15 @@ public static class Act
     public static readonly StringName MouseRelease = "mouse_release";
     /// <summary>Hold and drag to look around (the left button); a click without a drag does nothing. (Its map name is from when a click captured the mouse.)</summary>
     public static readonly StringName LookDrag = "mouse_capture";
+    // The playtest record (docs/runs/RUN-2-PLAYTEST-LOOP.md): F6 to F9 are free here and bound to nothing in Windows.
+    /// <summary>F9: "something's off here", a still and a mark.</summary>
+    public static readonly StringName PlaytestMark = "playtest_mark";
+    /// <summary>F8: "keep this", a still and a mark.</summary>
+    public static readonly StringName PlaytestKeep = "playtest_keep";
+    /// <summary>F7: the steady stills faster (off, 30, 10, 3, 1 s).</summary>
+    public static readonly StringName PlaytestStillsFaster = "playtest_stills_faster";
+    /// <summary>F6: the steady stills slower.</summary>
+    public static readonly StringName PlaytestStillsSlower = "playtest_stills_slower";
 }
 
 /// <summary>Where an action is live. The keys of one context must not share a key; two contexts may.</summary>
@@ -123,6 +134,8 @@ public static class PlayerControls
         new(Act.BodyRecover, ControlContext.Always), new(Act.BodyHome, ControlContext.Always),
         new(Act.ViewEye, ControlContext.Always), new(Act.ViewShoulder, ControlContext.Always),
         new(Act.ViewObserve, ControlContext.Always),
+        // The window's own key is live everywhere, as the record's: the panels and the Gubble's eyes fill the screen too.
+        new(Act.ViewFullscreen, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),
         new(Act.ViewZoomIn, ControlContext.Shoulder), new(Act.ViewZoomOut, ControlContext.Shoulder),
         new(Act.GubbleAsk, ControlContext.Always), new(Act.GubbleRecall, ControlContext.Always), new(Act.GubbleStop, ControlContext.Always),
         new(Act.GubbleSlot1, ControlContext.Always), new(Act.GubbleSlot2, ControlContext.Always), new(Act.GubbleSlot3, ControlContext.Always),
@@ -137,6 +150,11 @@ public static class PlayerControls
         new(Act.GubbleEyes, ControlContext.Always | ControlContext.Customize | ControlContext.Looking),
         new(Act.MouseRelease, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),
         new(Act.LookDrag, ControlContext.Always | ControlContext.Looking),
+        // The record's keys are live everywhere: what is off may be on a panel.
+        new(Act.PlaytestMark, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),
+        new(Act.PlaytestKeep, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),
+        new(Act.PlaytestStillsFaster, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),
+        new(Act.PlaytestStillsSlower, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),
     };
 
     /// <summary>

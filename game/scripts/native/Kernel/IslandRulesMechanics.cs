@@ -13,10 +13,12 @@ public sealed record HarmRules(double FireQuartersPerS, int? FallCapQuarters);
 
 /// <summary>
 /// The stamina bar in bands (traits.stamina). The water rates null: nothing drains there, today's behaviour. At empty the body
-/// cannot run until the first bar refills to EmptyNoRunUntilFraction of itself (the founder, 15 October: completely).
+/// cannot run until the first bar refills to EmptyNoRunUntilFraction of itself (the founder, 15 October: completely). The climb's
+/// metres per metre of bar and the holding cost null: today's (a metre of bar per metre risen, 0.01 m a second hanging still);
+/// v5 says 1.5 and 0 (the founder, 16 October, decisions 64 and 65).
 /// </summary>
 public sealed record StaminaRules(double StartM, double BandM, int Bands, int BandsPerBar, double RunningMPerS, double RefillMPerS,
-    double? DeepWaterMPerS, double? DiveMPerS, double EmptyNoRunUntilFraction);
+    double? DeepWaterMPerS, double? DiveMPerS, double EmptyNoRunUntilFraction, double? ClimbMPerBarM = null, double? HoldingMPerS = null);
 
 /// <summary>Connection energy in whole pips (traits.pips).</summary>
 public sealed record PipsRules(int Start, int ExpertisePerPip, int Ceiling, double RefillNearEveryS, double RefillNearWithinM, double RefillFarEveryS, double CampFraction);
@@ -44,17 +46,71 @@ public sealed record ModeRow(string Mode, string? Difficulty, string? Variant, b
 /// <summary>The modes block: one record the game consults per mode and difficulty.</summary>
 public sealed record ModesRules(IReadOnlyList<ModeRow> Rows)
 {
-    /// <summary>The row for a mode and, in Challenge, a difficulty; null when the pack has none.</summary>
-    public ModeRow? Row(string mode, string? difficulty)
+    /// <summary>The row for a mode and, in Challenge, a difficulty (in Live, a variant when one is named: else the first Live row); null when the pack has none.</summary>
+    public ModeRow? Row(string mode, string? difficulty, string? variant = null)
     {
         foreach (var row in Rows)
-            if (row.Mode == mode && (mode != "challenge" || row.Difficulty == difficulty)) return row;
+            if (row.Mode == mode && (mode != "challenge" || row.Difficulty == difficulty) && (mode != "live" || variant == null || row.Variant == variant)) return row;
         return null;
+    }
+
+    /// <summary>
+    /// Whether the pack offers this mode now (the rows' `available`): Creative; Challenge, at a difficulty when one is named (else at
+    /// any); Live, as a variant when one is named (else any). A Creative or Live row has no difficulty and a Challenge or Creative row
+    /// no variant, so naming one that cannot exist is not offered. The pack's Live rows say `available: false` until Live is built.
+    /// </summary>
+    public bool Available(string mode, string? difficulty = null, string? variant = null)
+    {
+        foreach (var row in Rows)
+        {
+            if (row.Mode != mode || !row.Available) continue;
+            if (mode == "challenge" ? variant == null && (difficulty == null || row.Difficulty == difficulty)
+                : mode == "live" ? difficulty == null && (variant == null || row.Variant == variant)
+                : difficulty == null && variant == null) return true;
+        }
+        return false;
     }
 }
 
-/// <summary>What the screen calls things (the pack's names block): untrusted text, shown only.</summary>
-public sealed record NamesRules(IReadOnlyDictionary<string, string> Words, IReadOnlyDictionary<string, string> Knacks);
+/// <summary>
+/// What the screen calls things (the pack's names block): untrusted text, shown only. The words reach the screen through
+/// <see cref="Word"/> and <see cref="Knack"/> (KernelText.DisplayText at <see cref="MaxLength"/>: hidden characters become
+/// spaces, runs collapse, the ends are trimmed, the length is cut), never as the pack wrote them; ids and icons never change.
+/// A pack without the block, or one that leaves a name out, keeps today's words (<see cref="Today"/>).
+/// </summary>
+public sealed record NamesRules(IReadOnlyDictionary<string, string> Words, IReadOnlyDictionary<string, string> Knacks)
+{
+    /// <summary>The longest a name is shown (the contract's display_text cap for a name).</summary>
+    public const int MaxLength = 40;
+
+    /// <summary>The pack's word for hearts, stamina, pips, fractals, expertise, camp or trust as the screen shows it; null when the pack leaves it out (or it is all blanks).</summary>
+    public string? Word(string key) => Shown(Words, key);
+
+    /// <summary>The pack's name for a knack as the screen shows it; null when the pack does not name it.</summary>
+    public string? Knack(string id) => Shown(Knacks, id);
+
+    private static string? Shown(IReadOnlyDictionary<string, string> names, string key)
+    {
+        if (!names.TryGetValue(key, out var raw) || string.IsNullOrWhiteSpace(raw)) return null;
+        var shown = KernelText.DisplayText(raw, MaxLength);
+        // DisplayText answers "Refused." for text with nothing left to show: a name made only of hidden characters is no name.
+        return shown == "Refused." && raw.Trim() != "Refused." ? null : shown;
+    }
+
+    /// <summary>Today's word for each name, when the pack has no names block or leaves one out (the journal's page was Discoveries before the pack's word).</summary>
+    public static string Today(string key) => key switch
+    {
+        "hearts" => "Hearts", "stamina" => "Stamina", "pips" => "Pips", "fractals" => "Fractals", "expertise" => "Discoveries",
+        "camp" => "Camp", "trust" => "Trust", _ => key,
+    };
+
+    /// <summary>A knack's words when the pack does not name it: its id, "quick_feet" as "Quick feet".</summary>
+    public static string TodayKnack(string id) =>
+        id.Length == 0 ? id : char.ToUpperInvariant(id[0]) + id[1..].Replace('_', ' ');
+
+    /// <summary>The word as one thing ("Fractals" reads "Fractal", "Pips" reads "Pip"): a name ending in s loses it; any other is kept.</summary>
+    public static string Singular(string word) => word.Length > 1 && word.EndsWith('s') ? word[..^1] : word;
+}
 
 public sealed record KnackSlot(int Slot, string Opens);
 
@@ -99,6 +155,16 @@ public sealed partial class IslandRules
     public NamesRules? Names { get; private init; }
     public KnacksRules? Knacks { get; private init; }
     public FractalsRules? Fractals { get; private init; }
+
+    /// <summary>
+    /// Whether this pack offers a mode, and in Challenge a difficulty, now (the modes rows' `available`): what the menu (M7) asks before
+    /// it shows a choice, and what play checks before it plays one. The pack's Live rows are not available until Live is built; a pack
+    /// without a modes block offers Creative and Challenge at Standard (today's), no other difficulty and no Live.
+    /// </summary>
+    public bool ModeAvailable(string mode, string? difficulty = null, string? variant = null) =>
+        Modes != null ? Modes.Available(mode, difficulty, variant)
+        : mode == "creative" ? difficulty == null && variant == null
+        : mode == "challenge" && variant == null && (difficulty is null or "standard");
 
     private sealed record Mechanics(TraitsRules? Traits, CostRules? Cost, ModesRules? Modes, NamesRules? Names, KnacksRules? Knacks, FractalsRules? Fractals);
 
@@ -153,13 +219,15 @@ public sealed partial class IslandRules
             var where = at + ".stamina";
             Expect(s.ValueKind == JsonValueKind.Object, where + " must be an object.");
             var required = new[] { "start_m", "band_m", "bands", "bands_per_bar", "running_m_per_s", "refill_m_per_s", "empty_no_run_until_fraction" };
-            Fields(s, where, required.Concat(new[] { "deep_water_m_per_s", "dive_m_per_s" }).ToArray(), required);
+            Fields(s, where, required.Concat(new[] { "deep_water_m_per_s", "dive_m_per_s", "climb_m_per_bar_m", "holding_m_per_s" }).ToArray(), required);
             stamina = new StaminaRules(Num(s, "start_m", where, 0, 4.8, exclusiveMin: true), Num(s, "band_m", where, 0, 4.8, exclusiveMin: true),
                 IntIn(s, "bands", where, 1, 20), IntIn(s, "bands_per_bar", where, 1, 20), Num(s, "running_m_per_s", where, 0, 1),
                 Num(s, "refill_m_per_s", where, 0, 10, exclusiveMin: true),
                 s.TryGetProperty("deep_water_m_per_s", out _) ? Num(s, "deep_water_m_per_s", where, 0, 1) : null,
                 s.TryGetProperty("dive_m_per_s", out _) ? Num(s, "dive_m_per_s", where, 0, 1) : null,
-                Num(s, "empty_no_run_until_fraction", where, 0, 1, exclusiveMin: true));
+                Num(s, "empty_no_run_until_fraction", where, 0, 1, exclusiveMin: true),
+                s.TryGetProperty("climb_m_per_bar_m", out _) ? Num(s, "climb_m_per_bar_m", where, 0, 10, exclusiveMin: true) : null,
+                s.TryGetProperty("holding_m_per_s", out _) ? Num(s, "holding_m_per_s", where, 0, 1) : null);
         }
         PipsRules? pips = null;
         if (traits.TryGetProperty("pips", out var p))

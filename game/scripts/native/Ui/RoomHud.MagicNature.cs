@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using EnFractal.Native.Ui;
 
 namespace EnFractal.Native;
 
@@ -150,8 +151,9 @@ public partial class RoomHud
     {
         if (Host is not { } host) return;
         _modeName.Text = ModeWords(host.Mode) + (host.Mode == "challenge" ? " · " + char.ToUpperInvariant(host.Difficulty[0]) + host.Difficulty[1..] : "");
-        _modeHelp.Text = host.Mode == "creative" ? "Explore freely. Climbing uses no stamina, and falls and fire do not hurt you." :
-            $"Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · Stamina {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}%\nClimbing capacity {host.Vitals.MaxStamina:0.00} m. Climbing uses stamina. Falls and fire can hurt. Completed climbs can extend your capacity.";
+        var stamina = MeterWords.Name(host, "stamina");
+        _modeHelp.Text = host.Mode == "creative" ? $"Explore freely. Climbing uses no {stamina.ToLowerInvariant()}, and falls and fire do not hurt you." :
+            $"Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · {stamina} {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}%\nClimbing capacity {host.Vitals.MaxStamina:0.00} m. Climbing uses {stamina.ToLowerInvariant()}. Falls and fire can hurt. Completed climbs can extend your capacity.";
         if (host.VitalsNotice.Length > 0) _modeHelp.Text += "\n" + host.VitalsNotice;
         _weatherHelp.Text = $"{WeatherWords(host.NatureWeather.Pattern)} · Wind {host.NatureWeather.WindMps.Length():0.00} m/s\nThe weather changes naturally across the island.";
         _flowerTrail.SetPressedNoSignal(host.Nature.TrailEnabled);

@@ -29,6 +29,7 @@ public partial class LookPresetTest
         await CheckWaterDressing(preset);
         CheckShoalPlacement();
         await CheckPondFixture();
+        await CheckPondSurveyInSlices();
         await CheckRealPondLife(preset);
         MaterialLibrary.Configure(preset);
     }
@@ -228,12 +229,53 @@ public partial class LookPresetTest
         return tool.Commit();
     }
 
+    /// <summary>
+    /// The first recorded play lost 0.6 to 0.8 s to one frame as the island opened: the survey of the water cast every bed ray in it.
+    /// Spread over frames (a bounded few rays a step, the arithmetic on a worker thread) it makes exactly the ponds the one-shot survey
+    /// makes, no step takes more than a few milliseconds of the main thread, and the game's PondLife finishes it over a number of frames.
+    /// </summary>
+    private async Task CheckPondSurveyInSlices()
+    {
+        var fixture = PondFixture(0.5f, 0.4f, 0.18f);
+        AddChild(fixture);
+        await PhysicsFrames(2);
+        var space = GetWorld3D().DirectSpaceState;
+        var whole = PondSurvey.Survey(fixture, PondSurvey.RayProbe(space));
+        var surveyor = new PondSurvey.Surveyor(fixture, PondSurvey.RayProbe(space), background: true);
+        double longest = 0, total = 0;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        while (!surveyor.Done && surveyor.Steps < 200000)
+        {
+            timer.Restart();
+            surveyor.Step(0.25);
+            longest = Math.Max(longest, timer.Elapsed.TotalMilliseconds);
+            total += timer.Elapsed.TotalMilliseconds;
+        }
+        static bool Same(float[] a, float[] b) => a.Length == b.Length && Enumerable.Range(0, a.Length).All(i => a[i] == b[i] || (float.IsNaN(a[i]) && float.IsNaN(b[i])));
+        var same = surveyor.Done && surveyor.Ponds.Count == whole.Count && Enumerable.Range(0, whole.Count).All(i =>
+            surveyor.Ponds[i].Kind == whole[i].Kind && surveyor.Ponds[i].Nx == whole[i].Nx && surveyor.Ponds[i].Nz == whole[i].Nz && Same(surveyor.Ponds[i].Surface, whole[i].Surface)
+            && Same(surveyor.Ponds[i].Bed, whole[i].Bed) && surveyor.Ponds[i].Level == whole[i].Level && surveyor.Ponds[i].MaxDepthM == whole[i].MaxDepthM);
+        GD.Print($"LOOK_INFO: the pond survey in slices: {surveyor.Steps} steps, {surveyor.Rays} bed rays, longest step {longest:0.00} ms, {total:0.0} ms on the main thread in all");
+        Check(same, $"surveyed in slices the water is exactly what the one-shot survey makes ({surveyor.Ponds.Count} bodies, {surveyor.Rays} rays)");
+        Check(surveyor.Steps > 5 && longest < 12.0, $"and no step takes more than a few milliseconds of the main thread (the longest {longest:0.0} ms of {surveyor.Steps})");
+        // The game's PondLife (the default: sliced) finishes over several physics frames and says so.
+        var life = PondLife.Create("pond_slices", fixture);
+        life.Running = false;
+        AddChild(life);
+        var frames = 0;
+        while (!life.Surveyed && frames < 2000) { await PhysicsFrames(1); frames++; }
+        Check(life.Surveyed && life.Ponds.Count == whole.Count && frames > 1 && life.Summary.Contains("bed rays over"), $"the game's PondLife surveys over {frames} physics frames: {life.Summary}");
+        life.QueueFree();
+        fixture.QueueFree();
+        await PhysicsFrames(1);
+    }
+
     /// <summary>The real path: survey by rays, fish in the pond and not the brook, staying in, schooling, darting and settling.</summary>
     private async Task CheckPondFixture()
     {
         var fixture = PondFixture(0.5f, 0.4f, 0.18f);
         AddChild(fixture);
-        var life = PondLife.Create("pond_fixture", fixture);
+        var life = PondLife.Create("pond_fixture", fixture).AtOnce();
         life.Running = false;
         AddChild(life);
         await PhysicsFrames(2);
@@ -341,7 +383,7 @@ public partial class LookPresetTest
         var land = RoomData.Load(directory);
         var built = RoomBuilder.Build(land);
         AddChild(built);
-        var life = PondLife.Create(land.RoomId, built);
+        var life = PondLife.Create(land.RoomId, built).AtOnce();
         life.Running = false;
         AddChild(life);
         await PhysicsFrames(3);

@@ -30,8 +30,9 @@ EFFECT_ID = re.compile(r"effect:[a-z2-7]{26}")
 GLOW_SUMMARY = {"capability": "glow", "category": "light", "params": {"intensity": {"min": 0.2, "max": 1.0}},
                 "area_radius_max_m": 1.5, "duration_max_s": 600, "reach_m": 2.0, "max_active": 3,
                 "command_op": "effect.start"}
+# Bubbles: one bubble at a time since the founder's redesign (decision 59), whatever the pack's max_active says.
 BUBBLES_SUMMARY = {"capability": "bubbles", "category": "float", "params": {"intensity": {"min": 0.2, "max": 1.0}},
-                   "area_radius_max_m": 1.0, "duration_max_s": 60, "reach_m": 2.0, "max_active": 2,
+                   "area_radius_max_m": 1.0, "duration_max_s": 60, "reach_m": 2.0, "max_active": 1,
                    "command_op": "effect.start"}
 FIREWORKS_SUMMARY = {"capability": "fireworks", "category": "burst", "params": {"intensity": {"min": 0.3, "max": 1.0}},
                      "area_radius_max_m": 2.0, "duration_max_s": 6, "reach_m": 4.0, "max_active": 3,
@@ -215,7 +216,8 @@ class AlignmentScenarios:
         """The companion never reaches the player's new ops, never carries, places, pushes or fetches a Fractal (the same
         answer whether or not it exists, before anything is looked up), may go to one, and casts the Bubbles expertise only
         under the targets rule: a Bubble on an avatar is previewed first, only the carry and the lift name a target, and the
-        target is an avatar. The Bubbles and the set-mode's difficulty are not built yet (M9, M3)."""
+        target is an avatar. The set-mode's difficulty is not built yet (M3); the Bubbles are (M9): a carry on the player is
+        centred where they stand (this spot is not), and a boat needs shallow water (neither host's room has any)."""
         await self.companion_home()
         spot = IN_THE_OPEN
         carry = {"capability": "bubble_carry", "center_m": spot, "radius_m": 0.08, "duration_s": 20, "target": "avatar:player"}
@@ -259,11 +261,110 @@ class AlignmentScenarios:
             "place a Fractal": ("permission_denied", "$.args.target"),
             "push a Fractal": ("permission_denied", "$.args.target"),
             "go to a Fractal": ("target_not_found", "$.args.target"),
-            "a carry on the player, previewed": ("unsupported_capability", "$.op"),
+            "a carry on the player, previewed": ("invalid_args", "$.args.center_m"),
             "a carry on the player, unpreviewed": ("request_invalid", "$"),
-            "a boat at a point": ("unsupported_capability", "$.op"),
+            "a boat at a point": ("invalid_args", "$.args.center_m"),
             "Bloom on the player": ("request_invalid", "$.args.capability"),
             "a carry of a thing": ("request_invalid", "$.args.target"),
+        })
+
+    # ----- The Bubble (M9): the carry, alike on both hosts -----
+
+    async def test_the_bubble_carries_the_player_alike(self):
+        """A carry on the player: previewed (the ghost's preview_id), refused if cast before the ghost's lead, cast a moment later
+        naming it (transient, its effect: id created), popped by the Gubble's own stop at once (popped), its receipt carrying the
+        kind, the target, carried and how it ended; a bubble at a point never forms round the player."""
+        await self.companion_home()
+        inspected = await self.ask(query("entity.inspect", {"target": "avatar:player"}, self.next_id("q")))
+        feet = inspected["data"]["entity"]["position_m"]
+        carry = {"capability": "bubble_carry", "center_m": feet, "radius_m": 0.08, "duration_s": 20, "target": "avatar:player"}
+        preview = await self.ask(command("nature.cast", carry, self.next_id("ghost"), preview=True))
+        token = preview.get("data", {}).get("preview_id", "0" * 32)
+        too_soon = await self.ask(command("nature.cast", {**carry, "preview_id": token}, self.next_id("carry")))
+        await self.wait(1.2)
+        cast = await self.ask(command("nature.cast", {**carry, "preview_id": token}, self.next_id("carry")))
+        stop = await self.ask(command("goal.stop", {}, self.next_id("stop")))
+        receipt = (await self.ask(query("receipt.lookup", {"action_id": cast["action_id"]}, self.next_id("q"))))["data"].get("receipt", {}).get("data", {})
+        at_the_feet = await self.ask(command("nature.cast", {k: v for k, v in carry.items() if k != "target"}, self.next_id("carry")))
+        bubble = cast.get("data", {}).get("bubble", "")
+        outcome = {
+            "the preview": (refusal(preview), len(token), preview.get("affected")),
+            "cast before the ghost's lead": refusal(too_soon),
+            "the cast": (refusal(cast), cast.get("transient"), cast.get("created") == [bubble], bubble.startswith("effect:")),
+            "the Gubble's stop pops it": bubble in stop.get("affected", []),
+            "its receipt": {k: receipt.get(k) for k in ("capability", "target", "carried", "ended")},
+            "a bubble at the player's feet": refusal(at_the_feet),
+        }
+        self.assertEqual(outcome, {
+            "the preview": ("ok", 32, ["avatar:player"]),
+            "cast before the ghost's lead": ("not_ready", "$.args.preview_id"),
+            "the cast": ("ok", True, True, True),
+            "the Gubble's stop pops it": True,
+            "its receipt": {"capability": "bubble_carry", "target": "avatar:player", "carried": True, "ended": "popped"},
+            "a bubble at the player's feet": ("invalid_args", "$.args.center_m"),
+        })
+
+    # ----- The Bubble as redesigned and the Gubble's lead (the M9 follow-up): alike on both hosts -----
+
+    async def test_the_bubble_and_its_lead_alike(self):
+        """effect.start of Bubbles: on the player's feet a carry, the companion's previewed first (its ghost) and cast a moment
+        later; goal.set lead names only a bubble and a spot; set, it runs as the Gubble's job; the Gubble's own stop pops the
+        bubble it leads (popped) and the lead's receipt says stopped; elsewhere the Bubble is a bubble to walk into, and a recast
+        pops the one there."""
+        await self.companion_home()
+        inspected = await self.ask(query("entity.inspect", {"target": "avatar:player"}, self.next_id("q")))
+        feet = inspected["data"]["entity"]["position_m"]
+        beside = [feet[0] + 0.3, feet[1], feet[2] + 0.1]
+
+        def bubble(spot):
+            return {"capability": "bubbles", "params": {}, "area": {"center_m": spot, "radius_m": 0.5}, "duration_s": 20}
+
+        unpreviewed = await self.ask(command("effect.start", bubble(feet), self.next_id("bubble")))
+        preview = await self.ask(command("effect.start", bubble(feet), self.next_id("ghost"), preview=True))
+        await self.wait(1.2)
+        carry = await self.ask(command("effect.start", bubble(feet), self.next_id("bubble")))
+        id_ = carry.get("data", {}).get("bubble", "effect:" + "b" * 26)
+        on_the_player = await self.ask(command("goal.set", {"actor": GUBBLE, "goal": "lead", "target": "avatar:player", "position_m": IN_THE_OPEN},
+                                               self.next_id("lead")))
+        no_spot = await self.ask(command("goal.set", {"actor": GUBBLE, "goal": "lead", "target": id_}, self.next_id("lead")))
+        unknown = await self.ask(command("goal.set", {"actor": GUBBLE, "goal": "lead", "target": "effect:" + "a" * 26, "position_m": IN_THE_OPEN},
+                                         self.next_id("lead")))
+        led = await self.ask(command("goal.set", {"actor": GUBBLE, "goal": "lead", "target": id_, "position_m": IN_THE_OPEN}, self.next_id("lead")))
+        stop = await self.ask(command("goal.stop", {}, self.next_id("stop")))
+
+        async def receipt(result):
+            looked = await self.ask(query("receipt.lookup", {"action_id": result.get("action_id", "none")}, self.next_id("q")))
+            return looked.get("data", {}).get("receipt", {}).get("data", {})
+
+        walk_in = await self.ask(command("effect.start", bubble(beside), self.next_id("bubble")))
+        recast = await self.ask(command("effect.start", bubble([beside[0] + 0.05, beside[1], beside[2]]), self.next_id("bubble")))
+        outcome = {
+            "the Bubble on the player, unpreviewed": refusal(unpreviewed),
+            "its preview": (refusal(preview), preview.get("data", {}).get("kind")),
+            "cast after the ghost": (refusal(carry), carry.get("data", {}).get("kind"), carry.get("transient"), carry.get("data", {}).get("carried")),
+            "a lead of the player's avatar": refusal(on_the_player),
+            "a lead with no spot": refusal(no_spot),
+            "a lead of an unknown bubble": refusal(unknown),
+            "the lead": (refusal(led), led.get("data", {}).get("goal"), led.get("data", {}).get("bubble") == id_, "job_id" in led),
+            "the Gubble's stop pops what it leads": id_ in stop.get("affected", []),
+            "the lead's receipt": (await receipt(led)).get("ended"),
+            "the bubble's receipt": ((await receipt(carry)).get("kind"), (await receipt(carry)).get("ended")),
+            "elsewhere": (refusal(walk_in), walk_in.get("data", {}).get("kind")),
+            "a recast pops it": (refusal(recast), (await receipt(walk_in)).get("ended")),
+        }
+        self.assertEqual(outcome, {
+            "the Bubble on the player, unpreviewed": ("revision_conflict", "$.args.area.center_m"),
+            "its preview": ("ok", "carry"),
+            "cast after the ghost": ("ok", "carry", True, True),
+            "a lead of the player's avatar": ("request_invalid", "$.args.target"),
+            "a lead with no spot": ("request_invalid", "$.args.position_m"),
+            "a lead of an unknown bubble": ("target_not_found", "$.args.target"),
+            "the lead": ("ok", "lead", True, True),
+            "the Gubble's stop pops what it leads": True,
+            "the lead's receipt": "stopped",
+            "the bubble's receipt": ("carry", "popped"),
+            "elsewhere": ("ok", "walk_in"),
+            "a recast pops it": ("ok", "popped"),
         })
 
     # ----- The Gubble's eyes (view.look): the same refusals on both hosts; a picture wherever the host can draw -----
@@ -486,11 +587,12 @@ class AlignmentScenarios:
         self.assertGreater(outcome["beyond its reach: bounds"][1], 2.0)
 
     async def test_each_kind_ends_at_its_duration(self):
-        """A glow, a stream of bubbles and a firework each end at their own duration_s; a longer one still runs."""
+        """A glow, the Bubble and a firework each end at their own duration_s; a longer one still runs."""
         await self.companion_home()
         await self.stop_all_glows()
-        brief = [await self.ask(cast(kind, self.next_id(kind), duration=1)) for kind in ("glow", "bubbles", "fireworks")]
-        longer = await self.ask(cast("bubbles", self.next_id("bubbles"), at=IN_THE_OPEN, duration=60))
+        brief = [await self.ask(cast(kind, self.next_id(kind), duration=1, at=IN_THE_OPEN if kind == "bubbles" else None))
+                 for kind in ("glow", "bubbles", "fireworks")]
+        longer = await self.ask(cast("glow", self.next_id("glow"), at=IN_THE_OPEN, duration=60))
         await self.wait(2.0)
         outcome = {"started": ([refusal(r) for r in brief], refusal(longer)),
                    "the brief ones have ended": [await self.stop_one(r["created"][0]) for r in brief if r["ok"]],
@@ -501,8 +603,9 @@ class AlignmentScenarios:
     # ----- Bubbles and Fireworks (docs/runs/RUN-2-BUBBLES-FIREWORKS.md piece 5): the same rules, on both hosts -----
 
     async def test_the_companion_casts_bubbles_and_fireworks_on_itself_and_at_a_spot(self):
-        """Each on the Gubble (self, the pack's defaults filling the params left out) and at a spot in sight; Fireworks
-        reach further than Bubbles; a preview starts nothing; goal.stop ends every kind the companion cast."""
+        """Fireworks on the Gubble (self, the pack's defaults filling the params left out) and at a spot in sight; the Bubble
+        only at a spot (a bubble to walk into there), never on the Gubble; Fireworks reach further than Bubbles; a preview
+        starts nothing; goal.stop ends every kind the companion cast."""
         await self.companion_home()
         await self.stop_all_glows()
         bubbles = await self.ask(cast("bubbles", self.next_id("bubbles"), params={}))
@@ -520,11 +623,12 @@ class AlignmentScenarios:
                     data.get("capability"), data.get("category"), data.get("target"), data.get("params"),
                     data.get("area", {}).get("radius_m"), data.get("duration_s"))
 
-        started = [r["created"][0] for r in (bubbles, stream, burst, rocket) if r["ok"]]
+        started = [r["created"][0] for r in (stream, burst, rocket) if r["ok"]]
         stop = await self.ask(command("goal.stop", {}, self.next_id("stop")))
         outcome = {
-            "bubbles on itself": about(bubbles),
+            "bubbles on itself": refusal(bubbles),
             "bubbles at a spot": about(stream),
+            "what the place made": stream.get("data", {}).get("kind"),
             "the stream's spot": stream.get("data", {}).get("area", {}).get("center_m"),
             "fireworks over itself": about(burst),
             "fireworks at a far spot": about(rocket),
@@ -537,8 +641,9 @@ class AlignmentScenarios:
             "nothing left to stop": [await self.stop_one(e) for e in started],
         }
         self.assertEqual(outcome, {
-            "bubbles on itself": ("ok", True, True, "bubbles", "float", "self", {"intensity": 0.6}, 0.5, 20),
-            "bubbles at a spot": ("ok", True, True, "bubbles", "float", "point", {"intensity": 1}, 1.0, 60),
+            "bubbles on itself": ("invalid_args", "$.args.targets"),
+            "bubbles at a spot": ("ok", True, True, "bubbles", "float", "point", {}, 0.08, 60),
+            "what the place made": "walk_in",
             "the stream's spot": IN_THE_OPEN,
             "fireworks over itself": ("ok", True, True, "fireworks", "burst", "self", {"intensity": 0.8}, 1.0, 6),
             "fireworks at a far spot": ("ok", True, True, "fireworks", "burst", "point", {"intensity": 0.3}, 2.0, 6),
@@ -546,7 +651,7 @@ class AlignmentScenarios:
             "bubbles at the far spot": (("out_of_bounds", "$.args.area.center_m"), 2.0, True),
             "preview": ("ok", True, False, False, "burst"),
             "goal.stop ends every kind": True,
-            "nothing left to stop": [([], 0)] * 4,
+            "nothing left to stop": [([], 0)] * 3,
         })
 
     async def test_the_companion_cannot_cast_bubbles_or_fireworks_beyond_the_islands_rules(self):
@@ -560,12 +665,13 @@ class AlignmentScenarios:
             "bubbles on a thing in sight": cast("bubbles", "x", targets=["obj:rug"]),
             "fireworks on itself and a thing": cast("fireworks", "x", targets=[GUBBLE, "obj:rug"]),
             "fireworks on a thing that is not there": cast("fireworks", "x", targets=["obj:zz_not_here"]),
-            "a param bubbles do not take": cast("bubbles", "x", params={"speed": 1}),
-            "bubbles too thick": cast("bubbles", "x", params={"intensity": 1.5}),
+            "a param bubbles do not take": cast("bubbles", "x", params={"speed": 1}, at=IN_THE_OPEN),
+            "bubbles too thick": cast("bubbles", "x", params={"intensity": 1.5}, at=IN_THE_OPEN),
             "fireworks too faint": cast("fireworks", "x", params={"intensity": 0.25}),
-            "bubbles too wide": cast("bubbles", "x", radius=1.2),
+            "bubbles too wide": cast("bubbles", "x", radius=1.2, at=IN_THE_OPEN),
             "fireworks too wide": cast("fireworks", "x", radius=2.5),
-            "bubbles too long": cast("bubbles", "x", duration=90),
+            "bubbles too long": cast("bubbles", "x", duration=90, at=IN_THE_OPEN),
+            "bubbles on the Gubble itself": cast("bubbles", "x"),
             "fireworks too long": cast("fireworks", "x", duration=8),
             "fireworks outside the room": cast("fireworks", "x", at=OUTSIDE_ROOM),
             "fireworks at a spot neither avatar sees": cast("fireworks", "x", at=BEHIND_BOX),
@@ -581,8 +687,8 @@ class AlignmentScenarios:
             if label in bounded:
                 outcome[label + ": bounds"] = (result["error"].get("allowed"), result["error"].get("actual"))
         # The caps, each ability's own while the others run. Fireworks last at most 6 s: they start and stop well inside that.
-        streams = [await self.ask(cast("bubbles", self.next_id("bubbles"), at=at)) for at in (None, IN_THE_OPEN)]
-        third = await self.ask(cast("bubbles", self.next_id("bubbles"), at=[0.5, 0.0, 0.9]))
+        # The Bubble is one at a time: a second replaces the first, which pops (decision 59).
+        streams = [await self.ask(cast("bubbles", self.next_id("bubbles"), at=at)) for at in (IN_THE_OPEN, [0.5, 0.0, 0.9])]
         rockets = [await self.ask(cast("fireworks", self.next_id("fireworks"), at=at, duration=6))
                    for at in (None, IN_THE_OPEN, FAR_IN_SIGHT)]
         fourth = await self.ask(cast("fireworks", self.next_id("fireworks"), duration=6))
@@ -590,8 +696,7 @@ class AlignmentScenarios:
         outcome["a fourth"] = (refusal(fourth), fourth.get("error", {}).get("allowed"), fourth.get("error", {}).get("actual"))
         outcome["the fireworks stop by id"] = [(await self.stop_one(r["created"][0]))[1] for r in rockets if r["ok"]]
         light = await self.ask(glow(self.next_id("glow")))
-        outcome["two streams"] = [refusal(r) for r in streams]
-        outcome["a third stream"] = (refusal(third), third.get("error", {}).get("allowed"), third.get("error", {}).get("actual"))
+        outcome["two bubbles, one after the other"] = [refusal(r) for r in streams]
         outcome["a glow still fits"] = refusal(light)
         outcome["the rest stop by id"] = [(await self.stop_one(r["created"][0]))[1] for r in streams + [light] if r["ok"]]
         expected = {
@@ -616,13 +721,13 @@ class AlignmentScenarios:
             "fireworks outside the room": ("out_of_bounds", "$.args.area.center_m"),
             "fireworks at a spot neither avatar sees": ("target_not_found", "$.args.area.center_m"),
             "the player and too thick": ("permission_denied", "$.args.targets"),
+            "bubbles on the Gubble itself": ("invalid_args", "$.args.targets"),
             "three fireworks": ["ok", "ok", "ok"],
             "a fourth": (("budget_exceeded", "$.args.capability"), 3, 3),
             "the fireworks stop by id": [1, 1, 1],
-            "two streams": ["ok", "ok"],
-            "a third stream": (("budget_exceeded", "$.args.capability"), 2, 2),
+            "two bubbles, one after the other": ["ok", "ok"],
             "a glow still fits": "ok",
-            "the rest stop by id": [1, 1, 1],
+            "the rest stop by id": [0, 1, 1],
         }
         self.assertEqual(outcome, expected)
 

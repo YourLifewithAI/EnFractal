@@ -54,6 +54,10 @@ public partial class PlayHudTest : Node
             await TestGlowJournalFresh();
             await TestMagicPanel();
             await TestFoldedHelp();
+            // The card is in the help and the full-screen key (PlayHudTest.Screen.cs); the swim hint is with the views, which move the body.
+            await TestCardIsInTheHelp();
+            TestFullscreenAtBoot();
+            await TestFullscreenKey();
             TestWorkshopGone();
             await TestTimeOfDay();
             await TestSeason();
@@ -95,19 +99,25 @@ public partial class PlayHudTest : Node
             await TestProfileField();
             await TestJournalBook();
             await TestExpertiseWords();
+            await TestRenamedWords();
             await TestEyesSetting();
             await TestGubbleView();
             await TestCharacterChoice();
             await TestWearingCharacters();
             await TestDrawnGubble();
             await TestGlowJournalLearned();
+            await TestOtherExpertiseJournal();
             // The two views last: they move the player about the room and leave the Gubble where it was.
             await TestShelvedViewKeys();
             await TestShoulderRange();
             await TestShoulderOrbit();
             await TestShoulderMovementFrame();
             await TestShoulderNearEndUnchanged();
+            await TestShoulderKeepsTheBodyInFrame();
             await TestShoulderFocusAndSwitches();
+            await TestSwimHint();
+            // The playtest record's keys (PlayHudTest.Playtest.cs).
+            await TestPlaytestKeys();
 
             // Unload while the final cast's chime is still active. AudioServer
             // retires stopped playback on subsequent frames, before engine exit.
@@ -126,6 +136,7 @@ public partial class PlayHudTest : Node
             // The journal across boots, in this suite's saves: a note survives a reload; a team that has seen nothing reads nothing.
             await TestJournalAfterReload();
             await TestJournalNothingUnseen();
+            await TestFirstNoticeIsEmpty();
             await TestGatherKey();
             CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
             RoomHud.ProfilePath = RoomHud.DefaultProfilePath;
@@ -160,6 +171,8 @@ public partial class PlayHudTest : Node
         ("move_sprint", Key.Shift, false), ("move_dive", Key.Ctrl, false), ("jump", Key.Space, false),
         ("body_recover", Key.R, false), ("body_home", Key.B, false),
         ("view_eye", Key.F1, false), ("view_shoulder", Key.F2, false), ("view_observe", Key.O, false),
+        // The window's own key (decision 66, 16 October): F11 was bound to nothing.
+        ("view_fullscreen", Key.F11, false),
         ("gubble_recall", Key.Q, false), ("gubble_stop", Key.X, false),
         ("gubble_slot_1", Key.Key1, false), ("gubble_slot_2", Key.Key2, false), ("gubble_slot_3", Key.Key3, false),
         ("gubble_slot_4", Key.Key4, false), ("gubble_slot_5", Key.Key5, false),
@@ -167,6 +180,8 @@ public partial class PlayHudTest : Node
         ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
         ("bounce_step", Key.P, false), ("bounce_print", Key.P, true),
         ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("journal", Key.J, false), ("gubble_eyes", Key.I, false), ("mouse_release", Key.Escape, false),
+        // The playtest record's keys (docs/runs/RUN-2-PLAYTEST-LOOP.md): F6 to F9, bound to nothing in Windows.
+        ("playtest_mark", Key.F9, false), ("playtest_keep", Key.F8, false), ("playtest_stills_faster", Key.F7, false), ("playtest_stills_slower", Key.F6, false),
     };
 
     private readonly System.Collections.Generic.Dictionary<string, Godot.Collections.Array<InputEvent>> _savedMap = new();
@@ -340,17 +355,19 @@ public partial class PlayHudTest : Node
                 "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up",
                 "F1 first person · F2 third person: wheel zooms out to look around, and zoomed out drag orbits and WASD follows the view",
                 "O observe (a very tight tilt-shift view, best zoomed out) · C customize · J journal (Esc closes either)",
+                "F11 full screen on or off (kept for your next launch)",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm · E gather a log or stone you hold into your wallet",
                 "The Gubble, your companion:",
                 "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
                 $"1 Glow{PriceWords("glow")}, 2 Bloom{PriceWords("bloom")}, 3 Bubbles{PriceWords("bubbles")}, 4 Fireworks{PriceWords("fireworks")} where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps · P your character's bounce (x0.5, x1, x1.5) · Shift+P print its motion profile",
+                "Playtest record: F9 something's off here · F8 keep this · F7 stills faster · F6 slower (the record is off for this run)",
             };
             var lines = HelpLines();
             Check(lines.SequenceEqual(expected), "with the default keys the help says drag where it said click, groups the Gubble's keys (its ask, Q, X, 1 to 5) under its name, and puts the testing toggles (G, T, Shift+T, L) under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
             Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Customize", "Magic" }) &&
-                ButtonTexts("HandActions").SequenceEqual(new[] { "F Pick up / put down", "V Push", "E Gather" }), "and so do the buttons of the top panel");
+                ButtonTexts("HandActions").SequenceEqual(new[] { "F Pick up / put down", "V Push", "E Gather" }), "and so do the buttons in the help");
             Check(((Label)_hud.FindChild("CompanionName", true, false)!).Text == "The Gubble:", "and the Gubble's buttons stand under its name");
             var state = ((Label)_hud.FindChild("State", true, false)!).Text;
             Check(state.Contains(" (G)", StringComparison.Ordinal) && _hud.ClockText().Contains("real clock (T)", StringComparison.Ordinal) && _hud.ClockText().Contains("real date (Shift+T)", StringComparison.Ordinal),
@@ -362,7 +379,7 @@ public partial class PlayHudTest : Node
                 Key.F13, Key.F14, Key.F15, Key.F16, Key.F17, Key.F18, Key.F19, Key.F20, Key.F21, Key.F22, Key.F23, Key.F24,
                 Key.Kp0, Key.Kp1, Key.Kp2, Key.Kp3, Key.Kp4, Key.Kp5, Key.Kp6, Key.Kp7, Key.Kp8, Key.Kp9,
                 Key.KpAdd, Key.KpSubtract, Key.KpMultiply, Key.KpDivide, Key.KpPeriod, Key.KpEnter, Key.Insert, Key.Delete, Key.Pause, Key.Pageup, Key.Pagedown,
-                Key.Home, Key.End, Key.Numlock, Key.Scrolllock, Key.Sysreq, Key.F25, Key.F26,
+                Key.Home, Key.End, Key.Numlock, Key.Scrolllock, Key.Sysreq, Key.F25, Key.F26, Key.F27, Key.F28, Key.F29, Key.F30,
             };
             var actions = PlayerControls.Specs.Select(spec => spec.Action).ToArray();
             Check(pool.Length >= actions.Length, "enough spare keys to give every control its own");
@@ -374,7 +391,7 @@ public partial class PlayHudTest : Node
             Check(missing.Length == 0, $"the help lists every one of the {own.Length} controls with its current key: missing {string.Join(", ", missing)}");
             Check(!text.Contains("WASD", StringComparison.Ordinal) && !text.Contains("Shift+T", StringComparison.Ordinal) && !text.Contains("Esc", StringComparison.Ordinal) && !text.Contains("click", StringComparison.Ordinal),
                 "and none of the old keys is left in it");
-            Check(ButtonTexts("CompanionActions")[2] == $"{own.First(o => o.Action == Act.GubbleRecall).Name} Come", "the top panel's buttons follow the map too");
+            Check(ButtonTexts("CompanionActions")[2] == $"{own.First(o => o.Action == Act.GubbleRecall).Name} Come", "the help's buttons follow the map too");
             Check(_hud.DuskHintLabel.Text == $"{own.First(o => o.Action == Act.GubbleSlot1).Name} or {own.First(o => o.Action == Act.GubbleAsk).Name}: Light!", "and so does the dusk hint: " + _hud.DuskHintLabel.Text);
             Check(SandboxControls.FocusWords.PickUpOrPush == $"{own.First(o => o.Action == Act.Hands).Name} pick up · {own.First(o => o.Action == Act.Push).Name} push" &&
                 string.Format(SandboxControls.FocusWords.SetOn, "A", "B") == $"{own.First(o => o.Action == Act.Hands).Name} set A on B",
@@ -493,7 +510,7 @@ public partial class PlayHudTest : Node
         var state = (Label)_hud.FindChild("State", true, false)!;
         var help = string.Join("\n", _world.FindChildren("*", "Label", true, false).OfType<Label>().Select(l => l.Text));
         Check(help.Contains("F pick up", StringComparison.Ordinal) && help.Contains("V push", StringComparison.Ordinal), "the help names the hand keys F and V");
-        Check(_hud.FindChild("HandActions", true, false) is HBoxContainer { } buttons && buttons.GetChildCount() == 3, "and the top panel has their buttons (pick up, push and gather)");
+        Check(_hud.FindChild("HandActions", true, false) is HBoxContainer { } buttons && buttons.GetChildCount() == 3, "and the help has their buttons (pick up, push and gather)");
         // The founder's name for the companion (8 October): the Gubble, in its name tag, the HUD's state line and the help.
         await Frames(1);
         var tag = _world.Companion.GetNode<Label3D>("CompanionLabel").Text;
@@ -749,15 +766,20 @@ public partial class PlayHudTest : Node
                   host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.ActiveEffectIds.Count == 0,
                 $"{OS.GetKeycodeString(key)}: a slot this island has no ability for shrugs \"not yet\" and sends nothing");
         }
-        // 3 and 4: Bubbles and Fireworks (storybook_wild v2), through Glow's cast path: on the Gubble at nothing, else where you point.
+        // 3 and 4: Bubbles and Fireworks, through Glow's cast path. Since the Bubble's redesign (decisions 55 to 60, Kernel/Bubble) the
+        // Bubble is one bubble at a spot, the place deciding, and none on the Gubble itself: aimed at nothing the host refuses it (the
+        // HUD's right-click flow is the Sonnet pass's); aimed at the floor it is the one bubble there, no stream the look blows.
         _hud.AimRayForTests = Air();
         _hud._UnhandledInput(Press(Key.Key3));
-        var bubbles = host.ActiveEffectIds.LastOrDefault();
-        Check(bubbles != null && look.KindOf(bubbles) == LookDirector.EffectKind.Bubbles && _hud.Cue.Icon == GubbleMagic.SlotIcons[2] && _hud.Cue.State == "done" &&
-              companion.LastGesture == CompanionAvatar.Gesture.CastSelf && companion.LastCastCategory == "float",
-            "3 aimed at nothing: Bubbles from the Gubble itself, its bubble showing their icon, the Gubble lifting as they rise");
+        Check(host.ActiveBubbles.Count == 0 && host.ActiveEffectIds.Count == 0 && _hud.Cue.State == "refused",
+            "3 aimed at nothing: no Bubble on the Gubble itself any more; the host refuses it and the Gubble shakes its head: " + _hud.Cue.Reason);
         var spot = FloorNearGubble(0.4f);
         _hud.AimRayForTests = Down(spot);
+        _hud._UnhandledInput(Press(Key.Key3));
+        var bubbles = host.ActiveBubble?.Id;
+        Check(bubbles != null && host.ActiveEffectIds.Count == 0 && look.KindOf(bubbles) != LookDirector.EffectKind.Bubbles && _hud.Cue.Icon == GubbleMagic.SlotIcons[2] &&
+              _hud.Cue.State == "done" && companion.LastCastCategory == "float",
+            "3 aimed at the floor: the one Bubble there, no stream of small bubbles: " + host.ActiveBubble);
         _hud._UnhandledInput(Press(Key.Key4));
         var fireworks = host.ActiveEffectIds.LastOrDefault();
         Check(fireworks != null && fireworks != bubbles && look.KindOf(fireworks) == LookDirector.EffectKind.Fireworks && _hud.Cue.Icon == GubbleMagic.SlotIcons[3] && _hud.Cue.State == "done" &&
@@ -766,7 +788,7 @@ public partial class PlayHudTest : Node
         Check(CompanionAvatar.CastSeconds("float") > CompanionAvatar.CastSeconds("light") && CompanionAvatar.CastSeconds("burst") < CompanionAvatar.CastSeconds("light"),
             "the gesture blows longer for Bubbles and tosses quicker for Fireworks");
         _hud._UnhandledInput(Press(Key.X));
-        Check(host.ActiveEffectIds.Count == 0 && look.EffectCount == 0, "X ends the bubbles and the fireworks with the Gubble's goal");
+        Check(host.ActiveEffectIds.Count == 0 && host.ActiveBubbles.Count == 0 && look.EffectCount == 0, "X pops the bubble and ends the fireworks with the Gubble's goal");
         _hud.AimRayForTests = Air();
         _hud._UnhandledInput(Press(Key.Q));
         Check(companion.CurrentIntent == "come", "Q calls the Gubble (come)");

@@ -14,8 +14,9 @@ public sealed class GlowProgressException(string message) : Exception(message);
 
 /// <summary>
 /// Host-owned progress for Glow: the verified uses, the expertise learned (the code's discoveries) and the hints delivered, with
-/// Glow's touch and sound. It is the team's, across modes (decision 2: expertise travels), independent of room saves and physical
-/// player traits. Only completed host observations may advance it; model prose is not evidence. Discovery IDs name behaviours
+/// Glow's touch and sound, and beside it the same three for the other abilities (Bubbles, Fire: Others, M11). It is the
+/// team's whole expertise store, across modes (decision 2: expertise travels), independent of room saves and physical player
+/// traits. Its top-level fields are Glow's, as before; ExpertiseCount sums every ability for the pips. Only completed host observations may advance it; model prose is not evidence. Discovery IDs name behaviours
 /// verified by the host; strings from commands or journals cannot award them.
 /// </summary>
 public sealed class GlowProgress
@@ -29,24 +30,36 @@ public sealed class GlowProgress
     public const string Skylight = "skylight";
     public const string LanternHint = "lantern_self";
 
-    private static readonly string[] DiscoveryOrder = { Lantern, Torch, Bioluminesce, Constellation, Skylight };
-    private static readonly string[] HintOrder = { LanternHint, "torch_high_place", "bioluminesce_water", "constellation_nearby", "skylight_sky" };
+    internal static readonly string[] DiscoveryOrder = { Lantern, Torch, Bioluminesce, Constellation, Skylight };
+    internal static readonly string[] HintOrder = { LanternHint, "torch_high_place", "bioluminesce_water", "constellation_nearby", "skylight_sky" };
     public static readonly IReadOnlyList<string> Touches = Array.AsReadOnly(new[] { "plain", "air", "ember", "frost", "chime" });
+    private static readonly IReadOnlyDictionary<string, ExpertiseRecord> NoOthers = new ReadOnlyDictionary<string, ExpertiseRecord>(new Dictionary<string, ExpertiseRecord>());
 
-    public static GlowProgress Fresh { get; } = new(0, Array.Empty<string>(), Array.Empty<string>());
+    public static GlowProgress Fresh { get; } = new(0, Array.Empty<string>(), Array.Empty<string>(), NoOthers);
     public int SuccessfulCasts { get; }
     public IReadOnlyList<string> Discoveries { get; }
     public IReadOnlyList<string> DeliveredHints { get; }
+    /// <summary>
+    /// The other abilities' expertise (bubbles and fire), by ability id, only those with something recorded.
+    /// Glow's own fields above stay the founder's original store: this block is what version 3's other ability keys hold.
+    /// </summary>
+    public IReadOnlyDictionary<string, ExpertiseRecord> Others { get; }
     public string SelectedTouch { get; }
     public double SoundVolume { get; }
     public bool SoundMuted { get; }
     public int ActiveLightAllowance => Discoveries.Count >= 5 ? 5 : Discoveries.Count >= 2 ? 4 : 3;
+    /// <summary>
+    /// Every expertise the pair learned, in every ability: what the Gubble's pips count (one pip per five, MECHANICS section 5).
+    /// </summary>
+    public int ExpertiseCount => Discoveries.Count + Others.Values.Sum(record => record.Discoveries.Count);
 
-    private GlowProgress(int successfulCasts, string[] discoveries, string[] deliveredHints, string touch = "plain", double volume = 0.35, bool muted = false)
+    private GlowProgress(int successfulCasts, string[] discoveries, string[] deliveredHints, IReadOnlyDictionary<string, ExpertiseRecord> others,
+        string touch = "plain", double volume = 0.35, bool muted = false)
     {
         SuccessfulCasts = successfulCasts;
         Discoveries = new ReadOnlyCollection<string>(discoveries);
         DeliveredHints = new ReadOnlyCollection<string>(deliveredHints);
+        Others = others;
         SelectedTouch = touch;
         SoundVolume = volume;
         SoundMuted = muted;
@@ -54,10 +67,44 @@ public sealed class GlowProgress
 
     public bool HasDiscovery(string id) => Discoveries.Contains(id, StringComparer.Ordinal);
 
+    /// <summary>One ability's record: Glow's from its own fields, another's as kept (empty when nothing is recorded there). Null for an ability the store does not know.</summary>
+    public ExpertiseRecord? Of(string ability)
+    {
+        if (ExpertiseLists.Find(ability) is not { } list) return null;
+        if (ability == ExpertiseLists.Glow) return ExpertiseRecord.Unchecked(list, SuccessfulCasts, Discoveries, DeliveredHints);
+        return Others.TryGetValue(ability, out var record) ? record : ExpertiseRecord.Empty(list);
+    }
+
+    /// <summary>Whether an expertise is learned, in any ability (an unknown ability or id is simply not learned).</summary>
+    public bool Has(string ability, string id) => ability == ExpertiseLists.Glow ? HasDiscovery(id) : Others.TryGetValue(ability, out var record) && record.Has(id);
+
     /// <summary>Whether two records hold the same progress and settings (a migration's verification reads its write back with this).</summary>
     public bool Same(GlowProgress other) => ReferenceEquals(this, other) || (other != null && SuccessfulCasts == other.SuccessfulCasts &&
         Discoveries.SequenceEqual(other.Discoveries, StringComparer.Ordinal) && DeliveredHints.SequenceEqual(other.DeliveredHints, StringComparer.Ordinal) &&
-        SelectedTouch == other.SelectedTouch && SoundVolume == other.SoundVolume && SoundMuted == other.SoundMuted);
+        SelectedTouch == other.SelectedTouch && SoundVolume == other.SoundVolume && SoundMuted == other.SoundMuted &&
+        Others.Count == other.Others.Count && Others.All(pair => other.Others.TryGetValue(pair.Key, out var theirs) && pair.Value.Same(theirs)));
+
+    /// <summary>
+    /// An expertise the host verified from the simulation, outside a cast of its own (the Bubble's carry, boat and lift): learned
+    /// once, however often it happens again. Returns this progress when it is already learned. A candidate to save, like any change.
+    /// An id the ability's list does not hold, an ability the store does not know, and Glow's own (its expertise are recorded by
+    /// AfterObservedCast) are refused.
+    /// </summary>
+    public GlowProgress WithExpertise(string ability, string id)
+    {
+        var list = ExpertiseLists.Find(ability);
+        if (list == null || ability == ExpertiseLists.Glow) throw new GlowProgressException("Expertise has an unknown ability.");
+        var before = Of(ability)!;
+        var after = before.WithLearned(id);
+        return ReferenceEquals(after, before) ? this : WithRecord(after);
+    }
+
+    private GlowProgress WithRecord(ExpertiseRecord record)
+    {
+        var others = Others.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        others[record.Ability] = record;
+        return Restore(SuccessfulCasts, Discoveries, DeliveredHints, SelectedTouch, SoundVolume, SoundMuted, others.Values);
+    }
 
     /// <summary>
     /// Builds a candidate only. The host must save it successfully before publishing it. A self Glow is
@@ -81,11 +128,11 @@ public sealed class GlowProgress
                 { hints.Add(HintOrder[index]); break; }
         if (count == SuccessfulCasts && discoveries.Count == Discoveries.Count && hints.Count == DeliveredHints.Count)
             return this;
-        return Restore(count, discoveries, hints, SelectedTouch, SoundVolume, SoundMuted);
+        return Restore(count, discoveries, hints, SelectedTouch, SoundVolume, SoundMuted, Others.Values);
     }
 
     public GlowProgress WithConfiguration(string touch, double volume, bool muted) =>
-        Restore(SuccessfulCasts, Discoveries, DeliveredHints, touch, volume, muted);
+        Restore(SuccessfulCasts, Discoveries, DeliveredHints, touch, volume, muted, Others.Values);
 
     /// <summary>
     /// One team's expertise from the records each mode kept before the teams packet (version 2 kept one file per mode): the union.
@@ -104,9 +151,13 @@ public sealed class GlowProgress
         return Restore(casts, found, hints, first.SelectedTouch, first.SoundVolume, first.SoundMuted);
     }
 
-    /// <summary>Validated restoration for the host's local save, never a command or companion input.</summary>
+    /// <summary>
+    /// Validated restoration for the host's local save, never a command or companion input. others are the other abilities' records
+    /// (each from ExpertiseRecord.Restore, so already checked against its own list); one an ability twice, Glow's key, or an empty
+    /// record (nothing recorded: the store does not keep it) is normalised or refused.
+    /// </summary>
     public static GlowProgress Restore(int successfulCasts, IEnumerable<string> discoveries, IEnumerable<string> deliveredHints,
-        string touch = "plain", double volume = 0.35, bool muted = false)
+        string touch = "plain", double volume = 0.35, bool muted = false, IEnumerable<ExpertiseRecord>? others = null)
     {
         if (successfulCasts < 0 || successfulCasts > MaxSuccessfulCasts)
             throw new GlowProgressException("Glow progress has an invalid use count.");
@@ -118,7 +169,18 @@ public sealed class GlowProgress
             throw new GlowProgressException("Glow progress has inconsistent use records.");
         if (!Touches.Contains(touch, StringComparer.Ordinal) || !double.IsFinite(volume) || volume is < 0 or > 1)
             throw new GlowProgressException("Glow progress has invalid touch or sound settings.");
-        return new GlowProgress(successfulCasts, found, hints, touch, volume, muted);
+        var kept = new Dictionary<string, ExpertiseRecord>(StringComparer.Ordinal);
+        foreach (var record in others ?? Array.Empty<ExpertiseRecord>())
+        {
+            if (record == null || record.Ability == ExpertiseLists.Glow || !ReferenceEquals(ExpertiseLists.Find(record.Ability), record.List) || kept.ContainsKey(record.Ability))
+                throw new GlowProgressException("Glow progress has invalid abilities.");
+            if (!record.IsEmpty) kept[record.Ability] = record;
+        }
+        // In the store's own order (the catalog's), so equal progress is equal bytes.
+        var ordered = new Dictionary<string, ExpertiseRecord>(StringComparer.Ordinal);
+        foreach (var list in ExpertiseLists.All)
+            if (kept.TryGetValue(list.Ability, out var record)) ordered[list.Ability] = record;
+        return new GlowProgress(successfulCasts, found, hints, kept.Count == 0 ? NoOthers : new ReadOnlyDictionary<string, ExpertiseRecord>(ordered), touch, volume, muted);
     }
 
     private static string[] ValidateIds(IEnumerable<string> values, string[] known, string error)
@@ -141,8 +203,11 @@ public interface IGlowProgressStore
 
 /// <summary>
 /// The team's expertise store (contracts/team.schema.json $defs/expertise_store: enfractal.glow_progress version 3, the team
-/// folder's expertise.json), strict and bounded. Version 3 keys the expertise by ability (Glow's today: abilities.glow) and names
-/// its team; versions 1 and 2 (one file per mode, user://single_player/progression/glow_trial_v1.json and its .challenge and
+/// folder's expertise.json), strict and bounded. Version 3 keys the expertise by ability (abilities.glow, bubbles and fire,
+/// each against its own fixed list of ids: ExpertiseLists; a key the code does not know is a newer save's and locks the store
+/// read-only whole, never dropped) and names its team. A Glow-only store is the founder's original, byte for byte, and is
+/// rewritten unchanged until something new is learned. Version 3 stays one version: the contract's abilities map holds up to
+/// sixteen keys "without a new version". Versions 1 and 2 (one file per mode, user://single_player/progression/glow_trial_v1.json and its .challenge and
 /// .live siblings) are read, never written: the teams packet's migration (Saves/SaveMigration.cs) merges them as their union.
 /// A store always writes version 3. Its team is the folder's name when the file is &lt;team&gt;/expertise.json, "local"
 /// otherwise (a test's own path). Load errors lock this instance against writes, preserving the original file. A persistent
@@ -160,7 +225,7 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
     public const string SchemaId = "enfractal.glow_progress";
     public const int Version = 3;
     public const string LocalTeamId = "local";
-    /// <summary>Glow's key in version 3's abilities (the only ability with expertise in the code today).</summary>
+    /// <summary>Glow's key in version 3's abilities (the other abilities' keys and lists are ExpertiseLists').</summary>
     public const string GlowAbility = "glow";
     public const int MaxSaveBytes = 4096;
     private static readonly string[] Fields = { "schema", "version", "successful_casts", "discoveries", "delivered_hints" };
@@ -310,34 +375,52 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
                 throw new GlowProgressException("Glow progress has an unsupported save format.");
             string? team = null;
             var record = root;
+            var glowKept = true;
+            var others = new List<ExpertiseRecord>();
             if (versionNumber == Version)
             {
                 var id = root.GetProperty("team_id");
                 if (id.ValueKind != JsonValueKind.String || !Saves.TeamLayout.ValidTeamId(id.GetString()!))
                     throw new GlowProgressException("Glow progress names an invalid team.");
                 team = id.GetString();
-                // Keyed by ability: Glow's is the one the code learns today. Another ability's record is a newer save's, refused
-                // whole and kept (fail-closed), never dropped on the next write.
+                // Keyed by ability, each against its own list. A key the code does not know is a newer save's: refused whole and
+                // kept (fail-closed), never dropped on the next write. Glow's key may be missing (a store that learned only
+                // another ability so far): Glow starts fresh.
                 var abilities = root.GetProperty("abilities");
-                if (abilities.ValueKind != JsonValueKind.Object || abilities.EnumerateObject().Count() != 1 || !abilities.TryGetProperty(GlowAbility, out record))
+                if (abilities.ValueKind != JsonValueKind.Object || abilities.EnumerateObject().Count() == 0 ||
+                    abilities.EnumerateObject().Any(property => ExpertiseLists.Find(property.Name) == null))
                     throw new GlowProgressException("Glow progress has unsupported abilities.");
-                ExactFields(record, AbilityFields);
+                foreach (var list in ExpertiseLists.All.Where(list => list.Ability != GlowAbility))
+                {
+                    if (!abilities.TryGetProperty(list.Ability, out var other)) continue;
+                    ExactFields(other, AbilityFields);
+                    others.Add(ExpertiseRecord.Restore(list, UseCount(other), Ids(other.GetProperty("discoveries"), 5), Ids(other.GetProperty("delivered_hints"), 5)));
+                }
+                glowKept = abilities.TryGetProperty(GlowAbility, out record);
+                if (glowKept) ExactFields(record, AbilityFields);
             }
-            var casts = record.GetProperty("successful_casts");
-            if (casts.ValueKind != JsonValueKind.Number || !casts.TryGetInt32(out var count))
-                throw new GlowProgressException("Glow progress has an invalid use count.");
-            var hints = Ids(record.GetProperty("delivered_hints"), versionNumber == 1 ? 1 : 5);
+            var count = glowKept ? UseCount(record) : 0;
+            var hints = glowKept ? Ids(record.GetProperty("delivered_hints"), versionNumber == 1 ? 1 : 5) : Array.Empty<string>();
             if (versionNumber == 1 && hints.Any(id => id != GlowProgress.LanternHint))
                 throw new GlowProgressException("Glow progress has invalid legacy hint records.");
-            if (versionNumber == 1) return new Document(1, null, GlowProgress.Restore(count, Ids(record.GetProperty("discoveries"), 5), hints));
+            var found = glowKept ? Ids(record.GetProperty("discoveries"), 5) : Array.Empty<string>();
+            if (versionNumber == 1) return new Document(1, null, GlowProgress.Restore(count, found, hints));
             var touch = root.GetProperty("touch");
             var volume = root.GetProperty("sound_volume");
             var muted = root.GetProperty("muted");
             if (touch.ValueKind != JsonValueKind.String || volume.ValueKind != JsonValueKind.Number ||
                 !volume.TryGetDouble(out var level) || muted.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 throw new GlowProgressException("Glow progress has invalid touch or sound settings.");
-            return new Document(versionNumber, team, GlowProgress.Restore(count, Ids(record.GetProperty("discoveries"), 5), hints, touch.GetString()!, level, muted.GetBoolean()));
+            return new Document(versionNumber, team, GlowProgress.Restore(count, found, hints, touch.GetString()!, level, muted.GetBoolean(), others));
         }
+    }
+
+    private static int UseCount(JsonElement record)
+    {
+        var casts = record.GetProperty("successful_casts");
+        if (casts.ValueKind != JsonValueKind.Number || !casts.TryGetInt32(out var count))
+            throw new GlowProgressException("Glow progress has an invalid use count.");
+        return count;
     }
 
     /// <summary>Version 3, as the store writes it: compact JSON, UTF-8 without a BOM, one final LF (also on Windows).</summary>
@@ -345,20 +428,26 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
     {
         if (state == null) throw new GlowProgressException("Glow progress is missing.");
         if (teamId == null || !Saves.TeamLayout.ValidTeamId(teamId)) throw new GlowProgressException("Glow progress names an invalid team.");
+        // Glow's key first and always (a Glow-only store is the original, byte for byte), then every other ability that has
+        // something recorded, in the catalog's order.
+        var abilities = new Dictionary<string, object>
+        {
+            [GlowAbility] = new
+            {
+                successful_casts = state.SuccessfulCasts,
+                discoveries = state.Discoveries,
+                delivered_hints = state.DeliveredHints,
+            },
+        };
+        foreach (var list in ExpertiseLists.All)
+            if (state.Others.TryGetValue(list.Ability, out var record))
+                abilities[list.Ability] = new { successful_casts = record.SuccessfulCasts, discoveries = record.Discoveries, delivered_hints = record.DeliveredHints };
         var json = JsonSerializer.SerializeToUtf8Bytes(new
         {
             schema = SchemaId,
             version = Version,
             team_id = teamId,
-            abilities = new Dictionary<string, object>
-            {
-                [GlowAbility] = new
-                {
-                    successful_casts = state.SuccessfulCasts,
-                    discoveries = state.Discoveries,
-                    delivered_hints = state.DeliveredHints,
-                },
-            },
+            abilities,
             touch = state.SelectedTouch,
             sound_volume = state.SoundVolume,
             muted = state.SoundMuted,

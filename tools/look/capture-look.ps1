@@ -138,6 +138,7 @@ function Wait-QuietGpu {
 
 $userArgs = @("--cameras=$camerasPath", "--out=$outPath", "--label=$Label", "--commit=$commit$(if ($dirty) { '+uncommitted' })",
     "--warmup=$WarmupFrames", "--frames=$MeasureFrames")
+$userArgs += '--no-playtest-record'  # a capture is not a play: the playtest recorder (R1) stays off in this window
 if ($Only) { $userArgs += "--only=$Only" }
 if ($Sweep) { $userArgs += '--sweep' }
 if ($Probe) {

@@ -193,7 +193,7 @@ public partial class CommandHost
         if (principal != PlayerPrincipal) throw new Refusal("permission_denied", "Only the player can do that, directly in the game.", "$.op");
         var grow = Str(args, "grow")!;
         var heart = grow == "heart";
-        if (_vitalsRules.FractalRules is not { } fractals) throw new Refusal("unsupported_capability", "This island has no Fractals to spend.", "$.op");
+        if (_vitalsRules.FractalRules is not { } fractals) throw new Refusal("unsupported_capability", $"This island has no {NameOf("fractals")} to spend.", "$.op");
         if (_playerVitalsUnavailable) throw new Refusal("not_ready", VitalsNotice, retryable: true);
         var vitals = Vitals;
         if (heart ? _vitalsRules.Hearts == null : _vitalsRules.Stamina == null)
@@ -206,8 +206,8 @@ public partial class CommandHost
         var held = vitals.Fractals.InHand(grow, fractals.Typed);
         if (held < price)
         {
-            var kind = fractals.Typed ? (heart ? "heart Fractals" : "band Fractals") : "Fractals";
-            var what = heart ? "A new heart" : "The next band of your stamina bar";
+            var kind = fractals.Typed ? (heart ? "heart " : "band ") + NameOf("fractals") : NameOf("fractals");
+            var what = heart ? "A new heart" : $"The next band of your {NameOf("stamina").ToLowerInvariant()}";
             throw new Refusal("not_ready", $"{what} needs {price} {kind}. You have {held}: find {price - held} more!", retryable: true);
         }
         if (!PlayerAtCamp()) throw new Refusal("not_ready", FractalsAtCamp, retryable: true);

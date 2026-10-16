@@ -14,6 +14,9 @@ namespace EnFractal.Native.Saves;
 /// <item>"Let the Gubble use fire": <c>gubble_fire</c> (CommandHost.FireProfileKey), default on.</item>
 /// <item>"Play the intro": <c>play_intro</c> (RoomHud.PlayIntroProfileKey), default on.</item>
 /// <item>The numbers on the meters: <c>meter_numbers</c> (RoomHud.NumbersProfileKey, M2), default off.</item>
+/// <item>Full screen: <c>fullscreen</c> (RoomHud.FullscreenProfileKey, decision 66 of 16 October), default off. The full-screen key writes it;
+/// every launch then opens in full screen until the key is pressed again, and "--fullscreen" (run-room.ps1 -Fullscreen) forces one launch.
+/// Headless runs, boot checks and the tools' own scenes (the look's captures) never read it: only the game's own boot does.</item>
 /// </list>
 /// The same file still keeps the HUD's appearance (the colours, the Gubble's name, the character worn), which belongs to the team:
 /// the first team is seeded from it (SeedTeam), and the menu (M7) moves the Customize panel onto the team file. Nothing here is
@@ -26,8 +29,9 @@ public static class MachineSettings
     public const string GubbleFireKey = Kernel.CommandHost.FireProfileKey;
     public const string PlayIntroKey = RoomHud.PlayIntroProfileKey;
     public const string MeterNumbersKey = RoomHud.NumbersProfileKey;
-    /// <summary>The four switches, in the order the design lists them.</summary>
-    public static readonly string[] SwitchKeys = { LetMyAiSeeKey, GubbleFireKey, PlayIntroKey, MeterNumbersKey };
+    public const string FullscreenKey = RoomHud.FullscreenProfileKey;
+    /// <summary>The switches, in the order the design lists them, the window's after the others.</summary>
+    public static readonly string[] SwitchKeys = { LetMyAiSeeKey, GubbleFireKey, PlayIntroKey, MeterNumbersKey, FullscreenKey };
 
     /// <summary>The HUD's appearance palette (RoomHud's colours, by the index the settings file keeps), for the Gubble's colour in a seeded team.</summary>
     public static readonly string[] AppearancePalette = { "#d28f63", "#65b9b0", "#d7b765", "#a18cc3", "#75965c" };

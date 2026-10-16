@@ -38,6 +38,14 @@ public sealed class PendingApproval
 }
 
 /// <summary>
+/// One message the host answered (<see cref="CommandHost.Handled"/>): the message as received, the principal the trusted caller
+/// named, the answer's envelope and the milliseconds it took. A copy read from the result after it was made: never the result
+/// itself, and never its data.
+/// </summary>
+public sealed record CommandHandled(string Message, string Principal, string Op, bool Ok, string? ActionId, string? Code, string? ErrorMessage,
+    int? Revision, bool Replayed, bool Preview, double Milliseconds);
+
+/// <summary>
 /// The room's single command path (contracts/game-command.schema.json). Manual controls, the companion
 /// adapter and tests send enfractal.command and enfractal.query; the host answers enfractal.result, and
 /// always answers: an unexpected failure is internal_error, never an exception out of Handle.
@@ -149,7 +157,6 @@ public partial class CommandHost : Node
     /// <summary>The mechanics round's stubs' words (unsupported_capability at $.op), the mock host's too.</summary>
     public const string MechanicsNotYet = "This operation is not available yet.";
     public const string DifficultyNotYet = "Difficulties are chosen at the opening menu, which is not built yet.";
-    public const string BubblesNotYet = "The Bubble's carry, boat and lift are not available yet.";
     /// <summary>world.set_mode once a team's boot fixed the mode (M3, CheckModeChange): unsupported_capability at $.op.</summary>
     public const string ModeAtMenu = "The mode is chosen at the menu; this save keeps its mode.";
     /// <summary>world.set_mode to Live on a team's room (M3): unsupported_capability at $.args.mode, allowed creative and challenge.</summary>
@@ -186,6 +193,12 @@ public partial class CommandHost : Node
     public event Action<PendingApproval>? ApprovalRequested;
     /// <summary>Raised when a goal's job ends: actor, job id and its state (succeeded, failed or cancelled).</summary>
     public event Action<string, string, string>? GoalFinished;
+    /// <summary>
+    /// The playtest record's one tap (docs/runs/RUN-2-PLAYTEST-LOOP.md, R1): raised once for every message HandleObject answered for
+    /// the player or the companion, after its result is made, with a copy of the result's envelope. Nothing a listener does reaches
+    /// the result, and a listener that throws is passed over. The host knows nothing else of who listens.
+    /// </summary>
+    public event Action<CommandHandled>? Handled;
     public IReadOnlyList<PendingApproval> PendingApprovals => _approvals.Values.Where(a => a.State == "pending").OrderBy(a => a.Created).ToList();
     /// <summary>Perception memory's size per companion (PerceptionMemoryEntries; 0 turns memory off). Tests lower it.</summary>
     public int PerceptionMemoryLimit { get; internal set; } = PerceptionMemoryEntries;
@@ -325,8 +338,9 @@ public partial class CommandHost : Node
         // Nature first: its write carries the team block too when that waits.
         SaveNatureOnExit();
         if (_teamDirty) SaveTeam();
-        // The room unloads: its effects end, and the look's glows with them.
+        // The room unloads: its effects end, and the look's glows with them; its bubbles pop and the body is handed back.
         EndAllEffects();
+        EndAllBubbles();
         // A host freed while another is attached (a test's second host) hands the key back.
         if (Player != null && IsInstanceValid(Player) && Player.WorldPhysicsRequest == _physicsSink) Player.WorldPhysicsRequest = _previousPhysicsSink;
         // The room is leaving (the game quits, or a room changes): every Godot value still waiting for the .NET finalizer is freed
@@ -382,6 +396,7 @@ public partial class CommandHost : Node
     {
         if (principal is not (PlayerPrincipal or CompanionPrincipal))
             return Fail("invalid", "system:host", null, null, new Refusal("principal_unknown", "The host did not admit this caller."));
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         _perceived = null;
         JsonObject result;
         try { result = HandleChecked(message, principal); }
@@ -394,7 +409,24 @@ public partial class CommandHost : Node
         finally { _perceived = null; }
         // What the Gubble's actions did to the player rides on its next result, whatever it asked (CommandHostConsequences).
         if (principal == CompanionPrincipal) DeliverNotices(result);
+        // The playtest record's tap, once the result is final: a copy of its envelope, so no listener can change the answer.
+        if (Handled != null) RaiseHandled(message, principal, result, started);
         return result;
+    }
+
+    private void RaiseHandled(string message, string principal, JsonObject result, long started)
+    {
+        static string? Text(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+        static bool Flag(JsonNode? node) => node is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
+        var error = result["error"] as JsonObject;
+        var handled = new CommandHandled(message, principal, Text(result["op"]) ?? "invalid", Flag(result["ok"]), Text(result["action_id"]),
+            Text(error?["code"]), Text(error?["message"]), result["revision"] is JsonValue revision && revision.TryGetValue<int>(out var number) ? number : null,
+            Flag(result["replayed"]), Flag(result["preview"]), System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        foreach (var listener in Handled!.GetInvocationList())
+        {
+            try { ((Action<CommandHandled>)listener)(handled); }
+            catch (Exception failure) { GD.Print("COMMAND_HOST a listener of Handled failed: " + failure.GetType().Name); }
+        }
     }
 
     private JsonObject HandleChecked(string message, string principal)
@@ -815,6 +847,8 @@ public partial class CommandHost : Node
         }
         if (actor != CompanionAvatarId || Companion == null) throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
         var goal = Str(args, "goal")!;
+        // The Gubble leading a bubble to a spot: its target is a bubble, never an entity (Kernel/Bubble/CommandHostBubbleLead).
+        if (goal == "lead") return LeadGoal(args, principal, actionId, fingerprint, preview);
         var data = new JsonObject { ["actor"] = actor, ["goal"] = goal };
         string? target = null;
         Aabb aim = default;
@@ -890,8 +924,11 @@ public partial class CommandHost : Node
         if (preview) return Previewed("goal.stop", principal, actionId);
         var whose = actor == null ? (principal == PlayerPrincipal ? "" : principal) : actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
         var affected = new JsonArray();
+        string? led = null;
         if (whose != PlayerPrincipal && Companion != null)
         {
+            // The bubble it leads pops with its stop (decision 60), as the player's own pop when it is the player's X (Kernel/Bubble).
+            led = PopLedBubble(principal == PlayerPrincipal);
             CancelGoal(CompanionAvatarId);
             Companion.Stop();
             affected.Add(CompanionAvatarId);
@@ -902,6 +939,18 @@ public partial class CommandHost : Node
             foreach (var ended in StopCompanionEffects(principal))
             {
                 affected.Add(ended);
+                stopped++;
+            }
+        // Its bubbles pop too, the player's X whoever cast them (Kernel/Bubble): a body in one deflates.
+        if (led != null)
+        {
+            affected.Add(led);
+            stopped++;
+        }
+        if (whose != PlayerPrincipal)
+            foreach (var popped in PopBubbles(principal, "all"))
+            {
+                affected.Add(popped);
                 stopped++;
             }
         var data = new JsonObject { ["effects_stopped"] = stopped };
@@ -919,6 +968,8 @@ public partial class CommandHost : Node
         // way, by id or all. An unknown id, or one the companion may not stop, stops nothing and still applies.
         var stopped = effect == "all" ? Runtime.Call(KernelNames.StopEffects, principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
         var ended = StopEffects(principal, effect);
+        // A bubble is stopped by its effect: id as well (Kernel/Bubble): the player any, a companion its own.
+        ended.AddRange(PopBubbles(principal, effect));
         return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(ended.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
             new JsonObject { ["effects_stopped"] = stopped + ended.Count });
     }
@@ -1716,6 +1767,8 @@ public partial class CommandHost : Node
         {
             if (Perceives(principal, id)) continue;
             if (path == "$.args.target" && goal != null && RememberedTargetGoals.Contains(goal) && Recall(principal, id) != null) continue;
+            // A lead's bubble is no entity: LeadGoal checks it is one the team sees now (Kernel/Bubble/CommandHostBubbleLead).
+            if (path == "$.args.target" && goal == "lead") continue;
             throw new Refusal("target_not_found", "That is not in this room.", path);
         }
     }
@@ -2027,6 +2080,8 @@ public partial class CommandHost : Node
     {
         if (!_runningGoals.Remove(actor, out var job)) return;
         job.State = "cancelled";
+        // A lead's end pops the bubble it led (decision 60; Kernel/Bubble/CommandHostBubbleLead).
+        LeadCancelled(job);
         TaskEnded(job);
         WishGoalEnded(job);
         GoalFinished?.Invoke(actor, job.Id, job.State);
@@ -2148,6 +2203,7 @@ public partial class CommandHost : Node
     {
         SightSweep(delta);
         AdvanceNature(delta);
+        AdvanceBubbles(delta);
         // A scorched creation's assembly the runtime rebuilt gets its scorch back (nothing is touched while nothing changed).
         if (Nature.Objects.Count > 0) ApplyNatureObjects();
         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
@@ -2509,8 +2565,13 @@ public partial class CommandHost : Node
         if (op == "goal.set")
         {
             var goal = args.GetProperty("goal");
-            if (goal.ValueKind != JsonValueKind.String || goal.GetString() is not ("follow" or "stay" or "come" or "look_at" or "point_at" or "go_to" or "fetch" or "wander"))
+            if (goal.ValueKind != JsonValueKind.String || goal.GetString() is not ("follow" or "stay" or "come" or "look_at" or "point_at" or "go_to" or "fetch" or "wander" or "lead"))
                 throw new Refusal("request_invalid", "That goal does not exist.", "$.args.goal");
+            // lead (decision 57, Kernel/Bubble/CommandHostBubbleLead): a bubble (its effect: id, never an avatar) to a spot.
+            if (goal.GetString() == "lead" && (!args.TryGetProperty("target", out var led) || led.ValueKind != JsonValueKind.String || !EffectId.IsMatch(led.GetString()!)))
+                throw new Refusal("request_invalid", "A lead names the bubble it leads (its effect: id).", "$.args.target");
+            if (goal.GetString() == "lead" && !args.TryGetProperty("position_m", out _))
+                throw new Refusal("request_invalid", "A lead names the spot it leads the bubble to.", "$.args.position_m");
             if (goal.GetString() is "look_at" or "point_at" or "go_to" && !args.TryGetProperty("target", out _) && !args.TryGetProperty("position_m", out _))
                 throw new Refusal("request_invalid", "This goal needs a target or a position.", "$.args");
             if (goal.GetString() == "fetch" && !args.TryGetProperty("target", out _))
@@ -2688,11 +2749,10 @@ public partial class CommandHost : Node
     {
         // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
         // pickup of a Fractal and spending them (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1,
-        // knack.set since M3. A difficulty in a request waits for the menu (M7): the boot sets it from the island save
-        // (BootMode, UseDifficulty).
+        // knack.set since M3, the Bubbles expertise since M9 (Kernel/Bubble). A difficulty in a request waits for the menu
+        // (M7): the boot sets it from the island save (BootMode, UseDifficulty).
         "receipt.mark" or "trust.reset" => MechanicsNotYet,
         "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
-        "nature.cast" when Str(args, "capability") is "bubble_carry" or "bubble_boat" or "bubble_lift" => BubblesNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",

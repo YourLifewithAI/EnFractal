@@ -45,6 +45,7 @@ public partial class CommandHostTest
         await TestGlowUnload(look);
         TestAura(look);
         await TestGlowGrowth(look);
+        TestExpertise();
         _host.UseRules(null, "The glow checks are over.");
         _host.LookHook = null;
         look.QueueFree();
@@ -326,15 +327,19 @@ public partial class CommandHostTest
         var hudPoint = _host.PlayerEffect("glow", InTheOpen);
         Check(Ok(hudPoint) && hudPoint["data"]!["target"]!.GetValue<string>() == "point" && look.HasGlow(Effect(hudPoint)), "PlayerEffect with a point lights that spot");
         Check(Code(_host.PlayerEffect("bloom")) == "unsupported_capability", "PlayerEffect of an ability the island lacks answers why");
-        // Bubbles and Fireworks go to the look's own calls, never StartGlow.
-        var blown = Effect(_host.PlayerEffect("bubbles"));
+        // Fireworks go to the look's own call, never StartGlow; Bubbles is one bubble at a spot (Kernel/Bubble), no stream the look blows.
+        var onTheGubble = _host.PlayerEffect("bubbles");
+        var blown = _host.PlayerEffect("bubbles", InTheOpen);
+        var bubble = blown["data"]?["bubble"]?.GetValue<string>() ?? "";
         var burst = Effect(_host.PlayerEffect("fireworks", InTheOpen));
-        Check(look.KindOf(blown) == LookDirector.EffectKind.Bubbles && look.KindOf(burst) == LookDirector.EffectKind.Fireworks && !look.HasGlow(blown) && !look.HasGlow(burst) && look.EffectCount == 4,
-            "PlayerEffect of bubbles (on the Gubble) and fireworks (at a spot) start the look's bubbles and fireworks, not glows");
-        // goal.stop of the Gubble ends its effects too, of every kind (the contract: an actor's goals and its effects).
+        Check(Code(onTheGubble) == "invalid_args" && Ok(blown) && blown["data"]?["kind"]?.GetValue<string>() == "walk_in" && _host.ActiveBubbles.Count == 1 &&
+              look.KindOf(bubble) != LookDirector.EffectKind.Bubbles && !look.HasGlow(bubble) && look.KindOf(burst) == LookDirector.EffectKind.Fireworks && !look.HasGlow(burst) &&
+              look.EffectCount == 3,
+            "PlayerEffect of bubbles is one bubble at a spot (none on the Gubble, no stream of small bubbles); fireworks at a spot start the look's fireworks, not a glow");
+        // goal.stop of the Gubble ends its effects too, of every kind (the contract: an actor's goals and its effects), and pops its bubble.
         var goalStop = _host.PlayerGoal("stop");
-        Check(Ok(goalStop) && goalStop["data"]!["effects_stopped"]!.GetValue<int>() == 4 && look.EffectCount == 0 && _host.ActiveEffectIds.Count == 0,
-            "the player's goal.stop of the Gubble ends its effects of every kind: glows, bubbles and fireworks");
+        Check(Ok(goalStop) && goalStop["data"]!["effects_stopped"]!.GetValue<int>() == 4 && look.EffectCount == 0 && _host.ActiveEffectIds.Count == 0 && _host.ActiveBubbles.Count == 0,
+            "the player's goal.stop of the Gubble ends its effects of every kind and pops the bubble: glows, the bubble and fireworks");
         _companion.Follow();
         // Expiry: an effect ends at its duration, and its light with it.
         var brief = Effect(Send(Glow("glow-l9", SelfArgs(duration: 2)), Companion));

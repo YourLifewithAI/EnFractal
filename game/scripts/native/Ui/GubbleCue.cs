@@ -53,8 +53,13 @@ public partial class GubbleCue : Control
     /// <summary>The bubble's and the reason's screen labels.</summary>
     public Label Bubble { get; private set; } = null!;
     public Label ReasonLabel { get; private set; } = null!;
+    /// <summary>The bubble's words changed (the playtest record's notice): its text and the reason beside it, "" when cleared.</summary>
+    public event System.Action<string, string>? Shown;
+    /// <summary>A refusal was shown: the reason as shown, and the host's code and the command's action id when the caller gave them ("" if not).</summary>
+    public event System.Action<string, string, string>? Refused;
 
     private double _showFor;
+    private string _shownText = "", _shownReason = "";
 
     public override void _Ready()
     {
@@ -98,13 +103,14 @@ public partial class GubbleCue : Control
         Redraw();
     }
 
-    /// <summary>The host refused: a head-shake and its reason, short (GubbleMagic.ShortReason).</summary>
-    public void Refuse(string? hostReason)
+    /// <summary>The host refused: a head-shake and its reason, short (GubbleMagic.ShortReason). The code and action id are the record's.</summary>
+    public void Refuse(string? hostReason, string? code = null, string? actionId = null)
     {
         State = "refused";
         Reason = GubbleMagic.ShortReason(hostReason);
         _showFor = ShowS;
         Companion?.Shake();
+        Refused?.Invoke(Reason, code ?? "", actionId ?? "");
         Redraw();
     }
 
@@ -146,6 +152,11 @@ public partial class GubbleCue : Control
         };
         Bubble.Text = text;
         ReasonLabel.Text = Reason;
+        if (text != _shownText || Reason != _shownReason)
+        {
+            (_shownText, _shownReason) = (text, Reason);
+            Shown?.Invoke(text, Reason);
+        }
         Bubble.AddThemeColorOverride("font_color", State == "refused" ? new Color("ffb8a6") : State == "shrug" ? new Color("dfe8e4") : new Color("fff3d6"));
         Place();
     }

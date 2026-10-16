@@ -17,6 +17,7 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 | `game/scripts/native/RoomWorld.cs`, `game/native/**`, `game/scenes/room.tscn`, `game/scenes/native_*.tscn` | Composition root, boot and release probe |
 | `game/scripts/native/Seams/**` | Interfaces two lanes share (the stamina ledger between the kernel and the body, M0 of the mechanics round): a change is a contract change |
 | `tools/rooms/**`, `game/rooms/test_room/**` | The placeholder room (regenerate with its builder; lanes request changes) |
+| `tools/playtest/**` (the playtest reader: `report.py`, its fixture and tests) | The integrator, with R2's Sonnet fix rounds ([RUN-2-PLAYTEST-LOOP.md](RUN-2-PLAYTEST-LOOP.md)); `.claude/skills/playtest/` and `docs/runs/playtests/**` are the integrator's |
 | `game/tests/native/RoomDataTest.cs`, `game/tests/native_room_data.tscn` | Contract-consumption fixture |
 | `docs/engine/persistence-notes.md`, `docs/engine/quality-gates.md`, `docs/engine/decisions/**` | Cross-track rules |
 | `docs/history/**`, `docs/research/**` | Read-only context; nobody edits history |
@@ -55,6 +56,7 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 | `game/scripts/native/Sandbox/**` | P3, from Run 2 |
 | `game/scripts/native/Saves/**` | P4, from Run 3 |
 | `game/scripts/native/RoomHud.cs`, `game/scripts/native/Ui/**` | P5, from Run 3 |
+| `game/scripts/native/Playtest/**`, `game/tests/native/Playtest/**`, `game/tests/native_playtest.tscn` (the playtest recorder; the integrator wires its `PlaytestRecorder.Attach(RoomWorld)` into `RoomWorld.cs`) | R1, the playtest loop ([RUN-2-PLAYTEST-LOOP.md](RUN-2-PLAYTEST-LOOP.md)) |
 | `game/tests/*.gd` (kernel suites), `game/tests/native/SmallAvatarPhysicsTest.cs`, `game/tests/native_small_avatar.tscn` | P1, P2 |
 | `docs/engine/phase3/**` | P1 kernel records |
 
