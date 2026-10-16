@@ -238,7 +238,7 @@ def l_shaped_room(base: Path, reverse_wall: str | None = None) -> Path:
 class SchemaTests(unittest.TestCase):
     def test_every_schema_is_valid_draft_2020_12(self):
         schemas = sorted(CONTRACTS.glob("*.schema.json"))
-        self.assertEqual(len(schemas), 10)  # the playtest record joined on 15 October
+        self.assertEqual(len(schemas), 11)  # the playtest record joined on 15 October, the menu's files on 16 October
         for path in schemas:
             with self.subTest(schema=path.name):
                 Draft202012Validator.check_schema(validate.load_strict(path))
