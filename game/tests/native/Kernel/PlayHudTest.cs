@@ -89,6 +89,8 @@ public partial class PlayHudTest : Node
             await TestDuskInRoom();
             await TestGubbleKeys();
             await TestSmartAsk();
+            // The Bubble by the smart ask (PlayHudTest.Bubble.cs): choose it, lead it, lift it, let it go.
+            await TestBubbleAsk();
             await TestWheel();
             await TestAcknowledgement();
             await TestReadableWords();
@@ -358,7 +360,7 @@ public partial class PlayHudTest : Node
                 "F11 full screen on or off (kept for your next launch)",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm · E gather a log or stone you hold into your wallet",
                 "The Gubble, your companion:",
-                "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
+                "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look; on a bubble, choose it, then a spot to lead it there, a higher one to lift it); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
                 $"1 Glow{PriceWords("glow")}, 2 Bloom{PriceWords("bloom")}, 3 Bubbles{PriceWords("bubbles")}, 4 Fireworks{PriceWords("fireworks")} where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps · P your character's bounce (x0.5, x1, x1.5) · Shift+P print its motion profile",
@@ -777,7 +779,7 @@ public partial class PlayHudTest : Node
         _hud.AimRayForTests = Down(spot);
         _hud._UnhandledInput(Press(Key.Key3));
         var bubbles = host.ActiveBubble?.Id;
-        Check(bubbles != null && host.ActiveEffectIds.Count == 0 && look.KindOf(bubbles) != LookDirector.EffectKind.Bubbles && _hud.Cue.Icon == GubbleMagic.SlotIcons[2] &&
+        Check(bubbles != null && host.ActiveEffectIds.Count == 0 && look.KindOf(bubbles) == LookDirector.EffectKind.None && look.BubbleRoot(bubbles) is { } && _hud.Cue.Icon == GubbleMagic.SlotIcons[2] &&
               _hud.Cue.State == "done" && companion.LastCastCategory == "float",
             "3 aimed at the floor: the one Bubble there, no stream of small bubbles: " + host.ActiveBubble);
         _hud._UnhandledInput(Press(Key.Key4));
@@ -785,8 +787,8 @@ public partial class PlayHudTest : Node
         Check(fireworks != null && fireworks != bubbles && look.KindOf(fireworks) == LookDirector.EffectKind.Fireworks && _hud.Cue.Icon == GubbleMagic.SlotIcons[3] && _hud.Cue.State == "done" &&
               companion.LastGesture == CompanionAvatar.Gesture.Cast && companion.LastCastToward is { } toward && toward.DistanceTo(spot) < 0.001f && companion.LastCastCategory == "burst",
             "4 aimed at the floor: Fireworks at the spot, the Gubble tossing the rocket toward it (a quicker gesture)");
-        Check(CompanionAvatar.CastSeconds("float") > CompanionAvatar.CastSeconds("light") && CompanionAvatar.CastSeconds("burst") < CompanionAvatar.CastSeconds("light"),
-            "the gesture blows longer for Bubbles and tosses quicker for Fireworks");
+        Check(CompanionAvatar.CastSeconds("float") == CompanionAvatar.CastSeconds("light") && CompanionAvatar.CastSeconds("burst") < CompanionAvatar.CastSeconds("light"),
+            "the Bubble is cast like Glow, one bubble at a spot, with no longer blowing gesture, and Fireworks toss quicker");
         _hud._UnhandledInput(Press(Key.X));
         Check(host.ActiveEffectIds.Count == 0 && host.ActiveBubbles.Count == 0 && look.EffectCount == 0, "X pops the bubble and ends the fireworks with the Gubble's goal");
         _hud.AimRayForTests = Air();

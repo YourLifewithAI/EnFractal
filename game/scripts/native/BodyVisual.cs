@@ -45,6 +45,11 @@ public readonly struct BodyState
     public bool Diving { get; init; }
     /// <summary>The body floats (the Gubble): it never stands, climbs or swims.</summary>
     public bool Floating { get; init; }
+    /// <summary>
+    /// A bubble holds the body (a carry or a lift: SmallPlayerController.BubbleRide.Enveloped, decision 43): the drawn body floats inside
+    /// it, as a float gait would, whatever its own gait is (it neither steps nor falls). A boat is no float: the body stands on its deck.
+    /// </summary>
+    public bool InBubble { get; init; }
     /// <summary>Its hands are full (the command host's answer).</summary>
     public bool Carrying { get; init; }
     public bool Sprinting { get; init; }

@@ -17,17 +17,20 @@ public partial class LookDirector
     public string? GlowVariant(string id) => _glows.TryGetValue(id, out var glow) ? glow.Variant : null;
     public string? GlowTouch(string id) => _glows.TryGetValue(id, out var glow) ? glow.Touch : null;
 
+    /// <summary>
+    /// The host's glow with its variant and touch. bubbleSource is the host's seam from when Glow could light the stream of small
+    /// bubbles (glowing_bubbles); since the Bubble became one player-sized bubble (decisions 55 to 60) there is no stream to light, so
+    /// that variant is refused here as an unknown one and the source is never read.
+    /// </summary>
     public bool StartGlowVariant(string id, Node3D? follow, Vector3 center, float radiusM, float intensity,
         string variant, string touch, string? bubbleSource, float volume, bool muted)
     {
-        if (variant is not ("plain" or "lantern" or "torch" or "bioluminesce" or "skylight" or "glowing_bubbles") ||
+        if (variant is not ("plain" or "lantern" or "torch" or "bioluminesce" or "skylight") ||
             touch is not ("plain" or "air" or "ember" or "frost" or "chime")) return false;
-        if (variant == "glowing_bubbles" && (bubbleSource == null || KindOf(bubbleSource) != EffectKind.Bubbles)) return false;
         if (!StartGlow(id, follow, center, radiusM, intensity)) return false;
         var glow = _glows[id];
         glow.Variant = variant;
         glow.Touch = touch;
-        glow.BubbleSource = bubbleSource;
         glow.Anchor = center;
         SetGlowAudio(volume, muted);
         if (variant == "bioluminesce")
@@ -44,12 +47,7 @@ public partial class LookDirector
             glow.Halo.Scale *= 0.7f;
             Paint(glow, new Color("dde9ff"));
         }
-        if (variant == "glowing_bubbles")
-        {
-            glow.Halo.Visible = false;
-            if (glow.Core != null) glow.Core.Visible = false;
-        }
-        if (variant is "bioluminesce" or "glowing_bubbles" || touch != "plain") AddGlowDecoration(glow);
+        if (variant == "bioluminesce" || touch != "plain") AddGlowDecoration(glow);
         UpdateGlowVariant(glow, 0);
         glow.Root.Position = GlowPosition(glow, false);
         return true;
@@ -180,7 +178,7 @@ public partial class LookDirector
 
     private void AddGlowDecoration(Glow glow)
     {
-        var count = glow.Variant is "bioluminesce" or "glowing_bubbles" ? 24 : 12;
+        var count = glow.Variant == "bioluminesce" ? 24 : 12;
         var color = glow.Touch switch
         {
             "ember" => new Color("ffb26d"), "frost" => new Color("9deaff"),
@@ -189,7 +187,7 @@ public partial class LookDirector
         var multimesh = new MultiMesh
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true, InstanceCount = count,
-            Mesh = glow.Touch == "frost" && glow.Variant is not ("bioluminesce" or "glowing_bubbles")
+            Mesh = glow.Touch == "frost" && glow.Variant != "bioluminesce"
                 ? new SphereMesh { Radius = 0.5f, Height = 1f, RadialSegments = 4, Rings = 1 }
                 : new QuadMesh { Size = Vector2.One },
         };
@@ -218,21 +216,13 @@ public partial class LookDirector
         }
         if (glow.Decoration == null) return;
         var mesh = glow.Decoration.Multimesh;
-        var bubbles = glow.BubbleSource == null ? Array.Empty<(Vector3 Position, float Radius, bool Popping)>() : EffectParticles(glow.BubbleSource).ToArray();
         for (var index = 0; index < mesh.InstanceCount; index++)
         {
             var angle = index * 2.399963f + glow.Phase;
             var clock = (float)_glowClock;
             var size = 0.014f;
             Vector3 offset;
-            if (glow.Variant == "glowing_bubbles")
-            {
-                if (index >= bubbles.Length || bubbles[index].Popping)
-                { mesh.SetInstanceTransform(index, new Transform3D(Basis.Identity.Scaled(Vector3.Zero), Vector3.Zero)); continue; }
-                offset = bubbles[index].Position - GlowPosition(glow, true);
-                size = bubbles[index].Radius * 1.6f;
-            }
-            else if (glow.Variant == "bioluminesce")
+            if (glow.Variant == "bioluminesce")
             {
                 var distance = Mathf.Sqrt((index + 0.5f) / mesh.InstanceCount) * glow.RadiusM * 0.85f;
                 offset = new Vector3(Mathf.Cos(angle) * distance, Mathf.Sin(clock * 1.5f + angle) * 0.003f, Mathf.Sin(angle) * distance);

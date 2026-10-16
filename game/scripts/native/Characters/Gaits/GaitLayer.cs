@@ -13,6 +13,9 @@ namespace EnFractal.Native.Characters.Gaits;
 /// and squashes and stretches with volume kept, at most 15% (springs misbehave under larger scales). While the body
 /// climbs or swims the gait yields to the contact layer's poses. It also tells a later sound packet about footfalls,
 /// landings and splashes. Allocation-free per frame; a pure function of the states and clocks it was fed.
+/// Held by a bubble (<see cref="BodyState.InBubble"/>, a carry or a lift, decision 43) the body floats whatever its own gait is: the
+/// layer stops stepping and falling and poses the float gait instead, blended in and out by a spring, so the drawn body hangs and
+/// bobs inside the bubble that holds it and leans softly into the bubble's drift.
 /// </summary>
 public sealed class GaitLayer : IPoseLayer<BodyState>
 {
@@ -27,11 +30,13 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
 
     private readonly GaitRig _rig;
     private readonly IGait _gait;
+    /// <summary>The float a body takes inside a bubble: null when its own gait is the float already.</summary>
+    private readonly FloatGait? _bubbleGait;
     private bool _started;
     private double _lastDistance;
     private bool _wasSwimming;
     private double _cycles;
-    private CriticalSpring _speed, _move, _run, _air, _active, _vx, _vz, _pitch, _roll;
+    private CriticalSpring _speed, _move, _run, _air, _active, _vx, _vz, _pitch, _roll, _bubble;
 
     public GaitLayer(CharacterBody body) : this(new GaitRig(body)) { }
 
@@ -46,6 +51,7 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
             MotionKind.Stride when rig.Leg[GaitRig.Right] >= 0 || rig.Leg[GaitRig.Left] >= 0 => new StrideGait(rig),
             _ => new WaddleGait(rig),
         };
+        if (_gait.Kind != MotionKind.Float) _bubbleGait = new FloatGait(rig);
         _active.Reset(1);
     }
 
@@ -56,6 +62,8 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
     public double Cycles => _cycles;
     /// <summary>This tick's frame, as the gait saw it.</summary>
     public GaitFrame Frame { get; private set; }
+    /// <summary>How far the body floats inside a bubble now: 0 on its own gait to 1 held (a spring, so it blends in and out).</summary>
+    public float BubbleWeight => Mathf.Clamp(_bubble.Value, 0, 1);
     /// <summary>The root's lean now: forward and toward the right, radians.</summary>
     public float LeanPitchRad => _pitch.Value;
     public float LeanRollRad => _roll.Value;
@@ -99,14 +107,17 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
         var stride = Mathf.Max(profile.StrideAt(speed), 1e-3f);
 
         var yields = state.Climbing || state.Swimming;
-        var airborne = !yields && !state.Floating && !state.Grounded && state.AirTimeS > AirDelayS && _gait.Kind != MotionKind.Float;
+        // Held by a bubble the body is carried, not walking or falling: no steps, no airborne squash; the float gait is posed instead.
+        var held = state.InBubble && !yields;
+        var airborne = !yields && !held && !state.Floating && !state.Grounded && state.AirTimeS > AirDelayS && _gait.Kind != MotionKind.Float;
         var before = _cycles;
-        if (!yields && !airborne && moved > 0) _cycles += moved / stride;
+        if (!yields && !airborne && !held && moved > 0) _cycles += moved / stride;
 
         var omega = 5 / settle;
-        _move.Step(yields ? 0 : GaitMath.Smoothstep(0.02f, 0.1f, speed), omega, dt);
+        _bubble.Step(held ? 1 : 0, 12, dt);
+        _move.Step(yields || held ? 0 : GaitMath.Smoothstep(0.02f, 0.1f, speed), omega, dt);
         // The walk-to-run blend is against this body's own walk and run (BodyPace): a Quick feet body walks at its full pace.
-        _run.Step(BodyPace.Blend(state, speed), omega, dt);
+        _run.Step(held ? 0 : BodyPace.Blend(state, speed), omega, dt);
         _air.Step(airborne ? 1 : 0, 18, dt);
         _active.Step(yields ? 0 : 1, 10, dt);
 
@@ -124,42 +135,53 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
         var pitchTarget = active * (Mathf.Clamp(gain * lag.Dot(forward), -reach, reach) + _run.Value * _move.Value * _gait.RunLeanRad);
         var rollTarget = active * Mathf.Clamp(gain * lag.Dot(right), -reach, reach);
         // A float's lean is soft and wide: slower to come and to go.
-        var leanOmega = (_gait.LeansAboutCentre ? 3 : 6) / settle;
+        var leanOmega = (_gait.LeansAboutCentre || held ? 3 : 6) / settle;
         _pitch.Step(pitchTarget, leanOmega, dt);
         _roll.Step(rollTarget, leanOmega, dt);
 
         Emit(state, before, speed);
 
+        // Inside a bubble its own gait fades out as the float fades in (the weights add to the gait's own Active).
+        var inside = _bubbleGait == null ? 0f : BubbleWeight;
         var frame = new GaitFrame
         {
             Cycles = _cycles, SpeedMps = speed, StrideM = stride, WalkMps = BodyPace.Walk(state), RunMps = BodyPace.Run(state),
             Move = Mathf.Clamp(_move.Value, 0, 1), Run = Mathf.Clamp(_run.Value, 0, 1),
-            Air = Mathf.Clamp(_air.Value, 0, 1), Active = Mathf.Clamp(_active.Value, 0, 1),
+            Air = Mathf.Clamp(_air.Value, 0, 1), Active = Mathf.Clamp(_active.Value, 0, 1) * (1 - inside),
             VerticalMps = float.IsFinite(velocity.Y) ? velocity.Y : 0, TimeS = clock.TimeS, DeltaS = dt,
         };
         Frame = frame;
         // A layer with nothing to say leaves the pose alone: a body that climbs or swims, settled.
-        if (frame.Active < 1e-3f && MathF.Abs(_pitch.Value) < 1e-5f && MathF.Abs(_roll.Value) < 1e-5f) return;
+        if (frame.Active < 1e-3f && inside < 1e-3f && MathF.Abs(_pitch.Value) < 1e-5f && MathF.Abs(_roll.Value) < 1e-5f) return;
 
         var root = new RootMotion { SquashY = 1 };
-        _gait.Pose(pose, frame, ref root);
-        ApplyRoot(pose, root);
+        if (inside < 0.999f) _gait.Pose(pose, frame, ref root);
+        if (inside > 1e-3f)
+        {
+            // The float is posed from still: no travel, no air, as much of it as the bubble holds the body (and not while it climbs or swims).
+            var floating = frame;
+            floating.Active = Mathf.Clamp(_active.Value, 0, 1) * inside;
+            floating.Move = 0;
+            floating.Air = 0;
+            _bubbleGait!.Pose(pose, floating, ref root);
+        }
+        ApplyRoot(pose, root, inside > 0.5f ? _bubbleGait! : _gait);
     }
 
     /// <summary>Composes the gait's root motion with the lean: squash about the ground, roll and pitch about the pivot, yaw, then the shift.</summary>
-    private void ApplyRoot(PoseBuffer pose, in RootMotion root)
+    private void ApplyRoot(PoseBuffer pose, in RootMotion root, IGait pivotGait)
     {
         var pitch = Mathf.Clamp(root.Pitch + _pitch.Value, -MaxLeanRad, MaxLeanRad);
         var roll = Mathf.Clamp(root.Roll + _roll.Value, -MaxLeanRad, MaxLeanRad);
         var squash = float.IsFinite(root.SquashY) ? Mathf.Clamp(root.SquashY, 1 - MaxSquash, 1 + MaxSquash) : 1;
         Vector3 pivot;
-        if (_gait.LeansAboutCentre) pivot = _rig.BodyCentre;
+        if (pivotGait.LeansAboutCentre) pivot = _rig.BodyCentre;
         else pivot = new Vector3(roll > 0 ? _rig.FootprintRight : roll < 0 ? _rig.FootprintLeft : 0, 0, pitch > 0 ? _rig.FootprintFront : pitch < 0 ? _rig.FootprintBack : 0);
         var tilt = GaitMath.Roll(roll) * GaitMath.Pitch(pitch);
         var turn = GaitMath.Yaw(root.Yaw);
         var rotation = turn * tilt;
         var offset = turn * (pivot - tilt * pivot) + root.Offset;
-        if (_gait.LeansAboutCentre)
+        if (pivotGait.LeansAboutCentre)
         {
             // A body leaning about its middle rises as far as its footprint's lowest corner would dip: it never sinks.
             var dip = 0f;

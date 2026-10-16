@@ -31,7 +31,6 @@ public partial class RoomHud
         AddButton(page, "Cast Glow", () => CastPanelGlow(_glowKind.Selected >= 0 && _glowKind.Selected < _glowKindIds.Count ? _glowKindIds[_glowKind.Selected] : "auto"), 32);
         var experiments = new HBoxContainer(); page.AddChild(experiments);
         AddButton(experiments, "Try a light above", () => CastPanelGlow("skylight"), 32);
-        AddButton(experiments, "Light the bubbles", () => CastPanelGlow("glowing_bubbles"), 32);
         page.AddChild(WrapMagicLabel("Different places can change what a light becomes. Your journal remembers what you discover."));
         MagicHeading(page, "A PERSONAL TOUCH");
         _glowTouch = new OptionButton { Name = "GlowTouchChoice" };
