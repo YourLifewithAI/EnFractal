@@ -1,18 +1,19 @@
 # The Gubble's Bubbles and Fireworks
 
-**Run 2, Bubbles and Fireworks, Lane L (10 October).** The Gubble's second and third abilities, built the way the glow was ([GLOW.md](GLOW.md)): one look call per effect, the same arguments as `StartGlow`, and each one visibly leaves the Gubble. Both are cosmetic only: nothing collides with them, and they change no room data. The code is in `game/scripts/native/Look/LookDirector.Effects.cs`, and its numbers are in `EffectLook`. The checks are in `game/tests/native/Look/LookPresetTest.Effects.cs`.
+**Run 2, Bubbles and Fireworks, Lane L (10 October); the Bubbles part replaced on 16 October.** The Gubble's third ability (Fireworks) is built the way the glow was ([GLOW.md](GLOW.md)): one look call, the same arguments as `StartGlow`, and it visibly leaves the Gubble. It is cosmetic only: nothing collides with it, and it changes no room data. The code is in `game/scripts/native/Look/LookDirector.Effects.cs`, and its numbers are in `EffectLook`. The checks are in `game/tests/native/Look/LookPresetTest.Effects.cs`.
+
+**The Bubble is no effect any more.** The stream of small bubbles this page described (`StartBubbles`, its wind, its pops on touch) was removed by the Bubble's redesign (MECHANICS.md decisions 55 to 60): the Bubble is one player-sized bubble the kernel holds (`Kernel/Bubble`) and the look draws (`LookDirector.Bubble.cs`, the section below).
 
 ## The API (for Lane P part 3)
 
 ```csharp
-bool StartBubbles(string effectId, Node3D? follow, Vector3 center, float radiusM, float intensity);
 bool StartFireworks(string effectId, Node3D? follow, Vector3 center, float radiusM, float intensity);
-void StopEffect(string effectId);   // any kind: a glow, bubbles or fireworks
-void StopAllEffects();              // every glow, stream and burst
-EffectKind KindOf(string effectId); // None, Glow, Bubbles or Fireworks
+void StopEffect(string effectId);   // any kind: a glow or fireworks
+void StopAllEffects();              // every glow and burst
+EffectKind KindOf(string effectId); // None, Glow or Fireworks
 bool HasEffect(string effectId);
-int EffectCount { get; }            // glows, bubbles and fireworks together
-int RecolorGlows();                 // after SetAuraColor: glows, bubbles and fireworks take the aura
+int EffectCount { get; }            // glows and fireworks together
+int RecolorGlows();                 // after SetAuraColor: glows, fireworks and the Bubble's film take the aura
 ```
 
 - **The arguments are StartGlow's.**
@@ -29,26 +30,16 @@ int RecolorGlows();                 // after SetAuraColor: glows, bubbles and fi
 - **One cap across the kinds.** The look draws at most `EffectLook.MaxEffects` = 8 effects of every kind together, the engine's cap a room. `StartGlow` now counts against it too. The host's pre-check should read `look.EffectCount` where it read `look.GlowCount`.
 - **Ending effects.** Call `StopEffect` when an effect's duration ends, on `effect.stop` and on `goal.stop` (X). `StopGlow` still works for glows.
 - **The Gubble** needs no argument: the look finds its body itself (as for the spark), and with no Gubble drawn the effects start from the spot.
-- **The cast gesture** can be timed to the effects:
-  - bubbles leave at once;
-  - a rocket bursts after 0.35 s plus 0.25 s a metre of climb, at most 1 s.
+- **The cast gesture** can be timed to the effect: a rocket bursts after 0.35 s plus 0.25 s a metre of climb, at most 1 s. (The Bubble is cast with Glow's own gesture; the longer "blowing" lean went with the stream.)
 
-## Bubbles (`particles.float`)
+## The Bubble (`particles.float`, drawn by `LookDirector.Bubble.cs`)
 
-- **At a point:** the Gubble blows a stream toward the spot.
-  - Each bubble flies from the Gubble's middle to a place within `radiusM` of the spot, 6 cm up, in 0.55 s a metre (0.25 to 1.2 s). It slows as it arrives, on a low arc.
-  - Then it floats: it rises at 4.5 cm/s, wobbles about a centimetre and drifts with the wind.
-- **On the Gubble (`follow`):** a stream rises from its body and follows it as it moves.
-- **No Gubble drawn:** they rise from the spot itself.
-- **How many:** 14 a second per unit of intensity (about 8 at the default 0.6), at most 40 in the air a stream. Each bubble is 0.5 to 1.5 cm in radius, a child's soap bubbles at the 10 cm scale.
-- **The wind:** the world's wind from the player's body (`world.set_physics`), or else a light breeze of 3 cm/s along the look's own wind (the way the grass bends). `LookDirector.Wind` overrides it, which tests and the review harness use.
-- **The pop is a look effect.** A bubble pops when it touches:
-  - an avatar's body, an upright capsule;
-  - the land: a ray along its path on the world layer, every other frame, so hidden parts and water never count;
-  - or nothing, after 3 to 6.5 s.
-
-  It swells by 70% and fades over 0.14 s. The Gubble doesn't pop bubbles it has just blown (0.6 s) or the stream rising out of its own body.
-- **The look:** a thin bright rim with a faint rainbow sheen, tinted 25 to 60% toward the aura colour, and a highlight. They are lit by the scene, not self-lit, so at night they show only where a real light catches them: the Gubble's halo, a wisp, the moon.
+- **One bubble, drawn from what the kernel says** (`ShowBubble`, `MoveBubble`, `HideBubble`: where, how big, a boat or not, a ghost or not) **and what the HUD adds** (`SetBubbleState`: what the place made of it, whether it holds the player, the spot it is led to and whether that is a lift, whether it is rising). It is no effect of the room's cap.
+- **The film is the Gubble's own soap bubble** (`bubble.gdshader`, `MaterialLibrary.ForBubble`) in the Gubble's aura: a Fresnel rim, a thin rainbow, a drawn glint. A bubble waiting at a spot breathes and bobs; one that holds the player is calmer; a boat is a dome over a thin disc at the water; a ghost preview is fainter; a lift stretches the bubble up 8% and rushes the film's colours.
+- **Led,** a thin string runs from the Gubble to its skin and a ring marks the spot on the ground, with a column over it when the spot is a lift. **Selected** (the smart ask's first right-click), a ring in the focus line's colours (`FocusLook`) goes round its silhouette and the film takes a warm wash. (`FocusHighlight`'s outline pass is not used: it would fill a see-through shell's whole disc with the line's colour.)
+- **Its parts are made when it is cast** and shown for a few frames too small to see, and `WarmBubble()` (asked by the HUD once the room is up) does the same once with a bubble of nothing in front of the eye, so the first cast, choice and lead are not the renderer's first look at them.
+- **The cost** is `BubbleCost` (0.03 ms a frame measured in a minute of casting, choosing, aiming, leading and lifting at 1280 x 720; the drawing 0.014, the HUD's update 0.006, the host's preview of a lead 0.007), and `tests/native/Look/BubbleCapture.cs` is the windowed capture that measures it and photographs the stages.
+- **The checks** are `LookPresetTest.Bubble.cs` (the drawing, the states, the ring, the warm-up, the stream's absence) and `PlayHudTest.Bubble.cs` (the HUD's choosing, leading, lifting and letting go).
 
 ## Fireworks (`particles.burst` plus a brief `light.emit`)
 
@@ -69,14 +60,11 @@ int RecolorGlows();                 // after SetAuraColor: glows, bubbles and fi
 ## Cost
 
 - **One draw call an effect:** a MultiMesh of camera-facing quads, updated on the CPU.
-- **Rays:** none for the fireworks, and at most 20 a frame for a full stream of bubbles. Each ray is the light estimate's reusable one, so nothing is allocated.
+- **Rays:** none for the fireworks. (The Bubble's film reads the light four times a second, one light estimate's rays each time.)
 
 ## What needs the founder's eye (DiamondAge)
 
-1. **Bubbles:**
-   - Do they read as soap bubbles at the 10 cm scale, or as dots?
-   - Is the stream thick enough at 0.6, and is the pop visible?
-   - At night: is "lit only by real light" right, or should they glint a little on their own?
+1. **The Bubble** (see the HUD and look lane's report of 16 October): does it read as the Gubble's soap bubble, is the chosen one's ring clear, is the string wanted, and is the lift's column enough to say where it rises to?
 2. **Fireworks:**
    - Is 0.8 m (eight body heights) the right burst height in F1 to F4?
    - Is the flash too strong under the bloom?

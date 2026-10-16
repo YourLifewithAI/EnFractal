@@ -335,7 +335,7 @@
           }
         },
         {
-          "description": "particles.float, a stream of floating particles (Bubbles): from the Gubble while it moves (self), or blown from the Gubble toward a spot (point), rising and drifting with the wind there. Cosmetic: nothing collides with them, and a bubble pops as a look effect when an avatar or the land touches it. intensity is how thick the stream is (1 is the look's standard). Its outer limits: intensity only, from 0.05 to 2.0; radius (how far the particles spread and drift) at most 3 m; duration at most 120 s, because a stream costs particles every frame; at most 4 active, half the room's cap of 8 effects; reach at most 5 m; category float.",
+          "description": "particles.float, the Bubble (Bubbles): one player-sized bubble cast at a spot, the place deciding what it is (a carry round the player, a boat on water, a bubble to walk into), moved only while the Gubble leads it. intensity is unused by the host since the redesign. Its outer limits: intensity only, from 0.05 to 2.0; radius (how far the particles spread and drift) at most 3 m; duration at most 120 s, because a stream costs particles every frame; at most 4 active, half the room's cap of 8 effects; reach at most 5 m; category float.",
           "if": {
             "required": [
               "primitive"

@@ -411,7 +411,7 @@ An island's rules are data (`enfractal.island_rules`): the abilities it grants, 
   | Primitive | Category | What it is | Reach | Duration | Active |
   |---|---|---|---|---|---|
   | `light.emit` | `light` | a real light, following the Gubble or floating at a spot (Glow) | 5 m | 600 s | 8 |
-  | `particles.float` | `float` | a stream of floating particles from the Gubble, or blown toward a spot, drifting with the wind (Bubbles) | 5 m | 120 s | 4 |
+  | `particles.float` | `float` | one player-sized bubble cast at a spot, the place deciding what it is (a carry round the player, a boat on water, a bubble to walk into), led by the Gubble (Bubbles) | 5 m | 120 s | 4 (one at a time) |
   | `particles.burst` | `burst` | a burst of sparks with a brief flash of real light, over the Gubble or above a spot after a rocket trail (Fireworks) | 8 m | 10 s | 4 |
   | `growth.seed` | `growth` | flowers on the island's ground, rooting only on walkable soil or grass above water (Bloom, and the flower trail); radius at most 0.6 m; cast with `nature.cast` at a point | 5 m | 600 s | 1 |
   | `element.ignite` | `fire` | fire on the island's ground, spreading with dryness and wind, put out by rain, leaving ash that regrows (Fire); radius at most 1.5 m; cast with `nature.cast` after a preview | 5 m | 60 s | 1 |
