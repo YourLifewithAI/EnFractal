@@ -39,6 +39,7 @@ public partial class CommandHostTest
         TestVitalsArithmetic();
         TestStaminaLedgerFixture();
         TestGuardBudget();
+        TestModeRows();
         _host.UseRules(null, "The energy checks are over.");
         _host.ConfigurePlayerVitals(new ModeTestStore());
     }
@@ -134,7 +135,7 @@ public partial class CommandHostTest
         var fall = PlayerVitals.FallDamage(MathF.Sqrt(2 * 3.5f * 1.5f), false);
         Check(standard.HarmQuarters(7, false) == 1 && standard.HarmQuarters(7.5f, false) == 2 && standard.HarmQuarters(2, false) == 0 &&
               gentle.HarmQuarters(10, false) == 1 && brave.HarmQuarters(10, false) == 3 && gentle.HarmQuarters(5, false) == 1,
-            "harm rounds to the nearest quarter when it lands (7 health one quarter, 7.5 two, 2 none); Gentle halves it and removes none, Brave takes half again");
+            "harm rounds to the nearest quarter when it lands (7 health one quarter, 7.5 two) (2 health is none); Gentle halves it and removes none Standard counts, Brave takes half again");
         Check(Math.Abs(fall - 96) < 0.2f && standard.HarmQuarters(fall, true) == 19 && big2.HarmQuarters(fall, true) == 16 && standard.FallCapQuarters == null,
             $"a 1.5 m fall is the same {fall:0.0} health for every body: 19 quarters at 5 a quarter, 16 at Big heart's 6; v5 sets no fall cap, so none applies");
         var capped = IslandRules.Parse(V5("{ \"mode\": \"challenge\", \"difficulty\": \"gentle\", \"available\": true, \"damage_multiplier\": 0.5,",

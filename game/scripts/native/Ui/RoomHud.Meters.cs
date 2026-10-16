@@ -109,12 +109,20 @@ public partial class RoomHud
         _numbersToggle = new CheckButton
         {
             Name = "MeterNumbersSetting", Text = "Show numbers on the meters", ButtonPressed = MeterNumbers,
-            TooltipText = "Hearts, the stamina bar and the pips are drawn, not written. This adds their numbers beside them.",
+            TooltipText = NumbersTooltip(),
             FocusMode = Control.FocusModeEnum.All, CustomMinimumSize = new Vector2(0, 38),
         };
         _numbersToggle.Toggled += SetMeterNumbers;
         options.AddChild(_numbersToggle);
     }
+
+    /// <summary>
+    /// The switch's hint, in the island's words for the three meters (the pack's names block: MeterWords); today's words when the pack
+    /// has none. Made again when the meters are (the rules they are drawn under are part of their state).
+    /// </summary>
+    private string NumbersTooltip() => Host?.Rules?.Names == null
+        ? "Hearts, the stamina bar and the pips are drawn, not written. This adds their numbers beside them."
+        : $"{MeterWords.Name(Host, "hearts")}, the {MeterWords.Lower(Host, "stamina")} and the {MeterWords.Lower(Host, "pips")} are drawn, not written. This adds their numbers beside them.";
 
     /// <summary>The player's choice, kept in the profile (this session only if it cannot be written).</summary>
     public void SetMeterNumbers(bool shown)
@@ -222,6 +230,7 @@ public partial class RoomHud
             _pipsMarker.SetPool(pips, maxPips, shadow, aura);
             _pipsMarker.SetNumbers(pipsNumbers);
             _heartsNumbers.Visible = _barNumbers.Visible = MeterNumbers;
+            if (_numbersToggle != null) _numbersToggle.TooltipText = NumbersTooltip();
             if (MeterNumbers)
             {
                 _heartsNumbers.Text = MeterMath.HeartsNumbers(MeterWords.Name(host, "hearts"), quarters, maxQuarters);
