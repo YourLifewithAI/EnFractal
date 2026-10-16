@@ -91,6 +91,7 @@ from typing import Any, Callable
 
 from . import eyes, perception, textsafety
 from .mock_journal import JournalMixin
+from .mock_trust import TrustMixin
 from .glow_progress import GlowProgress
 from .canonical import CanonicalJsonError
 from .contract import (
@@ -151,7 +152,9 @@ BUBBLE_NO_WATER = "A Bubble boat is cast on water."
 LEAD_POPPED = "The bubble popped before it got there."
 LEAD_BLOCKED = "The bubble cannot get there from here."
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
-                           "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust"})
+                           "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust", "receipt.mark", "trust.reset"})
+# The mechanics round's player-only ops the mock hosts (M8's Trust, mock_trust.py); the rest answer as not available yet.
+MECHANICS_HOSTED = frozenset({"receipt.mark", "trust.reset"})
 # Durable, but they change no world state, so they do not move the room revision.
 NO_REVISION_OPS = frozenset({"room.checkpoint", "journal.note"})
 # The game's world physics presets (game/scripts/world_physics_profile.gd PRESET_IDS). Player-only, not saved.
@@ -577,7 +580,7 @@ def _might_be_stop(raw: bytes) -> bool:
     return b"goal.stop" in raw or b"effect.stop" in raw or b"\\u" in raw
 
 
-class MockHost(JournalMixin):
+class MockHost(JournalMixin, TrustMixin):
     """The game side of the companion boundary, minus physics."""
 
     def __init__(self, contracts: Contracts, room_dir: Path | None = None, styles_dir: Path | None = None,
@@ -611,6 +614,9 @@ class MockHost(JournalMixin):
         # only the player's control (set_gubble_eyes) changes it, never a request. Looks spent, per companion principal.
         self.gubble_eyes = eyes.DEFAULT_GUBBLE_EYES
         self._look_buckets: dict[str, eyes.LookBucket] = {}
+        # Trust (M8, mock_trust.py): the team's, so a room reload keeps it; only the host's own observation and the player's
+        # marks and reset move it, never a request field.
+        self.trust_count = 0
         self._reset_room()
         # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
         self.load_rules(rules_file or rules_path())
@@ -644,6 +650,7 @@ class MockHost(JournalMixin):
         self.memory: dict[str, PerceptionMemory] = {}
         self._last_sweep = self.clock.now()
         self._reset_journal()
+        self._reset_trust_session()
         self._creation_counter = 0
         # The running effects, oldest first. Effects are not entities: no query lists them (as on the kernel host).
         self.effects: OrderedDict[str, ActiveEffect] = OrderedDict()
@@ -1051,6 +1058,8 @@ class MockHost(JournalMixin):
             if not _is_stop(message) and not self._take_token(principal):
                 return self._rate_limited(principal)
             self._expire()
+            # Trust's clock (the kernel's SettleTrust, which the companion bridge runs each frame): windows closed by now settle.
+            self._settle_trust()
             # The sweep on the host's clock; a player's own request is the player looking, so it always sweeps.
             self._maybe_sweep(now=principal.startswith("player:"))
             try:
@@ -1308,6 +1317,8 @@ class MockHost(JournalMixin):
         if approved_by:
             result["approved_by"] = approved_by
         self._emit("committed", {"principal": principal, "op": op, "action_id": message["action_id"]})
+        # M8: a command of the Gubble's that committed opens its Trust window and can be marked (mock_trust.py).
+        self._observe_trust(principal, message, result)
         return result
 
     def _check_receipt_room(self, principal: str) -> None:
@@ -1338,7 +1349,7 @@ class MockHost(JournalMixin):
 
     def _check_unsupported(self, message: dict) -> None:
         """What the kernel refuses before it looks at revisions (CommandHost.Unsupported), where the mock follows it."""
-        if message["op"] in MECHANICS_PLAYER_OPS:
+        if message["op"] in MECHANICS_PLAYER_OPS - MECHANICS_HOSTED:
             raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
         if message["op"] == "world.set_mode" and "difficulty" in message["args"]:
             raise HostError("unsupported_capability", DIFFICULTY_NOT_YET, field_path="$.op")
@@ -2510,7 +2521,7 @@ class MockHost(JournalMixin):
         if not player:
             data["target_seen"] = "now"
         if lift:
-            data["lift_price"] = self.rules.price("bubble_lift", principal) if self.rules else 0
+            data["lift_price"] = self._trust_price("bubble_lift", principal)
         outcome = {"affected": [actor, bubble.id], "data": data}
         if not apply:
             return {"data": data}
@@ -2709,7 +2720,7 @@ class MockHost(JournalMixin):
         """A Fractal's pickup or a gather, the player's alone: refused before it reaches here (_check_unsupported) in the mock."""
         raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
 
-    _op_knack_set = _op_fractal_spend = _op_receipt_mark = _op_trust_reset = _op_item_gather = _op_item_pickup
+    _op_knack_set = _op_fractal_spend = _op_item_gather = _op_item_pickup
 
     def _op_world_set_physics(self, principal, message, apply, new_revision):
         # Player-only: a companion is refused before any handler runs. Not saved in room state, so transient.

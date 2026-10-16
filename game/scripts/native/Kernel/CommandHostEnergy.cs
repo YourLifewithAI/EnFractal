@@ -24,9 +24,12 @@ public partial class CommandHost
     /// <summary>Progress toward the next refilled pip (a pip at 1).</summary>
     private double _pipProgress;
 
-    /// <summary>What casting an ability costs this principal now, in whole pips (0 without a pool or a price): the HUD's "needs 4".</summary>
+    /// <summary>
+    /// What casting an ability costs this principal now, in whole pips (0 without a pool or a price): the HUD's "needs 4". The
+    /// Gubble's own-idea price carries Trust's band discount (M8, CommandHostTrust.TrustPrice).
+    /// </summary>
     public int PriceFor(string capability, string principal) =>
-        _vitalsRules.Price(capability, principal != PlayerPrincipal, principal != PlayerPrincipal && WishRunning());
+        TrustPrice(capability, principal, _vitalsRules.Price(capability, principal != PlayerPrincipal, principal != PlayerPrincipal && WishRunning()));
 
     /// <summary>
     /// The guard at commit: the price this principal pays for this ability, refused with energy_exhausted when a real pool

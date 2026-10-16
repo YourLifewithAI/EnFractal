@@ -863,6 +863,8 @@ public partial class CommandHost
                 Nature.Objects[target.Id] = state;
             }
             state.Burn = Math.Min(1, state.Burn + seconds * NatureLaws.ObjectBurnPerIntensityS * fire.Intensity * (1 - Nature.Weather.Rain01));
+            // M8: a build the Gubble's fire burns is a consequence fact (CommandHostConsequences.NoteBuildBurnt, once per build a fire).
+            if (state.Creation && state.Burn > 0) NoteBuildBurnt(fire, target.Id, target.Bounds.GetCenter());
             if (state.BurnedDown && state.PositionM == null && Room.Objects.FirstOrDefault(o => o.Id == target.Id) is { } item)
             {
                 var (position, rotation) = PoseOf(item, ObjectPoses());

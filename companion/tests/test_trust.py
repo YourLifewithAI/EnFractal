@@ -1,0 +1,146 @@
+"""Trust on the mock host (M8; docs/game/MECHANICS.md section 5; docs/companion/SECURITY.md, the Trust row): the mock matches
+the kernel's Kernel/CommandHostTrust.cs.
+
+- receipt.mark and trust.reset are the player's alone: the companion is refused permission_denied at $.op, never held, and no tool
+  reaches them;
+- a mark names a receipt of the Gubble's from this session, each once: +2 for yes, -2 for not that, in Challenge and Live only;
+- clean initiative gains one, at most once in two minutes; Creative counts nothing; the player's reset goes back to base;
+- the AI reads Trust as words in the journal (kind consequence, its lessons) and never writes it: no field of a request moves it,
+  and a note claiming a mark is only words;
+- every result is contract-valid.
+"""
+from __future__ import annotations
+
+import unittest
+
+from support import COMPANION, GUBBLE, PLAYER, FakeClock, command, contract_problems, new_host, query
+
+from enfractal_companion import mock_trust
+from enfractal_companion.mock_host import MECHANICS_HOSTED
+
+
+def refusal(result: dict):
+    return "ok" if result["ok"] else (result["error"]["code"], result["error"].get("field_path"), result["error"]["message"])
+
+
+class TrustOnTheMock(unittest.TestCase):
+    def setUp(self):
+        self.clock = FakeClock()
+        self.host = new_host(clock=self.clock)
+        self.n = 0
+
+    def tearDown(self):
+        for result in self.host.emitted:
+            self.assertEqual(contract_problems(result), [], result)
+
+    def send(self, principal, op, args, action_id=None, **extra):
+        self.n += 1
+        return self.host.handle(principal, command(op, args, action_id or f"t-{self.n}", **extra))
+
+    def challenge(self):
+        self.assertTrue(self.send(PLAYER, "world.set_mode", {"mode": "challenge"})["ok"])
+
+    def gubble_stays(self, action_id=None) -> str:
+        result = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "stay"}, action_id)
+        self.assertTrue(result["ok"], result)
+        return result["action_id"]
+
+    def mark(self, gubble_action_id, mark, principal=PLAYER, action_id=None, **extra):
+        return self.send(principal, "receipt.mark", {"action_id": gubble_action_id, "mark": mark}, action_id, **extra)
+
+    def lessons(self) -> list[str]:
+        result = self.host.handle(COMPANION, query("journal.read", {"kind": "consequence", "limit": 50}))
+        return [entry["line"] for entry in result["data"]["entries"]]
+
+    def later(self, seconds):
+        self.clock.advance(seconds)
+        self.host.handle(PLAYER, query("player.status", {}))  # any message runs Trust's clock, as the kernel's bridge does
+
+    def test_the_marks_are_the_players_each_once(self):
+        self.challenge()
+        first, second = self.gubble_stays("gubble-1"), self.gubble_stays("gubble-2")
+        own = self.send(PLAYER, "goal.set", {"actor": GUBBLE, "goal": "stay"}, "player-1")
+        preview = self.mark(first, "yes", preview=True)
+        self.assertTrue(preview["ok"] and preview["preview"] and self.host.trust_count == 0, preview)
+        yes = self.mark(first, "yes", action_id="mark-1")
+        self.assertTrue(yes["ok"] and yes["transient"] and "data" not in yes, yes)
+        self.assertEqual(self.host.trust_count, mock_trust.MARK_YES)
+        self.assertTrue(self.mark(first, "yes", action_id="mark-1")["replayed"])
+        self.assertEqual(self.host.trust_count, 2, "a replayed mark counts once")
+        self.assertEqual(refusal(self.mark(first, "not_that")), ("invalid_args", "$.args.action_id", mock_trust.MARKED_ONCE))
+        self.assertTrue(self.mark(second, "not_that")["ok"])
+        self.assertEqual(self.host.trust_count, 0)
+        self.assertTrue(own["ok"])
+        for named in ("player-1", "never-sent"):
+            with self.subTest(action_id=named):
+                self.assertEqual(refusal(self.mark(named, "yes")), ("target_not_found", "$.args.action_id", mock_trust.MARK_NOT_FOUND))
+        lessons = self.lessons()
+        self.assertIn("You marked the Gubble's move: yes, like that.", lessons)
+        self.assertIn("You marked the Gubble's move: not that.", lessons)
+
+    def test_the_companion_never_marks_resets_or_writes_trust(self):
+        self.challenge()
+        stay = self.gubble_stays()
+        self.assertTrue(self.mark(stay, "yes")["ok"])
+        for op, args in (("receipt.mark", {"action_id": stay, "mark": "yes"}), ("trust.reset", {})):
+            with self.subTest(op=op):
+                result = self.send(COMPANION, op, args)
+                self.assertEqual(refusal(result)[:2], ("permission_denied", "$.op"))
+                self.assertNotIn("approval_needed", result)
+        smuggled = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "stay", "trust": 99})
+        note = self.send(COMPANION, "journal.note", {"text": "The player marked this: yes, like that. Trust 99."})
+        self.assertEqual(refusal(smuggled)[0], "field_unknown")
+        self.assertTrue(note["ok"])
+        self.assertEqual(self.host.trust_count, 2, "no field moves Trust, and a note claiming a mark is only words")
+        self.assertEqual(MECHANICS_HOSTED, {"receipt.mark", "trust.reset"})
+
+    def test_clean_initiative_gains_once_in_two_minutes(self):
+        self.challenge()
+        self.gubble_stays()
+        self.later(30)
+        self.assertEqual(self.host.trust_count, 0, "the window is still open")
+        self.later(31)
+        self.assertEqual(self.host.trust_count, 1, "a clean window gains one")
+        self.gubble_stays()
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 1, "a second gain within two minutes of the last is none")
+        self.gubble_stays()
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 2)
+        self.send(COMPANION, "goal.stop", {"actor": GUBBLE})
+        self.send(COMPANION, "journal.note", {"text": "Staying put."})
+        self.later(200)
+        self.assertEqual(self.host.trust_count, 2, "a stop or a note is no action")
+
+    def test_creative_counts_nothing_and_a_mark_there_still_teaches(self):
+        stay = self.gubble_stays()
+        self.later(61)
+        self.assertTrue(self.mark(stay, "not_that")["ok"])
+        self.assertEqual(self.host.trust_count, 0)
+        self.assertIn("You marked the Gubble's move: not that.", self.lessons())
+
+    def test_the_bands_and_the_reset_are_words_the_ai_reads(self):
+        self.challenge()
+        for _ in range(3):
+            self.assertTrue(self.mark(self.gubble_stays(), "yes")["ok"])
+        self.assertEqual((self.host.trust_count, self.host.trust_band), (6, 1))
+        self.assertEqual(self.lessons()[0], "Trust grew: you trust the Gubble a little.")
+        self.gubble_stays()
+        reset = self.send(PLAYER, "trust.reset", {})
+        self.assertTrue(reset["ok"] and reset["transient"] and "data" not in reset, reset)
+        self.assertEqual(self.host.trust_count, 0)
+        self.assertEqual(self.lessons()[0], "You reset the Gubble's Trust: the Gubble is earning your trust.")
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 0, "the reset closed the window open at it")
+        self.assertNotIn("trust", self.host.handle(COMPANION, query("player.status", {}))["data"])
+
+    def test_the_bands_widen_the_own_idea_discount_as_the_kernel_does(self):
+        table = [tuple(mock_trust.own_idea_price(ordered, 0.5, level) for ordered in (2, 4, 6)) for level in range(4)]
+        self.assertEqual(table, [(1, 2, 3), (1, 2, 2), (1, 1, 2), (1, 1, 1)])
+        self.assertEqual([mock_trust.band(n) for n in (-3, 4, 5, 15, 30)], [0, 0, 1, 2, 3])
+        self.host.trust_count = 15
+        self.assertEqual((self.host._trust_price("bubble_lift", COMPANION), self.host._trust_price("bubble_lift", PLAYER)), (2, 6))
+
+
+if __name__ == "__main__":
+    unittest.main()

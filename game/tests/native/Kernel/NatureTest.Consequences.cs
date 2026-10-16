@@ -57,9 +57,11 @@ public partial class NatureTest
         var next = Send(Command(NextId("look"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay" }), Companion);
         Check(next["notices"]?[0]?["health_before"]?.GetValue<double>() == after, "more harm from the same fire after it was read is a new notice, on any result: " + Canonical(next["notices"]));
         var journal = Send(Query("journal.read", new JsonObject { ["kind"] = "consequence" }), Companion);
-        var facts = journal["data"]?["entries"]?.AsArray();
-        var fact = facts?.FirstOrDefault();
-        Check(Ok(journal) && facts?.Count == 1 && fact?["line"]?.GetValue<string>().StartsWith("The Gubble's fire burned you", StringComparison.Ordinal) == true &&
+        // Since M8 the lessons hold Trust's words too ("Trust fell: ..."): the fire's own facts are the ones in its words.
+        var facts = new JsonArray(journal["data"]?["entries"]?.AsArray().Where(e => e?["line"]?.GetValue<string>().StartsWith("The Gubble's fire", StringComparison.Ordinal) == true)
+            .Select(e => e!.DeepClone()).ToArray() ?? Array.Empty<JsonNode?>());
+        var fact = facts.FirstOrDefault();
+        Check(Ok(journal) && facts.Count == 1 && fact?["line"]?.GetValue<string>().StartsWith("The Gubble's fire burned you", StringComparison.Ordinal) == true &&
             fact["actor"]?.GetValue<string>() == Companion && fact["kind"]?.GetValue<string>() == "consequence" && fact["pin_m"] != null,
             "the journal keeps one consequence fact for the fire, in the game's own words, read back by kind: " + Canonical(journal["data"]));
     }
@@ -127,7 +129,8 @@ public partial class NatureTest
         Steps(6);
         Check(graced == null && _host.Vitals.Health == PlayerVitals.MaximumHealth / 2 && !BurningNear(), "during the grace fire cannot hurt them, and the ground there does not catch again");
         var notice = Send(Query("player.status", new JsonObject()), Companion)["notices"]?[0];
-        var fact = Send(Query("journal.read", new JsonObject { ["kind"] = "consequence" }), Companion)["data"]?["entries"]?[0];
+        var fact = Send(Query("journal.read", new JsonObject { ["kind"] = "consequence" }), Companion)["data"]?["entries"]?.AsArray()
+            .FirstOrDefault(e => e?["line"]?.GetValue<string>().StartsWith("The Gubble's fire", StringComparison.Ordinal) == true);
         Check(notice?["recovered"]?.GetValue<bool>() == true && notice["health_after"]?.GetValue<double>() == 0 &&
             fact?["line"]?.GetValue<string>().EndsWith("until you had to recover.", StringComparison.Ordinal) == true,
             "the Gubble's notice and the journal say the player had to recover: " + Canonical(notice) + " " + fact?["line"]);

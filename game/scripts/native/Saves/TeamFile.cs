@@ -20,7 +20,7 @@ public sealed record ChosenKnack(int Slot, string Knack, int Rank);
 /// The team file (contracts/team.schema.json $defs/team, enfractal.team version 1, the team folder's team.json): what belongs to the
 /// team whatever the mode or island. The person is a profile, not an avatar (a display name and the costume worn); the knacks chosen
 /// and their ranks; the Gubble's name and colour, bound to the team for life; Trust, counted by the host from receipts and
-/// consequence facts (M8; a field only until then), never by a request. Immutable: every change is a new record. Display names
+/// consequence facts (M8, WithTrust), never by a request. Immutable: every change is a new record. Display names
 /// are untrusted text, shown only. The machine's switches are not here (MachineSettings).
 /// </summary>
 public sealed record TeamFile
@@ -92,6 +92,16 @@ public sealed record TeamFile
         var returning = earned.Remove(knack, out var kept) ? kept : 1;
         var chosen = Knacks.Where(k => k.Slot != slot).Append(new ChosenKnack(slot, knack, returning)).OrderBy(k => k.Slot).ToArray();
         return (this with { Knacks = chosen, Earned = Frozen(earned) }).Checked();
+    }
+
+    /// <summary>
+    /// The team with its Trust count (M8: only the host writes it, from receipts, marks and consequence facts; never a request), within
+    /// the schema's bound. The same count returns this record, so an unchanged count writes nothing.
+    /// </summary>
+    public TeamFile WithTrust(int count)
+    {
+        var bounded = Math.Clamp(count, -TrustBound, TrustBound);
+        return bounded == Trust ? this : (this with { Trust = bounded }).Checked();
     }
 
     /// <summary>Ranks set aside as the record keeps them: in ordinal order, the shared empty one when there are none.</summary>
@@ -224,7 +234,7 @@ public sealed record TeamFile
 /// <summary>
 /// The team file on disk: strict, bounded, written atomically under an exclusive lease (a temporary file flushed, then moved
 /// over); a file that changed under it (another session) or cannot be read is kept, never overwritten, and the store refuses
-/// to write until it is loaded again. Only the host (knack.set, Trust later) and the menu write it; nothing a request carries
+/// to write until it is loaded again. Only the host (knack.set, Trust) and the menu write it; nothing a request carries
 /// does, and the companion surface never sees it.
 /// </summary>
 public sealed class TeamStore

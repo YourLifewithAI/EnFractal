@@ -316,6 +316,9 @@ public static class JournalPages
         lines.Add(Heading("Your companion"));
         lines.Add(Title(CompanionName(host)));
         lines.Add(Text("Floats after you, over water and up cliffs, and fetches the things you find."));
+        // Trust in words, never a number (M8): the host's count from what happened, the pack's word for Trust above it.
+        lines.Add(Faint(MeterWords.Name(host, "trust")));
+        lines.Add(Text(host.TrustWords));
         return new(lines, false, "");
     }
 
