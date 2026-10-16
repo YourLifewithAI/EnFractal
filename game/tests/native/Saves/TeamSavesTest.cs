@@ -46,6 +46,7 @@ public partial class TeamSavesTest : Node3D
             TestExpertiseStore();
             TestMigration();
             TestMigrationKeepsWhatItShould();
+            TestTheWindowSwitch();
             await TestTheGameBoot();
             await TestABootThatCannotSetItsMode();
             await TestAFixtureBootIsAsBefore();
@@ -333,6 +334,35 @@ public partial class TeamSavesTest : Node3D
             "the folders the move emptied go; the machine's settings (\"Let my AI see\" among them) stay where they were, untouched");
         var third = SaveMigration.Run(layout, Now + TimeSpan.FromHours(2));
         Check(third.Phase == "done" && third.Removed.Count == 0 && File.Exists(changed), "a launch after that does nothing: the ledger is finished");
+    }
+
+    /// <summary>
+    /// The window's switch (the first recorded play's HUD round, decision 66): "fullscreen" is one of the machine's switches, beside "Play the
+    /// intro", read from the same settings file; the migration and a first team's seeding never touch it, and a file that holds it
+    /// wrongly (another type, another version, no file) reads as a window.
+    /// </summary>
+    private void TestTheWindowSwitch()
+    {
+        var layout = LegacyFolder("window");
+        var settings = layout.MachineSettingsFile;
+        Write(settings, "[profile]\n\nversion=1\ncompanion_color=4\ncompanion_name=\"Wisp\"\nai_eyes=false\nplay_intro=false\nmeter_numbers=true\nfullscreen=true\n");
+        var bytes = File.ReadAllBytes(settings);
+        Check(MachineSettings.FullscreenKey == "fullscreen" && MachineSettings.SwitchKeys.Contains(MachineSettings.FullscreenKey) && MachineSettings.SwitchKeys.Contains(MachineSettings.PlayIntroKey) &&
+              MachineSettings.SwitchKeys.Distinct().Count() == MachineSettings.SwitchKeys.Length,
+            "the machine's switches list the window's key beside \"Play the intro\", each once");
+        Check(RoomHud.LoadFullscreen(settings) && !RoomHud.LoadPlayIntro(settings) && RoomHud.LoadMeterNumbers(settings),
+            "the HUD reads it from the machine's settings file, and the switches beside it keep their own values");
+        SaveMigration.Run(layout, Now);
+        SaveMigration.Run(layout, Now + TimeSpan.FromHours(1));
+        Check(File.ReadAllBytes(settings).SequenceEqual(bytes) && RoomHud.LoadFullscreen(settings), "two launches' migrations leave the settings file as it was, the window's switch with it");
+        var team = MachineSettings.SeedTeam(settings, "local", Now);
+        Check(team.GubbleName == "the Gubble" && team.GubbleColour == MachineSettings.AppearancePalette[4] && File.ReadAllBytes(settings).SequenceEqual(bytes),
+            "the first team is seeded from the same file without writing it, and nothing of the window's switch goes into the team (the team is the player's, the window the machine's)");
+        Write(settings, "[profile]\n\nversion=1\nfullscreen=1\n");
+        Check(!RoomHud.LoadFullscreen(settings), "a value that is not a true or false is a window");
+        Write(settings, "[profile]\n\nversion=1\n");
+        Check(!RoomHud.LoadFullscreen(settings) && !RoomHud.LoadFullscreen(Path.Combine(layout.Root, "no-such-profile.cfg")) && RoomHud.LoadPlayIntro(settings),
+            "no key, or no file, is a window too (and the intro still plays by default)");
     }
 
     private void TestMigrationKeepsWhatItShould()

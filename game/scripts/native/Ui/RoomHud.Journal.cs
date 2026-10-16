@@ -36,8 +36,9 @@ public partial class RoomHud
         // The help footer stops short of the dock, and its long lines (the help, a long notice) wrap within it instead of
         // running on under the book.
         _footer.OffsetRight = -JournalDockClearancePx;
+        // (Not the labels in a row of buttons: a wrapping label in a row has no width of its own.)
         foreach (var label in _footer.FindChildren("*", "Label", true, false).OfType<Label>())
-            label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+            if (label.GetParent() is not HBoxContainer) label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
     }
 
     /// <summary>The journal's key or a click on the book: open it at the index, or close it (a moving book turns back).</summary>

@@ -154,7 +154,7 @@ public partial class PlayHudTest
         await Frames(4);
         var box = (VBoxContainer)_hud.FindChild("Meters", true, false)!;
         Check(box.IsVisibleInTree() && _hud.Hearts.IsVisibleInTree() && _hud.Bar.IsVisibleInTree() && box.GetParent<Node>().GetParent<Node>() is PanelContainer,
-            "the hearts and the bar are in the status panel at the top left, always visible");
+            "the hearts and the bar are in the meters' panel at the upper left, always visible");
         Check(_hud.Hearts.Grey && _hud.Hearts.Quarters == 20 && _hud.Hearts.MaxQuarters == 20 && _hud.Hearts.HeartCount == 5 && !_hud.Hearts.Shaking &&
               _hud.Bar.Grey && _hud.Bar.StaminaM == _hud.Bar.MaxM && _hud.Bar.MaxM > 0 && !_hud.Bar.IsSlowed,
             "in Creative the hearts and the bar are drawn full and grey: nothing hurts or drains there");
