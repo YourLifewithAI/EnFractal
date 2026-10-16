@@ -271,6 +271,10 @@ Multiplayer is a later phase and out of scope for the engine work now.
 65. **A metre of bar buys one and a half metres of climb.** "The 1 m bar per metre climb is a bit harsh. Let's increase that by 1.5x and keep testing to see how that feels." A pack value (1.5 in `storybook_wild` v5), which Steady climber multiplies, so a 0.4 m starting bar buys 60 cm of climb; it keeps moving as plays say.
 66. **The screen: the meters alone at the upper left, the rest behind H, and full screen.** The upper-left card (the room's title, the status lines, the key lines) goes; hearts, the bar and the pips stay there; every key and setting is read in the H help overlay; the game plays full screen (a launch switch, or the window remembered). The look half of the same play: the shore moves, with waves washing gently against the land where today a straight line meets it.
 
+**Decided by the founder on Grow's first version (16 October, morning; the proposal in [the magic design](../magic/README.md), "Grow's first version")**:
+
+67. **Grow as proposed, and fire burns plants as it burns any other object.** Grow makes every plant rooted in its circle a quarter of its natural size bigger a cast, up to twice its size or one band (0.4 m) taller, whichever comes first; a grown tree is climbed as trees are; shrubs, ferns, grass and flowers grow but are not climbed yet; grown plants are saved with the island; 4 ordered, 2 as the Gubble's idea. Fire burns plants, grown or not, as it burns any other object: they catch, burn as fuel (more when grown) and burn down, gone with their collision; "it should burn it as it would any other object", not shrink it back. This is a baked-in expectation of the Grow packet: plants that cannot burn are not done.
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
