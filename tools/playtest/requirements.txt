@@ -1,0 +1,6 @@
+# The playtest reader (tools/playtest/report.py). The report and --list are standard library only; the contact
+# sheet needs Pillow. Install into a project-local environment, for example:
+#   uv venv .cache/playtest-venv && uv pip install -r tools/playtest/requirements.txt
+# The contracts' environment (contracts/requirements.txt) does not carry Pillow: without it the report is still written
+# and says there is no sheet.
+pillow==12.3.0
