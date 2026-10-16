@@ -8,9 +8,11 @@
 # mode, and in Challenge the difficulty, which a save keeps once it is made. With no -Mode the team plays the mode it played last.
 # Live is not available yet. The first launch moves the saves from before teams under the default team; a later launch removes the
 # old files (Saves/SaveMigration.cs).
+# The game opens its opening menu (game/scenes/menu.tscn, M7) when it starts without a -Room; -Menu opens it with a room named too, and the
+# -Room, -Team, -Mode and -Difficulty named beside it are the menu's first choices. With a -Room and no -Menu the game goes straight into the room, as before.
 # -Knack quick_feet:3 (or -Knack quick_feet:3,cat_feet:2, up to three; the rank 1 to 3, 1 when left off) overrides the team file's
 # knacks for this play only, as --knack= (a test's override, M5); the team file keeps the knacks knack.set chose.
-param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty, [string[]]$Knack, [switch]$NoRecord, [switch]$Fullscreen)
+param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty, [string[]]$Knack, [switch]$NoRecord, [switch]$Fullscreen, [switch]$Menu)
 $ErrorActionPreference = 'Stop'
 if ($Profile -and $Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$') { throw '-Profile takes a short name of letters, digits, - and _.' }
 if ($Team -and $Team -cnotmatch '^[a-z][a-z0-9_-]{0,63}$') { throw '-Team takes a team id: lowercase letters, digits, - and _, starting with a letter.' }
@@ -39,6 +41,7 @@ if ($LASTEXITCODE -eq 0 -and $commit) { $userArgs += "--build=$commit$(if (& git
 if ($NoRecord) { $userArgs += '--no-playtest-record' }
 # -Fullscreen plays this launch in full screen (the game reads --fullscreen); the full-screen key, F11, remembers the choice for every launch.
 if ($Fullscreen) { $userArgs += '--fullscreen' }
+if ($Menu) { $userArgs += '--menu' }
 if ($Style) { $userArgs += "--style=$Style" }
 if ($Room) { $userArgs += "--room=$Room" }
 if ($Team) { $userArgs += "--team=$Team" }

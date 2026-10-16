@@ -45,6 +45,12 @@ $teams = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchai
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_team_saves.tscn') -TimeoutSeconds 180
 if ($teams.Stderr -or $teams.Stdout -notmatch 'NATIVE_TEAM_SAVES: \d+/\d+ checks passed') { throw "$($teams.Stdout)`n$($teams.Stderr)" }
 Write-Output (($teams.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(TEAM_SAVES_MIGRATION|NATIVE_TEAM_SAVES)' }) -join "`n")
+# The opening menu (the mechanics round, M7): the islands, the teams made in the New team panel, the mode and difficulty the island rules offer,
+# the Creative copy, Continue, and the walk from the menu to the fixture room with its team, island, mode and difficulty.
+$menu = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native/Menu/native_menu.tscn') -TimeoutSeconds 240
+if ($menu.Stderr -or $menu.Stdout -notmatch 'NATIVE_MENU: \d+/\d+ checks passed') { throw "$($menu.Stdout)`n$($menu.Stderr)" }
+Write-Output (($menu.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^NATIVE_MENU' }) -join "`n")
 $gaits = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_gaits.tscn') -TimeoutSeconds 300
 if ($gaits.Stderr -or $gaits.Stdout -notmatch 'NATIVE_CHARACTER_GAITS: \d+/\d+ checks passed') { throw "$($gaits.Stdout)`n$($gaits.Stderr)" }
