@@ -7,10 +7,14 @@ shader_type spatial;
 //    generator's water colour lightened in the shallows, darker and cooler in the deep middle;
 //  - a pale wet line where the water meets the land, ripples that drift (streaks running downhill for flowing water), a
 //    soft sky-coloured rim at grazing angles where water reflects most, and a glint of the sun;
-//  - from below, the surface is a pale rippled ceiling that turns mirror-like toward grazing angles.
+//  - from below, the surface is a pale rippled ceiling that turns mirror-like toward grazing angles;
+//  - the sea's shore lives: where it meets the land the water draws back and washes in again every few seconds with a lace of foam at
+//    its edge (shore_wash.gdshaderinc; painterly_land paints the other half, the wash on the sand and the sand's wet band).
 // No refraction and no screen copy: the depth buffer is all it reads. Every look-defining number is a uniform set from
 // LandscapeLook (WaterLook) and the preset's paint block, like painterly_land.
 render_mode blend_mix, depth_draw_opaque, cull_disabled;
+
+#include "res://shaders/shore_wash.gdshaderinc"
 
 const int K_STILL_WATER = 10;
 const int K_FLOWING_WATER = 11;
@@ -89,6 +93,32 @@ uniform float foam_depth_m : hint_range(0.0, 0.3) = 0.05;
 uniform float foam_strength : hint_range(0.0, 1.0) = 0.8;
 uniform float wave_spacing_m : hint_range(0.001, 0.2) = 0.018;
 uniform float wave_speed : hint_range(0.0, 2.0) = 0.25;
+
+group_uniforms shore;
+// The room-to-island intro's global (Look/Intro/RoomIntro.cs; game/project.godot [shader_globals]): w is 1 while it plays. The shore waits for its end.
+global uniform vec4 intro_rise;
+// The living shore (ShoreWash): where the sea meets the land its edge draws back and washes in, every shore_period_s, from
+// shore_draw_back_m under the sea's level to the crest (up to shore_run_up_m over it); each lane_m of shore on its own time. The
+// clock is the engine's TIME (nothing is set on a material each frame: the first version moved a clock on five hundred of them, and
+// the garbage was felt), which a capture can hold at a second with shore_hold_s (negative: let it run). Off for ponds and brooks.
+uniform bool shore_on = false;
+uniform float shore_hold_s = -1.0;
+uniform float shore_period_s : hint_range(1.0, 30.0) = 8.0;
+uniform float shore_run_up_m : hint_range(0.0, 0.2) = 0.045;
+uniform float shore_draw_back_m : hint_range(0.0, 0.2) = 0.04;
+uniform float shore_lane_m : hint_range(0.1, 10.0) = 1.3;
+uniform float shore_rise_share : hint_range(0.1, 0.9) = 0.4;
+// The edge of the water: how soft it is (metres of depth), how wide the foam on it, and the brush that breaks it (size, strength).
+uniform float shore_soft_m : hint_range(0.0005, 0.02) = 0.003;
+uniform float shore_foam_m : hint_range(0.0, 0.05) = 0.006;
+uniform float shore_brush_m : hint_range(0.01, 1.0) = 0.09;
+uniform float shore_brush_amp_m : hint_range(0.0, 0.02) = 0.004;
+// Only within shore_reach_m of the island's coast (the land shader's field: each place's distance to it, metres over
+// shore_field_range_m, over the square (x0, z0, 1 / width, 1 / depth)), so a reef, a shoal or a flooded hollow out at sea is left alone.
+uniform float shore_reach_m : hint_range(0.05, 5.0) = 0.8;
+uniform sampler2D shore_field : filter_linear, repeat_disable, hint_default_white;
+uniform vec4 shore_field_area = vec4(0.0, 0.0, 1.0, 1.0);
+uniform float shore_field_range_m : hint_range(0.1, 10.0) = 1.6;
 
 uniform sampler2D depth_texture : hint_depth_texture, filter_nearest, repeat_disable;
 
@@ -195,6 +225,22 @@ void fragment() {
 	vec3 view_dir = normalize(VIEW);
 	// The sea: its own depth scale and clarity, so the lagoon and the open sea read apart.
 	bool sea = use_sea && abs(surface_world.y - sea_level) < 0.003;
+	// The living shore: where the sea is shallow the wash moves its edge. shore_wash is how far above (+) or below (-) the sea's level the
+	// wash stands here now, and the water counts as that much deeper (depth_eff) or shallower; it is 0 away from the shore (the
+	// work is only done where the water is shallow), so the deep sea and the lagoon are painted exactly as before.
+	float shore_wash = 0.0;
+	if (sea && shore_on && intro_rise.w < 0.5 && FRONT_FACING && depth_m < shore_draw_back_m + 0.03) {
+		float coast_m = textureLod(shore_field, (surface_world.xz - shore_field_area.xy) * shore_field_area.zw, 0.0).r * shore_field_range_m;
+		float near_coast = 1.0 - smoothstep(0.7 * shore_reach_m, shore_reach_m, coast_m);
+		shore_wash = near_coast * (shore_level(surface_world.xz, shore_hold_s >= 0.0 ? shore_hold_s : TIME, shore_period_s, shore_run_up_m, shore_draw_back_m, shore_lane_m, shore_rise_share).x
+			+ (shore_noise(surface_world.xz / shore_brush_m) - 0.5) * shore_brush_amp_m);
+	}
+	float depth_eff = depth_m + shore_wash;
+	// The eye's path through the water, longer where the wash has raised it over the bed and shorter where it has drawn back (the land
+	// paints the wash over the sand with the same path, so the sea's edge and the wash on the sand meet without a seam).
+	float path_eff = max(path_m + shore_wash / max(abs((INV_VIEW_MATRIX * vec4(view_dir, 0.0)).y), 0.5), 0.0);
+	float edge_water = 1.0;
+	float edge_lace = 0.0;
 	float deep_scale = sea ? sea_deep_m : deep_m;
 	float clarity = sea ? sea_clarity_m : clarity_m;
 	vec3 deep_colour = sea ? sea_deep_tint : deep_tint;
@@ -209,10 +255,10 @@ void fragment() {
 		float deepness = clamp(mix(clamp(depth_m / deep_scale, 0.0, 1.0), washed, 0.75), 0.0, 1.0);
 		color = mix(water * shallow_tint, water * deep_colour, deepness);
 		// Clear shallows, an opaque deep middle: the eye's path through the water sets how much the glaze hides.
-		alpha = mix(surface_alpha, max_alpha, 1.0 - exp(-path_m / clarity));
+		alpha = mix(surface_alpha, max_alpha, 1.0 - exp(-path_eff / clarity));
 		alpha = max(alpha, mix(surface_alpha, max_alpha, deepness * deepness) * 0.85);
 		// The wet line where water meets the land, broken like a brushed edge.
-		float shore = (1.0 - smoothstep(0.0, shore_m, depth_m)) * smoothstep(0.25, 0.6, ripple_b.x * 0.6 + wash.x * 0.4) * shore_strength;
+		float shore = (1.0 - smoothstep(0.0, shore_m, depth_eff)) * smoothstep(0.25, 0.6, ripple_b.x * 0.6 + wash.x * 0.4) * shore_strength;
 		color = mix(color, mix(water * shallow_tint, vec3(0.92, 0.94, 0.88), 0.6), shore);
 		alpha = max(alpha, shore * 0.8);
 		// Water reflects most at grazing angles: there it shows the sky and hides what is under it.
@@ -223,13 +269,21 @@ void fragment() {
 		if (sea && foam_depth_m > 0.0) {
 			// Bands of equal depth that drift toward the shallows: waves running up a beach; on the reef's broad shallow crest
 			// they crowd into breaking white water. Painted over the sky's sheen: foam is white whatever the angle.
-			float shallow = 1.0 - smoothstep(0.0, foam_depth_m, depth_m);
-			float phase = depth_m / wave_spacing_m + TIME * wave_speed + wash.x * 1.6;
+			float shallow = 1.0 - smoothstep(0.0, foam_depth_m, depth_eff);
+			float phase = depth_eff / wave_spacing_m + TIME * wave_speed + wash.x * 1.6;
 			float crest = smoothstep(0.5, 0.88, fract(phase)) * (1.0 - smoothstep(0.88, 1.0, fract(phase)));
 			float broken = smoothstep(0.25, 0.65, ripple_b.x * 0.55 + wash.x * 0.45);
 			float foam = clamp(pow(shallow, 0.7) * (0.45 + 0.55 * crest) * broken * foam_strength, 0.0, 1.0);
 			color = mix(color, foam_color, foam);
 			alpha = max(alpha, foam * 0.95);
+			if (shore_on) {
+				// The wash's edge: the water thins to nothing where it has drawn back (it never hides the wet ground it leaves), and a
+				// lace of foam, broken like a brushed edge, rides on the thin edge of what is left.
+				edge_water = smoothstep(0.0, shore_soft_m, depth_eff);
+				float lace_mask = smoothstep(0.1, 0.4, ripple_b.x * 0.55 + wash.x * 0.45 + 0.1);
+				edge_lace = smoothstep(0.0, 0.0012, depth_eff) * (1.0 - smoothstep(0.3 * shore_foam_m, shore_foam_m, depth_eff)) * lace_mask * foam_strength;
+				color = mix(color, foam_color, edge_lace);
+			}
 		}
 	} else {
 		// From below: the surface is a pale rippled ceiling where the sky shows through, mirror-like toward grazing angles
@@ -259,6 +313,7 @@ void fragment() {
 	// Only from above: seen from below, the far underside is the sea's own murk, not the sky (a bright line at the far plane otherwise).
 	float horizon = FRONT_FACING && horizon_fade_end_m > horizon_fade_start_m ? smoothstep(horizon_fade_start_m, horizon_fade_end_m, length(VERTEX)) : 0.0;
 	horizon_v = horizon;
+	alpha = max(alpha * edge_water, edge_lace * 0.95);
 	ALBEDO = clamp(color, 0.0, 1.0) * (1.0 - horizon);
 	EMISSION = horizon_color * horizon_energy * horizon;
 	ALPHA = clamp(mix(alpha, 1.0, horizon), 0.0, 1.0);

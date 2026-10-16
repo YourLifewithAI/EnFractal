@@ -69,6 +69,21 @@ public partial class OpenSea : Node3D
     /// <summary>The open bed's colour when there is no backdrop floor to continue: a dark moss, of which deep water lets a tenth through.</summary>
     public static readonly Color BedColor = new(0.30f, 0.34f, 0.28f);
 
+    /// <summary>
+    /// The living shore (ShoreWash): where the sea meets the land the water draws back and washes in. The numbers, the field of each
+    /// place's distance to the coast the land shader reads. The wash runs on the engine's own time in the shaders (nothing is set on any
+    /// material each frame); a capture can hold it at a chosen second (HoldShoreAt).
+    /// </summary>
+    public ShoreLook Shore { get; private set; } = ShoreLook.Default;
+    public ShoreWash.Field? ShoreField { get; private set; }
+    /// <summary>The colour the wash over the sand is painted in: the sea's own shallow colour.</summary>
+    public Color ShoreFilmColour { get; private set; } = ShoreWash.DefaultFilmColour;
+    /// <summary>The second the wash is held at (a capture), or null while it runs on the engine's time.</summary>
+    public float? ShoreHeldAtS { get; private set; }
+    /// <summary>The land materials the shore is on (the terrain's, which share the island's marks), for the clock and the tests.</summary>
+    public IReadOnlyCollection<ShaderMaterial> ShoreLandMaterials => _shoreLand;
+    private readonly HashSet<ShaderMaterial> _shoreLand = new();
+
     public RoomSea Sea { get; private set; } = null!;
     /// <summary>The surface that follows the camera (null when the room's own sea mesh could not be found).</summary>
     public MeshInstance3D? Surface { get; private set; }
@@ -197,6 +212,16 @@ public partial class OpenSea : Node3D
             material.SetShaderParameter("use_sea", true);
             material.SetShaderParameter("sea_level", sea.LevelM);
         }
+        // The living shore: the sea's water draws its edge back and in, the land paints the wash and the damp band (ShoreWash).
+        var shoreClock = System.Diagnostics.Stopwatch.StartNew();
+        if (open._water.Count > 0)
+        {
+            open.ShoreField = ShoreWash.BuildField(sea, open.Shore);
+            if (seaMesh.Mesh?.GetSurfaceOverrideMaterial(0) is ShaderMaterial seaWater) open.ShoreFilmColour = open.FilmColourOf(seaWater, seaMesh.Mesh, roomRect);
+            open.ApplyShore();
+            foreach (var mesh in landMeshes) open.AdoptLand(mesh);
+            GD.Print(FormattableString.Invariant($"LOOK: the living shore: its field {open.ShoreField?.Width}x{open.ShoreField?.Depth} and {open._shoreLand.Count} land materials in {shoreClock.Elapsed.TotalMilliseconds:0} ms"));
+        }
         foreach (var mesh in backdrop)
         {
             // A backdrop the look cannot lay flat (more than one surface) is hidden rather than left standing on the horizon.
@@ -273,6 +298,97 @@ public partial class OpenSea : Node3D
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
         mesh.CustomAabb = new Aabb(new Vector3(-reach, -0.01f, -reach), new Vector3(2f * reach, 0.02f, 2f * reach));
         return mesh;
+    }
+
+    /// <summary>
+    /// The sea's colour in its shallows, as the water shader paints it there (its colour times the baked tint of the sea inside the room
+    /// times the shallow wash), for the wash over the sand to match the water it comes from.
+    /// </summary>
+    private Color FilmColourOf(ShaderMaterial water, MeshInstance3D sea, Rect2 room)
+    {
+        var baseLinear = water.GetShaderParameter("base_color").AsColor().SrgbToLinear();
+        var shallow = water.GetShaderParameter("shallow_tint").AsVector3();
+        var near = NearWaterColour(sea.Mesh, sea.GlobalTransform, room);
+        return new Color(
+            Mathf.Clamp(baseLinear.R * near.R * shallow.X, 0f, 1f), Mathf.Clamp(baseLinear.G * near.G * shallow.Y, 0f, 1f), Mathf.Clamp(baseLinear.B * near.B * shallow.Z, 0f, 1f)).LinearToSrgb();
+    }
+
+    /// <summary>The mean baked colour of the sea surface inside the room (the island's own water).</summary>
+    private static Color NearWaterColour(Mesh mesh, Transform3D world, Rect2 room)
+    {
+        var arrays = mesh.SurfaceGetArrays(0);
+        if (arrays[(int)Mesh.ArrayType.Color].VariantType != Variant.Type.PackedColorArray) return new Color(1f, 1f, 1f);
+        var colours = arrays[(int)Mesh.ArrayType.Color].AsColorArray();
+        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        float r = 0, g = 0, b = 0;
+        var count = 0;
+        for (var i = 0; i < vertices.Length; i++)
+        {
+            var at = world * vertices[i];
+            if (!room.HasPoint(new Vector2(at.X, at.Z))) continue;
+            r += colours[i].R; g += colours[i].G; b += colours[i].B;
+            count++;
+        }
+        return count == 0 ? new Color(1f, 1f, 1f) : new Color(r / count, g / count, b / count);
+    }
+
+    /// <summary>Turn the shore on for the sea's water and every land material adopted (the numbers, the field, the clock).</summary>
+    public void ApplyShore()
+    {
+        var water = ShoreWash.WaterParameters(Shore, true, ShoreHeldAtS ?? ShoreWash.FreeRunning, ShoreField);
+        foreach (var material in _water)
+            foreach (var (name, value) in water) material.SetShaderParameter(name, value);
+        // The same numbers on every land material (the terrain has one for each tile's bake colour: hundreds): made once.
+        _landParameters = ShoreWash.LandParameters(Shore, true, ShoreHeldAtS ?? ShoreWash.FreeRunning, Sea.LevelM, ShoreFilmColour, SeaLook.Default.FoamColor, ShoreField);
+        foreach (var material in _shoreLand) ApplyShoreTo(material);
+    }
+
+    private (StringName Name, Variant Value)[] _landParameters = Array.Empty<(StringName, Variant)>();
+
+    private void ApplyShoreTo(ShaderMaterial material)
+    {
+        foreach (var (name, value) in _landParameters) material.SetShaderParameter(name, value);
+    }
+
+    /// <summary>
+    /// Put the land materials of a dressed mesh on the shore (the look calls it for every land mesh it dresses once the sea is built, so
+    /// ground that arrives later wears it too). Water is not land; a mesh that wears no landscape material is left alone.
+    /// </summary>
+    public void AdoptLand(MeshInstance3D mesh)
+    {
+        if (mesh.Mesh == null || mesh.HasMeta(LookDirector.WaterMeta)) return;
+        for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
+            if (mesh.GetSurfaceOverrideMaterial(surface) is ShaderMaterial material && material.HasMeta("landscape") && !material.HasMeta("water") && _shoreLand.Add(material))
+                ApplyShoreTo(material);
+    }
+
+    /// <summary>The wash is held at a second of the shore's clock and stays there (a capture shows it up or drawn back, the same in a before and an after).</summary>
+    public void HoldShoreAt(float seconds)
+    {
+        ShoreHeldAtS = Math.Max(0f, seconds);
+        PushHold();
+    }
+
+    /// <summary>The wash runs on the engine's time again.</summary>
+    public void ReleaseShore()
+    {
+        ShoreHeldAtS = null;
+        PushHold();
+    }
+
+    private void PushHold()
+    {
+        var hold = ShoreHeldAtS ?? ShoreWash.FreeRunning;
+        foreach (var material in _water) material.SetShaderParameter("shore_hold_s", hold);
+        foreach (var material in _shoreLand) material.SetShaderParameter("shore_hold_s", hold);
+    }
+
+    public override void _ExitTree()
+    {
+        // The materials are shared across rooms (the library caches them): leave them as a room without a sea expects them.
+        foreach (var material in _water) material.SetShaderParameter("shore_on", false);
+        foreach (var material in _shoreLand) material.SetShaderParameter("shore_on", false);
+        _shoreLand.Clear();
     }
 
     /// <summary>The baked colour of the room's open sea: the mean vertex colour of the sea surface outside the room.</summary>

@@ -238,7 +238,7 @@ public partial class LookPresetTest
         var veilMaterial = (ShaderMaterial)open.Veil.MaterialOverride!;
         Check(under && above && island && veilMaterial.GetShaderParameter("up_light").AsSingle() > 0f && veilMaterial.GetShaderParameter("murk_m").AsSingle() > 0.2f,
             "under the open sea the water tints and hazes the view, brighter toward the surface; above it, or under the island's own ground, there is no veil");
-        var pondLife = PondLife.Create(land.RoomId, built);
+        var pondLife = PondLife.Create(land.RoomId, built).AtOnce();
         pondLife.SeaLevel = land.Sea.LevelM;
         holder.AddChild(pondLife);
         pondLife.SurveyNow(PondSurvey.RayProbe(GetWorld3D().DirectSpaceState));
