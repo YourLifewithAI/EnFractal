@@ -84,14 +84,15 @@ public partial class CommandHost
         // The companion names only what the team sees now: a bubble out of sight answers as one that is not there.
         if (principal != PlayerPrincipal && !_approving && !TeamSeesSpot(bubble.Kind == BubbleKind.Boat ? bubble.Center : bubble.Center - Vector3.Up * (bubble.Radius * 0.5f), principal))
             throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
-        if (!Room.Bounds.Grow(0.02f).HasPoint(spot)) throw new Refusal("out_of_bounds", "That spot is outside the island.", "$.args.position_m");
+        if (!InsideIsland(spot)) throw new Refusal("out_of_bounds", "That spot is outside the island.", "$.args.position_m");
         if (Companion == null || !IsInstanceValid(Companion) || !Companion.IsInsideTree()) throw new Refusal("not_ready", "The Gubble is not in the room.", retryable: true);
         if (Player == null || !IsInstanceValid(Player) || !Player.IsInsideTree()) throw new Refusal("not_ready", "The player's body is not in the room yet.", retryable: true);
         float ground;
         if (bubble.Kind == BubbleKind.Boat)
             ground = FloatingWaterAt(spot) ?? throw new Refusal("invalid_args", "A boat is led over water: choose a spot on the water.", "$.args.position_m");
         else ground = GroundBelow(spot + Vector3.Up * 0.05f, 0.35f) ?? spot.Y;
-        var lift = bubble.Kind != BubbleKind.Boat && RestOver(bubble, ground) - bubble.Center.Y > BubbleLaws.LiftAboveDriftM;
+        // Higher than its paid height (where it formed, took the player or was lifted to, at its hover) can drift: a lift.
+        var lift = bubble.Kind != BubbleKind.Boat && RestOver(bubble, ground) - PaidHeight(bubble) > BubbleLaws.LiftAboveDriftM;
         var data = new JsonObject { ["actor"] = actor, ["goal"] = "lead", ["bubble"] = id, ["position_m"] = KernelJson.Vector(spot), ["lift"] = lift };
         if (principal != PlayerPrincipal) data["target_seen"] = "now";
         if (lift)
@@ -131,6 +132,16 @@ public partial class CommandHost
     private float RestOver(Bubble bubble, float ground) =>
         bubble.Kind == BubbleKind.Boat ? ground + BubbleLaws.BoatDeckAboveWaterM
             : bubble.Holding && Player != null ? ground + SweepRadius(Player) + BubbleLaws.CarryHoverM : ground + bubble.Radius + 0.005f;
+
+    /// <summary>The height a carry holds with no lift (BaseY, at its hover while it holds the player): a drift's step rises no higher.</summary>
+    private static float PaidHeight(Bubble bubble) => bubble.BaseY + (bubble.Holding && bubble.Kind == BubbleKind.Carry ? BubbleLaws.CarryHoverM : 0);
+
+    /// <summary>
+    /// The Gubble's lead that carried the player where they are now, in the bubble that still holds them (running or ended), or null:
+    /// a lead the player ordered is theirs. Fire that hurts them there is that lead's consequence (NoteLeadHarm).
+    /// </summary>
+    private BubbleLead? GubbleLeadHoldingThePlayer() =>
+        HoldsPlayer() is { Kind: BubbleKind.Carry, CarriedBy: { Principal: CompanionPrincipal } lead } ? lead : null;
 
     /// <summary>The bubble's lead if its job is still the Gubble's running goal; a lead whose job ended some other way is let go.</summary>
     private BubbleLead? LiveLead(Bubble bubble)
@@ -183,10 +194,10 @@ public partial class CommandHost
 
     /// <summary>
     /// After a led bubble's step: blocked time (it wanted to move toward the spot and could not, or the Gubble cannot get near it;
-    /// a rise takes the time it takes), the arrival (at the spot and settled at its height there; a lift up at the spot's), and a lead
-    /// blocked too long, which ends where it is.
+    /// rising, only the rise counts: it takes the time it takes, but a rise that a ceiling stops is blocked too), the arrival (at the
+    /// spot and settled at its height there; a lift up at the spot's), and a lead blocked too long, which ends where it is.
     /// </summary>
-    private void AfterLeadStep(Bubble bubble, BubbleLead lead, float dt, float wanted, float went, bool held, bool settled)
+    private void AfterLeadStep(Bubble bubble, BubbleLead lead, float dt, float wanted, float went, bool held, bool settled, float riseWanted, float riseWent)
     {
         var atSpot = LevelGap(bubble.Center, lead.Spot) <= BubbleLaws.LeadArriveM;
         var highEnough = !lead.Lift || bubble.Center.Y >= RestOver(bubble, lead.SpotGroundY) - BubbleLaws.LeadArriveRiseM;
@@ -201,21 +212,26 @@ public partial class CommandHost
         // has topped out short.
         var gubbleStuck = Companion == null || !IsInstanceValid(Companion) || Companion.GoalBlocked;
         var stuck = (!held && wanted > 1e-5f && went < wanted * 0.2f) || (held && gubbleStuck) || (atSpot && settled && !highEnough);
-        if (lead.Rising && bubble.Center.Y < lead.RiseToY - BubbleLaws.LeadArriveRiseM) lead.BlockedS = 0;
+        // Still rising toward the top of its lift: blocked only while something over it stops the rise (the W2 review: a lift under a
+        // ceiling ran on until the bubble's timer).
+        if (lead.Rising && bubble.Center.Y < lead.RiseToY - BubbleLaws.LeadArriveRiseM)
+            lead.BlockedS = riseWanted > 1e-6f && riseWent < riseWanted * 0.2f ? lead.BlockedS + dt : 0;
         else lead.BlockedS = stuck ? lead.BlockedS + dt : 0;
         if (lead.BlockedS >= BubbleLaws.LeadBlockedAfterS && (!lead.Lift || lead.Rising))
             EndLead(bubble, lead, "blocked", new Refusal("target_unreachable", LeadBlockedWords, "$.args.position_m"));
     }
 
     /// <summary>
-    /// A lead ends: the bubble holds the height it got to (when it is still there), the goal.set receipt says how, and the Gubble's
-    /// job finishes: succeeded on arrival, failed with why otherwise (a popped bubble, blocked, no pips). The Gubble stays put.
+    /// A lead ends: a lift that rose holds the height it got to (when the bubble is still there: its paid height, BaseY), the goal.set
+    /// receipt says how, and the Gubble's job finishes: succeeded on arrival, failed with why otherwise (a popped bubble, blocked, no
+    /// pips). The Gubble stays put. A drift's step over rising ground stays no more than a step (BubbleLaws.DriftStepM): no chain of
+    /// leads climbs for free.
     /// </summary>
     private void EndLead(Bubble bubble, BubbleLead lead, string word, Refusal? why)
     {
         if (!ReferenceEquals(bubble.Lead, lead)) return;
         bubble.Lead = null;
-        if (_bubbles.Contains(bubble)) bubble.BaseY = bubble.Center.Y - (bubble.Holding && bubble.Kind == BubbleKind.Carry ? BubbleLaws.CarryHoverM : 0);
+        if (lead.Rising && _bubbles.Contains(bubble)) bubble.BaseY = bubble.Center.Y - (bubble.Holding && bubble.Kind == BubbleKind.Carry ? BubbleLaws.CarryHoverM : 0);
         UpdateTransient(lead.Principal, lead.ActionId, lead.Fingerprint, "ended", word);
         if (!_runningGoals.TryGetValue(CompanionAvatarId, out var job) || job.Id != lead.JobId) return;
         Finish(job, why);

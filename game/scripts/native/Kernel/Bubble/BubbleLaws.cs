@@ -45,13 +45,19 @@ public static class BubbleLaws
 
     /// <summary>A lead's spot whose resting height stands more than this above the bubble is higher than it can drift: the lead is a lift.</summary>
     public const float LiftAboveDriftM = 0.1f;
+    /// <summary>
+    /// The drift's own step: rising ground (a rug's edge, a book, a ramp's foot) lifts a bubble at most this above the height it
+    /// formed, took the player or was lifted at; higher ground blocks its drift, and only a lift raises that height (decision 58).
+    /// The same 0.1 m a lead calls a drift rather than a lift.
+    /// </summary>
+    public const float DriftStepM = LiftAboveDriftM;
     /// <summary>A lift begins to rise once the bubble is this near its spot (level), or once its drift has been blocked LiftWhenBlockedS.</summary>
     public const float LiftApproachM = 0.4f;
     public const double LiftWhenBlockedS = 0.3;
     /// <summary>A led bubble has arrived within this of its spot (level) and of its resting height there.</summary>
     public const float LeadArriveM = 0.04f;
     public const float LeadArriveRiseM = 0.03f;
-    /// <summary>A led bubble that cannot move toward its spot for this long (a wall, the player in its way, the top of its rise) stops: the lead fails.</summary>
+    /// <summary>A led bubble that cannot move toward its spot for this long (a wall, the player in its way, the top of its rise, a ceiling over it) stops: the lead fails.</summary>
     public const double LeadBlockedAfterS = 3.0;
     /// <summary>The Gubble walks to within this of the spot (CompanionAvatar.GoTo's arrival), beside it rather than under it, and the bubble drifts the rest.</summary>
     public const float LeadGubbleStopM = 0.3f;

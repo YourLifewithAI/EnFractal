@@ -52,7 +52,10 @@ public static class TrustLaws
         "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
         "creation.place", "creation.revise", "creation.activate", "protect.lock",
     };
-    /// <summary>The goals that change the world: a fetch carries a thing, a lead moves a bubble (and the player in it).</summary>
+    /// <summary>
+    /// The goals that change the world: a fetch carries a thing, a lead moves a bubble (and the player in it). Each changes it only
+    /// when its job succeeds (fetched, arrived), so its window opens then; a job that fails or is stopped gains nothing.
+    /// </summary>
     public static readonly HashSet<string> WorldGoals = new(StringComparer.Ordinal) { "fetch", "lead" };
 }
 
@@ -133,11 +136,23 @@ public sealed class TrustLedger
         public bool Initiative { get; init; } = true;
         /// <summary>The player when the player's click committed it (an approved suggestion, decision 45), else null.</summary>
         public string? ApprovedBy { get; init; }
+        /// <summary>
+        /// A goal that changes the world only by its job's success (a lead arriving, a fetch fetched): its job's id. Its window waits
+        /// for the job (Pending), opens when the job succeeds, and gains nothing when the job fails or is stopped.
+        /// </summary>
+        public string? JobId { get; init; }
+        /// <summary>Its job is still running: the window has not opened, and a consequence fact meanwhile spoils it.</summary>
+        public bool Pending { get; internal set; }
+        /// <summary>Its job ended without succeeding: it changed nothing in the world, so it gains nothing.</summary>
+        public bool JobFailed { get; internal set; }
+        /// <summary>When its window opened: when it committed, or when its job succeeded.</summary>
+        public DateTime? OpenedAt { get; internal set; }
         public bool Spoiled { get; internal set; }
         public bool Settled { get; internal set; }
         /// <summary>yes or not_that once the player marked its receipt.</summary>
         public string? Mark { get; internal set; }
-        public DateTime Closes => At + TimeSpan.FromSeconds(TrustLaws.CleanWindowS);
+        public DateTime Opens => OpenedAt ?? At;
+        public DateTime Closes => Opens + TimeSpan.FromSeconds(TrustLaws.CleanWindowS);
     }
 
     private readonly List<Entry> _entries = new();
@@ -162,29 +177,44 @@ public sealed class TrustLedger
         }
     }
 
-    /// <summary>A consequence fact at this moment: every window still open over it is spoiled.</summary>
+    /// <summary>A consequence fact at this moment: every window still open over it is spoiled, and every job still running.</summary>
     public void Consequence(DateTime at)
     {
         foreach (var entry in _entries)
-            if (!entry.Settled && entry.At <= at && at <= entry.Closes) entry.Spoiled = true;
+            if (!entry.Settled && (entry.Pending || (entry.Opens <= at && at <= entry.Closes))) entry.Spoiled = true;
+    }
+
+    /// <summary>
+    /// A goal's job ended (the host's GoalFinished): succeeded, its window opens now; failed or stopped, it gains nothing. Only an
+    /// entry still waiting for its job moves.
+    /// </summary>
+    public void JobEnded(string jobId, bool succeeded, DateTime at)
+    {
+        foreach (var entry in _entries)
+        {
+            if (!entry.Pending || entry.JobId != jobId) continue;
+            entry.Pending = false;
+            if (succeeded) entry.OpenedAt = at;
+            else entry.JobFailed = true;
+        }
     }
 
     /// <summary>
     /// The windows closed by now, in the order they closed, each settled once: whether it was clean and whether it gained (a clean,
-    /// counted window gains when no gain came in the GainSpacingS before its close).
+    /// counted window gains when no gain came in the GainSpacingS before its close). A window still waiting for its job stays open.
     /// </summary>
     public List<(Entry Entry, bool Clean, bool Gained)> Settle(DateTime now)
     {
         var closed = new List<Entry>();
         foreach (var entry in _entries)
-            if (!entry.Settled && entry.Closes <= now) closed.Add(entry);
+            if (!entry.Settled && !entry.Pending && entry.Closes <= now) closed.Add(entry);
         closed.Sort((a, b) => a.Closes.CompareTo(b.Closes));
         var outcome = new List<(Entry, bool, bool)>(closed.Count);
         foreach (var entry in closed)
         {
             entry.Settled = true;
             var clean = !entry.Spoiled;
-            var gained = clean && entry.Counted && entry.Initiative && (LastGain is not { } last || (entry.Closes - last).TotalSeconds >= TrustLaws.GainSpacingS);
+            var gained = clean && entry.Counted && entry.Initiative && !entry.JobFailed && (LastGain is not { } last || (entry.Closes - last).TotalSeconds >= TrustLaws.GainSpacingS);
             if (gained) LastGain = entry.Closes;
             outcome.Add((entry, clean, gained));
         }

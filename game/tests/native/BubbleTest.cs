@@ -61,32 +61,18 @@ public partial class BubbleTest : Node3D
             _verbose = OS.GetCmdlineUserArgs().Contains("--verbose");
             RemoveAll();
             _room = RoomData.Load(RoomWorld.DefaultRoom);
-            await TestThePlaceDecides();
-            await TestConsent();
-            await TestRefusals();
-            await TestPriceByPrincipal();
-            await TestPopsAndReceipts();
-            await TestOneAtATime();
-            await TestTheRoomsCap();
-            await TestRideAndDeflate();
-            await TestWalkIn();
-            await TestBoat();
-            await TestLeadArrivesAndPops();
-            await TestTheGubblesStopPopsWhatItLeads();
-            await TestLift();
-            await TestLiftPrice();
-            await TestDeflateIntoWater();
-            await TestHudView();
-            await TestSecurityRow();
-            await TestBudget();
-            await TestMarksOnTheBubble();
+            // "-- --review" runs only the Wave 2 review's checks (BubbleTest.Review.cs), for a quick look.
+            if (OS.GetCmdlineUserArgs().Contains("--review")) await TestTheReviewsFixes();
+            else await TestAll();
             await FreeWorld();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine error while the suite ran ({_errors.Count}; first: {_errors.First})");
             GD.Print($"NATIVE_KERNEL_BUBBLE: {_checks - _failures}/{_checks} checks passed; the Bubble as redesigned: the place deciding (a carry on the player, a boat on " +
                 "water, a bubble to walk into), the ghost and its lead, the walk-in, every refusal, the price by what the place made and by principal, the pops and the " +
                 "receipts, one bubble at a time, the room's cap, the ride, the deflate, the boat, the Gubble's lead (arriving, popping short, its stop), the lift " +
-                $"(charged at the rise, refused without pips, the 1.2 m rise), the HUD's view, the security row, the player's marks on a bubble and its lead{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
+                "(charged at the rise, refused without pips, the 1.2 m rise), the HUD's view, the security row, the player's marks on a bubble and its lead, and the " +
+                "Wave 2 review's fixes (judged where it forms, no free ride up a slope, a lift under a ceiling, Trust for a lead that arrives, a lead into fire, the lead's " +
+                $"sight, one rule for the island's bounds){(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveAll();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
@@ -95,6 +81,30 @@ public partial class BubbleTest : Node3D
             GD.PushError("Bubble test exception: " + error);
             GetTree().Quit(1);
         }
+    }
+
+    private async Task TestAll()
+    {
+        await TestThePlaceDecides();
+        await TestConsent();
+        await TestRefusals();
+        await TestPriceByPrincipal();
+        await TestPopsAndReceipts();
+        await TestOneAtATime();
+        await TestTheRoomsCap();
+        await TestRideAndDeflate();
+        await TestWalkIn();
+        await TestBoat();
+        await TestLeadArrivesAndPops();
+        await TestTheGubblesStopPopsWhatItLeads();
+        await TestLift();
+        await TestLiftPrice();
+        await TestDeflateIntoWater();
+        await TestHudView();
+        await TestSecurityRow();
+        await TestBudget();
+        await TestMarksOnTheBubble();
+        await TestTheReviewsFixes();
     }
 
     // ---- the world ----
@@ -111,22 +121,23 @@ public partial class BubbleTest : Node3D
     /// pool of pips (at most the pack's maximum), its avatars at their spawns (the Gubble staying put), shallow water on the floor
     /// and a deep pool, and a host whose clock and bubble tick the suite drives (Frames).
     /// </summary>
-    private async Task NewWorld(string name, string mode = "creative", int pips = 40, int rulesVersion = 5)
+    private async Task NewWorld(string name, string mode = "creative", int pips = 40, int rulesVersion = 5, RoomData? room = null)
     {
         await FreeWorld();
+        room ??= _room;
         _world = new Node3D { Name = "World" };
         AddChild(_world);
-        _world.AddChild(RoomBuilder.Build(_room));
+        _world.AddChild(RoomBuilder.Build(room));
         _world.AddChild(Water(WaterMin, WaterMax, WaterY));
         _world.AddChild(Water(PoolMin, PoolMax, PoolY));
         await Frames(2);
-        _player = new SmallPlayerController { Name = "Player", ReadKeyboard = false, Position = _room.SpawnFor("player").PositionM + Vector3.Up * 0.008f };
+        _player = new SmallPlayerController { Name = "Player", ReadKeyboard = false, Position = room.SpawnFor("player").PositionM + Vector3.Up * 0.008f };
         _world.AddChild(_player);
-        _companion = new CompanionAvatar { Name = "Companion", Position = _room.SpawnFor("companion", _room.SpawnFor("player")).PositionM + Vector3.Up * 0.008f };
+        _companion = new CompanionAvatar { Name = "Companion", Position = room.SpawnFor("companion", room.SpawnFor("player")).PositionM + Vector3.Up * 0.008f };
         _world.AddChild(_companion);
         _companion.BindPlayer(_player);
         _companion.Stay();
-        _host = CommandHost.Create(_world, _room, _player, _companion, null, $"{TestRoot}/{name}/inventions.json");
+        _host = CommandHost.Create(_world, room, _player, _companion, null, $"{TestRoot}/{name}/inventions.json");
         _host.Clock = () => _now;
         _host.TeamSightIntervalS = 0;
         _host.SetProcess(false);

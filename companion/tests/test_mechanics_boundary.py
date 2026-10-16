@@ -333,6 +333,65 @@ class TheBubbleOnTheMock(unittest.TestCase):
         self.assertEqual((self.job(PLAYER, blocked)["result"]["error"]["code"], self.lookup(PLAYER, blocked)["ended"], stuck["data"]["bubble"] in self.host.bubbles),
                          ("target_unreachable", "blocked", True))
 
+    def test_a_bubble_is_judged_where_it_forms(self):
+        """The W2 review's blocker, as the kernel's PlaceTheBubble and BubbleCast: a bubble to walk into rests on what is under its
+        spot, so one aimed under the feet of a player on the box would form round them: effect.start makes it a carry (the
+        companion's previewed first), and nature.cast at a point refuses it, before any price."""
+        self.host.move_avatar("avatar:player", [0.955, 0.3, 0.2])
+        self.host.move_avatar(GUBBLE, [0.6, 0.0, 0.2])
+        buried = [0.935, 0.16, 0.2]  # inside the box, 14 cm under the feet: beyond the carry's reach, on the box top once formed
+        bubble = self.send(COMPANION, "effect.start", self.the_bubble(buried))
+        point = self.send(COMPANION, "nature.cast", {"capability": "bubble_carry", "center_m": [0.935, 0.2, 0.2], "radius_m": 0.07, "duration_s": 20})
+        self.assertEqual([refusal(r) for r in (bubble, point)],
+                         [("revision_conflict", "$.args.area.center_m", mock_host.BUBBLE_GHOST_FIRST),
+                          ("invalid_args", "$.args.center_m", mock_host.BUBBLE_ON_THE_PLAYER)])
+        self.assertFalse(self.host.bubbles, "nothing forms round the player without the ghost")
+        ghost = self.send(COMPANION, "effect.start", self.the_bubble(buried), preview=True)
+        self.host.clock.advance(mock_host.BUBBLE_GHOST_LEAD_S + 0.05)
+        carry = self.send(COMPANION, "effect.start", self.the_bubble(buried))
+        self.assertEqual((ghost["data"]["kind"], carry["data"]["kind"], carry["data"]["carried"]), ("carry", "carry", True), "the ghost first is the consent")
+        self.assertTrue(self.host.player_pops_bubble())
+        # Beside them on the box top a bubble still waits for the walk-in.
+        self.host.move_avatar("avatar:player", [1.1, 0.3, 0.2])
+        beside = self.send(COMPANION, "effect.start", self.the_bubble([0.96, 0.3, 0.2]))
+        self.assertEqual((beside["data"]["kind"], beside["data"]["carried"]), ("walk_in", False))
+
+    def test_the_companion_leads_only_a_bubble_the_team_sees(self):
+        """The lead's sight check (the kernel's CommandHostBubbleLead): a bubble the box hides from both avatars answers to the
+        companion's lead as one that is not there; the player's own order may lead it."""
+        self.host.move_avatar("avatar:player", [1.75, 0.0, 0.15])
+        self.host.move_avatar(GUBBLE, [1.75, 0.0, 0.45])
+        hidden = self.send(PLAYER, "effect.start", self.the_bubble([1.45, 0.0, 0.15]))
+        self.assertEqual(hidden["data"]["kind"], "walk_in", hidden)
+        self.host.move_avatar("avatar:player", self.feet)
+        self.host.move_avatar(GUBBLE, [0.45, 0.0, 0.6])
+        by_the_gubble = self.lead(COMPANION, hidden["data"]["bubble"], [1.6, 0.0, 0.7])
+        by_the_player = self.lead(PLAYER, hidden["data"]["bubble"], [1.6, 0.0, 0.7], preview=True)
+        self.assertEqual((refusal(by_the_gubble)[:2], by_the_player["ok"]), (("target_not_found", "$.args.target"), True))
+
+    def test_one_rule_for_the_islands_bounds_with_a_sea_and_without(self):
+        """The W2 review's minor 8, as the kernel's InsideIsland: without a sea the room's bounds hold every side; round an island
+        the sea has no edge, so only the top and the bottom hold, for a lead and an effect alike."""
+        outcome = {}
+        for sea in (False, True):
+            if sea:
+                self.host.room.setdefault("extensions", {})[mock_host.SEA_EXTENSION] = {}
+            bubble = self.send(PLAYER, "effect.start", self.the_bubble(self.beside))["data"]["bubble"]
+            outcome[sea] = {
+                "lead past the side": refusal(self.lead(COMPANION, bubble, [2.3, 0.0, 0.6], preview=True))[:2],
+                "lead over the top": refusal(self.lead(COMPANION, bubble, [0.6, 2.5, 0.6], preview=True))[:2],
+                "glow over the top": refusal(self.send(COMPANION, "effect.start", {"capability": "glow", "params": {}, "duration_s": 10,
+                                                                                   "area": {"center_m": [self.feet[0], 2.5, self.feet[2]], "radius_m": 0.5}})),
+                "glow past the side": refusal(self.send(COMPANION, "effect.start", {"capability": "glow", "params": {}, "duration_s": 10,
+                                                                                    "area": {"center_m": [0.6, 0.0, 1.6], "radius_m": 0.5}}))[:2],
+            }
+        outside = ("out_of_bounds", "$.args.area.center_m", "That spot is outside the room.")
+        self.assertEqual(outcome[False], {"lead past the side": ("out_of_bounds", "$.args.position_m"), "lead over the top": ("out_of_bounds", "$.args.position_m"),
+                                          "glow over the top": outside, "glow past the side": outside[:2]})
+        self.assertEqual((outcome[True]["lead past the side"], outcome[True]["lead over the top"], outcome[True]["glow over the top"]),
+                         ("ok", ("out_of_bounds", "$.args.position_m"), outside))
+        self.assertNotEqual(outcome[True]["glow past the side"][0], "out_of_bounds", "round an island the sides are open")
+
     def test_a_bubbles_receipt_says_how_it_ended(self):
         """The receipt the player marks (M8): the kind, the target, carried, and ended: timed out, popped by the Gubble's own stop."""
         timed = self.carry()
