@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest import mock
 
 import support
-from support import command, ev, needs_pillow, notice, outside_code_spans, report, section, write_play
+from support import command, ev, outside_code_spans, report, section, write_play
 
 try:
     from PIL import Image
@@ -59,7 +59,7 @@ class TheContractsInvalidRecords(Tmp):
         for index, source in enumerate(folders):
             record = next(source.iterdir())
             with self.subTest(source.name):
-                copy = support.copy_play(record, self.dir / f"n{index}", stills=Image is not None)
+                copy = support.copy_play(record, self.dir / f"n{index}", stills=True)
                 report.write_report(copy)
                 text = (copy / "REPORT.md").read_text(encoding="utf-8")
                 self.assert_whole(text)
@@ -138,7 +138,7 @@ class WhatMayGoWrong(Tmp):
 
     def test_a_stills_folder_that_is_not_there_at_all(self):
         folder = support.copy_play(support.FIXTURE_PLAY, self.dir, stills=False)
-        result = report.write_report(folder)
+        report.write_report(folder)
         text = (folder / "REPORT.md").read_text(encoding="utf-8")
         self.assert_whole(text)
         self.assertIn("193 stills named in the record, 0 on disk, 193 missing", text)

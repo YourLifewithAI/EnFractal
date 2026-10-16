@@ -5,6 +5,7 @@ named as the record's `still` events name them, in a temporary copy of the play.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shutil
@@ -58,10 +59,18 @@ def copy_play(source: Path, into: Path, stills: bool = True, skip: tuple = ()) -
     return target
 
 
+# A 2x2 JPEG, for when Pillow is not installed (the reader only needs the files to be there; with Pillow the tests draw their own).
+TINY_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCpRRRXzB9of//Z")
+
+
 def make_stills(folder: Path, skip: tuple = ()) -> None:
     (folder / "stills").mkdir(exist_ok=True)
     for index, event in enumerate(tolerant_events(folder)):
         if event.get("kind") != "still" or not isinstance(event.get("file"), str) or event["file"] in skip:
+            continue
+        if Image is None:
+            (folder / "stills" / event["file"]).write_bytes(TINY_JPEG)
             continue
         shade = (index * 37) % 200 + 30
         Image.new("RGB", (16, 9), (shade, 255 - shade, 128)).save(folder / "stills" / event["file"], "JPEG")

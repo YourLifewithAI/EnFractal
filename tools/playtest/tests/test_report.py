@@ -33,7 +33,7 @@ class ExamplePlayReport(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.tmp.cleanup)
-        cls.folder = support.copy_play(support.EXAMPLE_PLAY, Path(cls.tmp.name), stills=Image is not None)
+        cls.folder = support.copy_play(support.EXAMPLE_PLAY, Path(cls.tmp.name), stills=True)
         cls.result = report.write_report(cls.folder)
         cls.text = (cls.folder / "REPORT.md").read_text(encoding="utf-8")
 
@@ -61,11 +61,16 @@ class ExamplePlayReport(unittest.TestCase):
         self.assertNotIn("not shown on screen**", refusals)
 
     def test_the_sheet_and_the_stills_list(self):
-        self.assertIsNone(self.result["sheet_note"] or None)
-        self.assertTrue((self.folder / "sheet.jpg").is_file())
+        if Image is None:  # the contracts' environment has no Pillow: the report says so and there is no sheet
+            self.assertIn("Pillow is not installed", self.result["sheet_note"])
+            self.assertFalse((self.folder / "sheet.jpg").exists())
+            self.assertNotIn("![Contact sheet]", self.text)
+        else:
+            self.assertEqual(self.result["sheet_note"], "")
+            self.assertTrue((self.folder / "sheet.jpg").is_file())
         stills = section(self.text, "## Stills")
         self.assertIn("7 stills named in the record, 7 on disk", stills)
-        self.assertIn("![Contact sheet](sheet.jpg)", stills)
+        self.assertEqual("![Contact sheet](sheet.jpg)" in stills, Image is not None)
 
     def test_the_time_budgets_add_up_to_the_plays_length(self):
         time = section(self.text, "## Where the time went")
@@ -84,7 +89,7 @@ class FixtureReport(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.tmp.cleanup)
-        cls.folder = support.copy_play(support.FIXTURE_PLAY, Path(cls.tmp.name), stills=Image is not None)
+        cls.folder = support.copy_play(support.FIXTURE_PLAY, Path(cls.tmp.name), stills=True)
         cls.result = report.write_report(cls.folder)
         cls.text = (cls.folder / "REPORT.md").read_text(encoding="utf-8")
         cls.play = cls.result["play"]

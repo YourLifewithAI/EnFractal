@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -11,16 +12,15 @@ import build_fixture
 
 
 def contracts_python():
-    """An interpreter that has jsonschema: this one, or the contracts' environment at the conventional place."""
-    try:
-        import jsonschema  # noqa: F401
-        return sys.executable
-    except ImportError:
-        pass
-    for candidate in (support.REPO / ".cache" / "contracts-venv" / "Scripts" / "python.exe", support.REPO / ".cache" / "contracts-venv" / "bin" / "python",
-                      support.REPO / ".venv" / "Scripts" / "python.exe", support.REPO / ".venv" / "bin" / "python"):
-        if candidate.is_file():
-            return str(candidate)
+    """An interpreter that can run contracts/validate.py (it needs jsonschema and referencing): this one, or the contracts'
+    environment at the conventional place (.cache/contracts-venv, or .venv)."""
+    where = ("Scripts", "python.exe") if os.name == "nt" else ("bin", "python")  # this platform's own interpreters only
+    candidates = [sys.executable] + [str(p) for p in (support.REPO / ".cache" / "contracts-venv" / where[0] / where[1],
+                                                       support.REPO / ".venv" / where[0] / where[1]) if p.is_file()]
+    for python in candidates:
+        probe = subprocess.run([python, "-I", "-c", "import jsonschema, referencing"], capture_output=True, timeout=60)
+        if probe.returncode == 0:
+            return python
     return None
 
 
@@ -32,7 +32,7 @@ class FixtureTests(unittest.TestCase):
     def test_the_fixture_is_valid_under_the_contract(self):
         python = contracts_python()
         if python is None:
-            self.skipTest("no interpreter with jsonschema (the contracts' environment: .cache/contracts-venv)")
+            self.skipTest("no interpreter that can run contracts/validate.py (jsonschema and referencing: the contracts environment, .cache/contracts-venv)")
         done = subprocess.run([python, "-I", str(support.REPO / "contracts" / "validate.py"), str(support.FIXTURE_PLAY)],
                               capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
