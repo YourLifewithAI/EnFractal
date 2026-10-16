@@ -85,17 +85,16 @@ class GlowAndModes(unittest.TestCase):
         self.assertNotIn("constellation", self.host.glow_progress.discoveries)
         self.assertTrue(all(not effect.connections for effect in self.host.effects.values()))
 
-    def test_glowing_bubbles_needs_a_real_stream_and_ends_with_it(self):
+    def test_glowing_bubbles_finds_no_stream_since_the_bubble_redesign(self):
+        """Glow's glowing_bubbles lit the stream of small bubbles, which the founder's redesign removed (decision 55): with only
+        the one Bubble now it finds no stream and is refused, until the founder decides whether it lights the Bubble."""
         refused = self.cast(variant="glowing_bubbles")
         self.assertEqual(refused["error"]["code"], "target_not_found")
-        bubbles = self.host.handle(PLAYER, cast("bubbles", "stream"))
-        bubble_id = bubbles["created"][0]
-        result = self.cast(variant="glowing_bubbles", touch="frost")
-        self.assertEqual(result["data"]["variant"], "glowing_bubbles")
-        self.assertEqual(self.host.glow_progress.discoveries, set())
-        stopped = self.send("effect.stop", {"effect": bubble_id})
-        self.assertEqual(set(stopped["affected"]), {bubble_id, result["created"][0]})
-        self.assertEqual(self.host.active_effect_ids(), [])
+        bubble = self.host.handle(PLAYER, cast("bubbles", "the-bubble", at=IN_THE_OPEN))
+        self.assertTrue(bubble["ok"], bubble)
+        again = self.cast(variant="glowing_bubbles", touch="frost")
+        self.assertEqual((again["error"]["code"], again["error"]["field_path"]), ("target_not_found", "$.args.variant"))
+        self.assertEqual((self.host.active_effect_ids(), self.host.glow_progress.discoveries), ([], set()))
 
     def test_adjustment_requires_fifth_light_checks_ownership_and_previews_without_change(self):
         first = self.cast(point=IN_THE_OPEN, variant="plain")["created"][0]

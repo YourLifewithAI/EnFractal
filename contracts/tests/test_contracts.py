@@ -174,6 +174,9 @@ EXPECTED_FAILURES = {
     "result_bubble_that_melted": "'melted' is not one of ['popped_by_player', 'timed_out', 'popped']",
     "result_bubble_without_its_id": "'bubble' is a required property",
     "result_boat_on_the_player": "False schema does not allow 'avatar:player'",
+    # The M9 follow-up: goal.set lead names a bubble (never an avatar) and the spot.
+    "command_lead_of_the_players_avatar": "'avatar:player' does not match '^effect:'",
+    "command_lead_without_a_spot": "'position_m' is a required property",
 }
 # Each invalid island (examples/rooms_invalid) and the reason it must fail. The game's loader (S6) refuses the same rooms.
 ISLAND_FAILURES = {
@@ -1947,6 +1950,27 @@ class MechanicsRoundTests(unittest.TestCase):
         self.assertEqual(validate.schema_errors(valid_example("command_bubble_boat_on_the_shallows")), [])
         at_a_point = {**no_preview, "args": {k: v for k, v in no_preview["args"].items() if k != "target"}}
         self.assertEqual(validate.schema_errors(at_a_point), [])
+
+    def test_the_gubble_leads_only_a_bubble_to_a_spot(self):
+        """The M9 follow-up (decision 57): goal.set lead names the bubble it leads (its effect: id, never an avatar or a thing) and
+        the spot; set by the player or the companion alike; its job reports how it ended, a lift without pips as energy_exhausted."""
+        for name in ("command_player_leads_a_bubble", "command_companion_leads_a_bubble", "result_companion_leads_a_bubble_up_a_lift",
+                     "result_lead_ended_without_pips"):
+            with self.subTest(example=name):
+                self.assertEqual(validate.schema_errors(valid_example(name)), [])
+        lead = valid_example("command_companion_leads_a_bubble")
+        self.assertIn("lead", self.defs["args"]["goal.set"]["properties"]["goal"]["enum"])
+        for target in ("avatar:player", "avatar:companion", "obj:bean_bag", "creation:00000001", "fractal:k3x9q2"):
+            with self.subTest(target=target):
+                self.assertTrue(validate.schema_errors({**lead, "args": {**lead["args"], "target": target}}))
+        for missing in ("target", "position_m"):
+            with self.subTest(missing=missing):
+                self.assertTrue(validate.schema_errors({**lead, "args": {k: v for k, v in lead["args"].items() if k != missing}}))
+        # The rule is the lead's alone: a go_to still aims at anything by target or position_m.
+        go_to = {**lead, "args": {"actor": "avatar:companion", "goal": "go_to", "target": "obj:bean_bag"}}
+        self.assertEqual(validate.schema_errors(go_to), [])
+        failed = valid_example("result_lead_ended_without_pips")["data"]["result"]["error"]
+        self.assertEqual((failed["code"], failed["balance"], failed["price"]), ("energy_exhausted", 1, 3))
 
     def test_a_committed_bubble_keeps_a_transient_receipt_the_player_can_mark(self):
         """M9: a committed bubble is transient, its effect: id created and in its data; the receipt says whether it carried the

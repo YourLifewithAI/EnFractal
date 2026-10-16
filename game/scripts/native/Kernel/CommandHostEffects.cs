@@ -14,13 +14,16 @@ namespace EnFractal.Native.Kernel;
 /// The island's abilities (Run 2, Glow; docs/runs/RUN-2-GLOW.md section 2). The island's rules pack (IslandRules) says
 /// which abilities exist and their bounds; effect.start casts one, carried out by the Gubble, through the one command
 /// path, as the player (the HUD's PlayerEffect) or as the companion. The primitives: light.emit (Glow, a real light), and since
-/// the Bubbles and Fireworks round particles.float (Bubbles) and particles.burst (Fireworks), cosmetic effects the look draws
-/// (LookDirector.StartBubbles, StartFireworks). Glow was the first: a real light
-/// that follows the Gubble (targets: its own avatar) or floats at a spot within its reach and in the team's sight.
+/// the Bubbles and Fireworks round particles.float (Bubbles) and particles.burst (Fireworks, a cosmetic burst the look draws,
+/// LookDirector.StartFireworks). Since the founder's redesign (decisions 55 to 60) Bubbles is no stream of small bubbles: it casts
+/// one player-sized bubble at a spot, the place deciding what it is (Kernel/Bubble/CommandHostBubble, BubbleEffectStart). Glow was
+/// the first: a real light that follows the Gubble (targets: its own avatar) or floats at a spot within its reach and in the
+/// team's sight.
 /// - Bounds: params, radius and duration inside the ability's; omitted params take the pack's defaults.
 /// - Who: cast_by names the principals that may cast it; a companion may target only its own avatar, and no one any
 ///   other entity.
-/// - Caps: at most max_active of an ability at once, and MaxActiveEffects in the room whatever the ability.
+/// - Caps: at most max_active of an ability at once, and MaxActiveEffects in the room whatever the ability, the bubble counted
+///   (one at a time: a bubble's cast replaces the one there, so that one does not count against it).
 /// - The receipt is transient, with an opaque effect: id (130 random bits); the effect ends at its duration, on
 ///   effect.stop (one id or all), on goal.stop of the Gubble, when the rules change and when the room unloads.
 /// Effects are never saved: they live with the session, like goals. Successful Glow uses also advance the
@@ -167,6 +170,9 @@ public partial class CommandHost
         if (!self && !ability.Targets.Contains("point"))
             throw new Refusal("invalid_args", "This ability works only on the Gubble itself; name its avatar in targets.", "$.args.targets",
                 allowed: new JsonArray(ability.Targets.OrderBy(t => t, StringComparer.Ordinal).Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()));
+        // The Bubble is cast at a spot, like Glow, and the place decides (decision 56): never on the Gubble itself.
+        var bubble = ability.Primitive == "particles.float";
+        if (self && bubble) throw new Refusal("invalid_args", BubbleAtASpotWords, "$.args.targets");
         // Bounds: every param the ability's, within its range; omitted ones take the defaults.
         var parameters = new SortedDictionary<string, double>(StringComparer.Ordinal);
         foreach (var parameter in args.GetProperty("params").EnumerateObject())
@@ -205,15 +211,17 @@ public partial class CommandHost
             if (!TeamSeesSpot(centre, principal))
                 throw new Refusal("target_not_found", "Neither of you can see that spot now. Look there first.", "$.args.area.center_m");
         }
-        // Caps: the ability's own, then the room's.
+        // Caps: the ability's own, then the room's. The bubble is one at a time (a recast replaces it, BubbleLaws.MaxBubbles), and it
+        // counts toward the room's cap at any other effect's start.
         var mine = _effects.Count(e => e.Capability == ability.Capability);
         var allowance = capability == "glow" ? Math.Min(ability.MaxActive, GlowProgress.ActiveLightAllowance) : ability.MaxActive;
-        if (mine >= allowance)
+        if (!bubble && mine >= allowance)
             throw new Refusal("budget_exceeded", "As many of these are running as the island allows; stop one first.", "$.args.capability",
                 actual: JsonValue.Create(mine), allowed: JsonValue.Create(allowance));
-        if (_effects.Count >= EffectLimit)
+        var running = _effects.Count + (bubble ? 0 : _bubbles.Count);
+        if (running >= EffectLimit)
             throw new Refusal("budget_exceeded", "As many effects are running as the room allows; stop one first.", "$.args.capability",
-                actual: JsonValue.Create(_effects.Count), allowed: JsonValue.Create(EffectLimit));
+                actual: JsonValue.Create(running), allowed: JsonValue.Create(EffectLimit));
         var variant = args.TryGetProperty("variant", out var selectedVariant) ? selectedVariant.GetString()! : "auto";
         var touch = args.TryGetProperty("touch", out var selectedTouch) ? selectedTouch.GetString()! : GlowProgress.SelectedTouch;
         string? bubbleSource = null;
@@ -318,6 +326,8 @@ public partial class CommandHost
     /// <summary>effect.start, checked by PlanEffect: preview says what would start; otherwise the look lights it (or refuses, and nothing starts).</summary>
     private JsonObject EffectStart(EffectPlan plan, string principal, string actionId, string fingerprint, bool preview, string? approvedBy)
     {
+        // The Bubble: one player-sized bubble at the spot, the place deciding what it is (Kernel/Bubble/CommandHostBubble).
+        if (plan.Ability.Primitive == "particles.float") return BubbleEffectStart(plan, principal, actionId, fingerprint, preview, approvedBy);
         var look = LookHook != null && IsInstanceValid(LookHook) && LookHook.IsInsideTree() ? LookHook : null;
         if (preview)
         {
@@ -376,7 +386,7 @@ public partial class CommandHost
         return Transient("effect.start", principal, actionId, fingerprint, new JsonArray(id), EffectData(plan, id, expires), created: new JsonArray(id), approvedBy: approvedBy);
     }
 
-    /// <summary>The look's call for the ability's primitive: Glow lights, Bubbles blow, Fireworks burst. A primitive the look has no call for draws nothing.</summary>
+    /// <summary>The look's call for the ability's primitive: Glow lights, Fireworks burst. A primitive the look has no call for draws nothing (the Bubble is no effect the look starts: it shows a bubble, Kernel/Bubble).</summary>
     private bool StartLook(LookDirector look, EffectPlan plan, string id, float intensity)
     {
         var follow = plan.Self ? Companion : null;
@@ -384,7 +394,6 @@ public partial class CommandHost
         {
             "light.emit" => look.StartGlowVariant(id, follow, plan.Centre, (float)plan.RadiusM, intensity, plan.Variant, plan.Touch, plan.BubbleSource,
                 (float)GlowProgress.SoundVolume, GlowProgress.SoundMuted),
-            "particles.float" => look.StartBubbles(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
             "particles.burst" => look.StartFireworks(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
             _ => false,
         };
@@ -476,7 +485,8 @@ public partial class CommandHost
             ["params"] = new JsonObject(a.Params.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)new JsonObject { ["min"] = p.Value.Min, ["max"] = p.Value.Max }))),
             ["area_radius_max_m"] = a.AreaRadiusMaxM, ["duration_max_s"] = a.DurationMaxS,
             ["command_op"] = a.Primitive is "growth.seed" or "element.ignite" ? "nature.cast" : "effect.start",
-            ["max_active"] = EffectiveEffectLimit(a.Capability), ["reach_m"] = a.ReachM,
+            ["max_active"] = a.Primitive == "particles.float" ? Math.Min(EffectiveEffectLimit(a.Capability), BubbleLaws.MaxBubbles) : EffectiveEffectLimit(a.Capability),
+            ["reach_m"] = a.ReachM,
         }).ToArray();
         var data = new JsonObject { ["items"] = new JsonArray(items) };
         if (start + page.Count < all.Count) data["next_cursor"] = (start + page.Count).ToString(CultureInfo.InvariantCulture);

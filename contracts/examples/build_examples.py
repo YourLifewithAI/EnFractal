@@ -856,6 +856,9 @@ BUBBLE_PREVIEW = hashlib.sha256(b"a bubble carry over the bean bag").hexdigest()
 # A bubble's id (M9): an effect: id, which effect.stop names and goal.stop of the Gubble pops.
 BUBBLE_ID = "effect:" + "".join("abcdefghijklmnopqrstuvwxyz234567"[b % 32] for b in hashlib.sha256(b"the carry's bubble").digest()[:26])
 BOAT_ID = "effect:" + "".join("abcdefghijklmnopqrstuvwxyz234567"[b % 32] for b in hashlib.sha256(b"the boat").digest()[:26])
+# The Gubble leading a bubble (goal.set lead, the M9 follow-up): its job, and the spot on the bean bag the lift floats up to.
+LEAD_JOB = opaque("job-", "lead the bubble up onto the bean bag")
+LEAD_SPOT = [1.1, 0.3, 0.2]
 # The design's starting numbers as a rules pack's blocks, exactly as storybook_wild v5 ships them (MechanicsRoundTests).
 MECHANICS = {
     "traits": {
@@ -1148,6 +1151,21 @@ def mechanics_round(at: str) -> dict:
         "result_bubble_carry_before_its_ghost": {**result("nature.cast", "carry-0001", "companion:local", 5, at), "ok": False,
                                                  "error": {"code": "not_ready", "field_path": "$.args.preview_id", "retryable": True,
                                                            "message": "The player is still seeing the bubble's ghost; cast it again in a moment."}},
+        # The M9 follow-up (decisions 57, 58 and 60): the Gubble leads a bubble to a spot (target: the bubble's effect: id), the
+        # player's order (the smart ask) or its own idea. A spot higher than it can drift is a lift, charged when it starts to rise to
+        # whoever set the lead; a pool that cannot pay then ends the lead (energy_exhausted) and the bubble does not rise.
+        "command_player_leads_a_bubble": command("goal.set", "lead-0001", {"actor": "avatar:companion", "goal": "lead", "target": BUBBLE_ID,
+                                                                           "position_m": LEAD_SPOT}),
+        "command_companion_leads_a_bubble": command("goal.set", "lead-0002", {"actor": "avatar:companion", "goal": "lead", "target": BUBBLE_ID,
+                                                                              "position_m": LEAD_SPOT}),
+        "result_companion_leads_a_bubble_up_a_lift": result("goal.set", "lead-0002", "companion:local", 5, at, transient=True, job_id=LEAD_JOB,
+                                                             affected=["avatar:companion", BUBBLE_ID],
+                                                             data={"actor": "avatar:companion", "goal": "lead", "bubble": BUBBLE_ID,
+                                                                   "position_m": LEAD_SPOT, "lift": True, "lift_price": 3, "target_seen": "now"}),
+        "result_lead_ended_without_pips": answer("jobs.status", "q-0041", "companion:local", 5, at, {
+            "job_id": LEAD_JOB, "state": "failed",
+            "result": refused("goal.set", "lead-0002", "companion:local", "energy_exhausted", "The Gubble needs a moment.", "$.args.position_m",
+                              balance=1, price=3)}),
         # The Gubble may find a Fractal and go to it, never gather it.
         "command_companion_goes_to_a_fractal": command("goal.set", "go-to-fractal-0001", {"actor": "avatar:companion", "goal": "go_to",
                                                                                           "target": FRACTAL}),
@@ -1165,6 +1183,7 @@ def mechanics_round_refused(at: str) -> dict:
     carry = valid["command_bubble_carry"]
     bubble = valid["result_bubble_carry"]
     boat = valid["result_bubble_boat_on_the_shallows"]
+    lead = valid["command_companion_leads_a_bubble"]
     return {
         "command_pickup_of_an_object": command("item.pickup", "pickup-0009", {"target": "obj:bean_bag"}),
         "command_gather_of_a_creation": command("item.gather", "gather-0009", {"target": "creation:00000001"}),
@@ -1189,6 +1208,9 @@ def mechanics_round_refused(at: str) -> dict:
         "result_bubble_that_melted": {**bubble, "data": {**bubble["data"], "ended": "melted"}},
         "result_bubble_without_its_id": {**bubble, "data": {k: v for k, v in bubble["data"].items() if k != "bubble"}},
         "result_boat_on_the_player": {**boat, "data": {**boat["data"], "target": "avatar:player"}},
+        # A lead's target is only a bubble, never an avatar; it names the spot.
+        "command_lead_of_the_players_avatar": {**lead, "args": {**lead["args"], "target": "avatar:player"}},
+        "command_lead_without_a_spot": {**lead, "args": {k: v for k, v in lead["args"].items() if k != "position_m"}},
         "result_fire_preview_with_a_target": {**valid_fire_preview(at), "data": {**valid_fire_preview(at)["data"], "target": "avatar:player"}},
     }
 

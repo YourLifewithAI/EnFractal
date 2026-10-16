@@ -2965,7 +2965,7 @@
         }
       },
       "goal.set": {
-        "description": "Give an avatar a goal. A goal with a target runs as a job (the result's job_id; poll jobs.status). fetch: walk to the target, pick it up (as entity.grab, with the same checks and carry limit) and bring it back to the player, still holding it; entity.release then puts it down. Its job succeeds when the companion is back beside the player holding it. A companion's fetch of a Fractal (fractal:) is refused permission_denied, the same answer whether or not it exists: the Gubble may find a Fractal, go to it and look at it, never gather it.",
+        "description": "Give an avatar a goal. A goal with a target runs as a job (the result's job_id; poll jobs.status). fetch: walk to the target, pick it up (as entity.grab, with the same checks and carry limit) and bring it back to the player, still holding it; entity.release then puts it down. Its job succeeds when the companion is back beside the player holding it. A companion's fetch of a Fractal (fractal:) is refused permission_denied, the same answer whether or not it exists: the Gubble may find a Fractal, go to it and look at it, never gather it. lead (decision 57, the smart ask's steering): the Gubble leads a bubble (target: the bubble's effect: id, never an avatar or a thing) to a spot (position_m), the bubble trailing it on its string; it may pop before it arrives. A spot higher than the bubble can drift is a lift: it floats up there (at most 1.2 m), and the lift's price is charged when it starts to rise, to the principal who set the lead (no pips, no rise: energy_exhausted). The Gubble's own stop (goal.stop, or a new goal) pops the bubble it leads, and the player drifts down gently where it popped; the dive key or X pops it at any moment, even mid-lead. A lead itself costs nothing and is saved nowhere; its job succeeds when the bubble arrives, and the goal.set receipt's data says how it ended.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -2985,7 +2985,8 @@
               "point_at",
               "go_to",
               "fetch",
-              "wander"
+              "wander",
+              "lead"
             ]
           },
           "target": {
@@ -3049,6 +3050,29 @@
               "required": [
                 "target"
               ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "goal": {
+                  "const": "lead"
+                }
+              },
+              "required": [
+                "goal"
+              ]
+            },
+            "then": {
+              "required": [
+                "target",
+                "position_m"
+              ],
+              "properties": {
+                "target": {
+                  "pattern": "^effect:"
+                }
+              }
             }
           }
         ]

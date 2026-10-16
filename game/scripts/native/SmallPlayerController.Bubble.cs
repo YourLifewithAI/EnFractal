@@ -144,5 +144,7 @@ public partial class SmallPlayerController
         Ride = BubbleRide.None;
         Velocity = Vector3.Zero;
         DeflateLandings++;
+        // Deep water takes it at once: it swims from this tick, so no tick of falling in between reports a landing speed.
+        if (!IsOnFloor() && CanSwim && !_swimming) StartSwim();
     }
 }

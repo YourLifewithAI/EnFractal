@@ -8,13 +8,14 @@ adapter's refusals before anything is sent, and the prices the mock reads from t
 """
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import unittest
 
 from mcp_harness import McpHarness
 from support import COMPANION, GUBBLE, IN_THE_OPEN, PLAYER, command, contract_problems, contracts, new_host, query
 
-from enfractal_companion import mock_host
+from enfractal_companion import mock_host, refusals
 from enfractal_companion.mock_host import load_rules, rules_path
 
 NEW_PLAYER_OPS = {
@@ -128,13 +129,16 @@ class OnTheMock(unittest.TestCase):
 
 
 class TheBubbleOnTheMock(unittest.TestCase):
-    """M9 on the mock (no physics: a bubble neither drifts nor deflates; the kernel suite native_kernel_bubble holds the body's
-    side, the deflate among it): the security notes' row, by name, and the receipt the player marks."""
+    """The Bubble on the mock (M9 and its follow-up, decisions 55 to 60; no physics: a bubble neither drifts nor deflates, and
+    the kernel suite native_kernel_bubble holds the body's side, the deflate and the lift's rise among it): the place deciding,
+    one bubble at a time, the room's cap, the Gubble's lead, the security notes' row by name (extended to the lead), and the
+    receipt the player marks."""
 
     def setUp(self):
         self.host = new_host()
         self.n = 0
         self.feet = list(self.host.entities["avatar:player"].position)
+        self.beside = [self.feet[0] + 0.3, self.feet[1], self.feet[2] + 0.1]
 
     def tearDown(self):
         for result in self.host.emitted:
@@ -154,22 +158,70 @@ class TheBubbleOnTheMock(unittest.TestCase):
             self.host.clock.advance(mock_host.BUBBLE_GHOST_LEAD_S + 0.05)
         return self.send(principal, "nature.cast", self.carry_args(capability, preview_id=preview.get("data", {}).get("preview_id", "e" * 32)))
 
+    @staticmethod
+    def the_bubble(spot, duration=20, **extra):
+        return {"capability": "bubbles", "params": {}, "area": {"center_m": spot, "radius_m": 0.5}, "duration_s": duration, **extra}
+
+    def bubble_on_the_player(self, principal=COMPANION):
+        """effect.start of Bubbles at the player's feet done right: the Gubble previews (the ghost) and casts the same a moment later."""
+        if principal != PLAYER:
+            self.send(principal, "effect.start", self.the_bubble(self.feet), preview=True)
+            self.host.clock.advance(mock_host.BUBBLE_GHOST_LEAD_S + 0.05)
+        return self.send(principal, "effect.start", self.the_bubble(self.feet))
+
+    def lead(self, principal, bubble, spot, **extra):
+        return self.send(principal, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble, "position_m": spot}, **extra)
+
     def lookup(self, principal, committed):
         return self.host.handle(principal, query("receipt.lookup", {"action_id": committed["action_id"]}, f"q-{self.n}"))["data"]["receipt"]["data"]
+
+    def job(self, principal, set_):
+        return self.host.handle(principal, query("jobs.status", {"job_id": set_["job_id"]}, f"q-{self.n}"))["data"]
+
+    def test_the_place_decides_one_bubble_at_a_time(self):
+        """effect.start of Bubbles: one player-sized bubble at a spot; on the player a carry (the Gubble's previewed first),
+        elsewhere a bubble to walk into; never on the Gubble; a recast pops the one there; the room's cap counts it."""
+        unpreviewed = self.send(COMPANION, "effect.start", self.the_bubble(self.feet))
+        ghost = self.send(COMPANION, "effect.start", self.the_bubble(self.feet), preview=True)
+        too_soon = self.send(COMPANION, "effect.start", self.the_bubble(self.feet))
+        self.assertEqual([refusal(r) for r in (unpreviewed, too_soon)],
+                         [("revision_conflict", "$.args.area.center_m", mock_host.BUBBLE_GHOST_FIRST),
+                          ("not_ready", "$.args.area.center_m", mock_host.BUBBLE_GHOST_LEAD)])
+        self.assertEqual((ghost["preview"], ghost["data"]["kind"], len(self.host.bubble_ghosts), list(self.host.bubbles)), (True, "carry", 1, []))
+        self.host.clock.advance(mock_host.BUBBLE_GHOST_LEAD_S + 0.05)
+        carry = self.send(COMPANION, "effect.start", self.the_bubble(self.feet))
+        bubble = carry["data"]["bubble"]
+        self.assertEqual((carry["data"]["kind"], carry["created"], carry["affected"], carry["data"]["carried"], carry["data"]["area"]["radius_m"]),
+                         ("carry", [bubble], [bubble, "avatar:player"], True, mock_host.BUBBLE_CARRY_RADIUS_DEFAULT_M))
+        walk_in = self.send(PLAYER, "effect.start", self.the_bubble(self.beside))
+        self.assertEqual((walk_in["data"]["kind"], walk_in["data"]["carried"], list(self.host.bubbles)), ("walk_in", False, [walk_in["data"]["bubble"]]))
+        self.assertEqual(self.lookup(COMPANION, carry)["ended"], "popped", "a recast pops the one already there")
+        own = self.send(PLAYER, "effect.start", self.the_bubble(self.feet))
+        self.assertEqual((own["data"]["kind"], own["data"]["carried"]), ("carry", True), "the player's own key is the consent")
+        on_the_gubble = self.send(COMPANION, "effect.start", self.the_bubble(self.feet, targets=[GUBBLE]))
+        self.assertEqual(refusal(on_the_gubble), ("invalid_args", "$.args.targets", mock_host.BUBBLE_AT_A_SPOT))
+        # The room's cap: a bubble counts at an effect's start; a bubble's recast replaces it.
+        self.host.policy = dataclasses.replace(self.host.policy, max_active_effects=1)
+        glow = self.send(PLAYER, "effect.start", {"capability": "glow", "params": {}, "area": {"center_m": IN_THE_OPEN, "radius_m": 0.5}, "duration_s": 60})
+        recast = self.send(PLAYER, "effect.start", self.the_bubble(self.beside))
+        self.assertEqual((refusal(glow)[:2], glow["error"]["allowed"], glow["error"]["actual"], recast["ok"]),
+                         (("budget_exceeded", "$.args.capability"), 1, 1, True))
+        listed = self.host.handle(PLAYER, query("capabilities.list", {}, "q-cap"))["data"]["items"]
+        self.assertEqual(next(i["max_active"] for i in listed if i["capability"] == "bubbles"), 1)
 
     def test_a_companion_cast_never_targets_the_player_without_the_preview_or_the_step_in(self):
         unpreviewed = self.send(COMPANION, "nature.cast", self.carry_args())
         made_up = self.send(COMPANION, "nature.cast", self.carry_args(preview_id="d" * 32))
         at_the_feet = self.send(COMPANION, "nature.cast", {k: v for k, v in self.carry_args().items() if k != "target"})
         too_soon = self.carry(wait=False)
-        self.assertEqual([refusal(r)[:2] for r in (unpreviewed, made_up, at_the_feet, too_soon)],
+        bubble_unpreviewed = self.send(COMPANION, "effect.start", self.the_bubble(self.feet))
+        self.assertEqual([refusal(r)[:2] for r in (unpreviewed, made_up, at_the_feet, too_soon, bubble_unpreviewed)],
                          [("request_invalid", "$"), ("revision_conflict", "$.args.preview_id"), ("invalid_args", "$.args.center_m"),
-                          ("not_ready", "$.args.preview_id")])
+                          ("not_ready", "$.args.preview_id"), ("revision_conflict", "$.args.area.center_m")])
         self.assertEqual(refusal(too_soon)[2], mock_host.BUBBLE_GHOST_LEAD)
         self.assertFalse(self.host.bubbles, "no refusal forms a bubble")
         # Beside the player a bubble waits, carrying no one, until they step in.
-        beside = self.send(COMPANION, "nature.cast", {"capability": "bubble_carry", "center_m": [self.feet[0] + 0.3, self.feet[1], self.feet[2] + 0.1],
-                                                       "radius_m": 0.08, "duration_s": 20})
+        beside = self.send(COMPANION, "nature.cast", {"capability": "bubble_carry", "center_m": self.beside, "radius_m": 0.08, "duration_s": 20})
         self.assertTrue(beside["ok"] and beside["transient"] and beside["data"]["carried"] is False and "target" not in beside["data"], beside)
         self.assertTrue(self.host.player_steps_into(beside["data"]["bubble"]))
         self.assertIs(self.lookup(COMPANION, beside)["carried"], True)
@@ -181,51 +233,111 @@ class TheBubbleOnTheMock(unittest.TestCase):
         self.assertTrue(self.host.player_pops_bubble())
         self.assertEqual(self.lookup(COMPANION, carry)["ended"], "popped_by_player")
         self.assertFalse(self.host.bubbles)
+        # Mid-lead too: the lead fails (the bubble popped before it got there) and its receipt says how.
+        again = self.bubble_on_the_player()
+        led = self.lead(COMPANION, again["data"]["bubble"], IN_THE_OPEN)
+        self.assertEqual(self.job(COMPANION, led)["state"], "running")
+        self.assertTrue(self.host.player_pops_bubble())
+        failed = self.job(COMPANION, led)
+        self.assertEqual((failed["state"], failed["result"]["error"]["code"], failed["result"]["error"]["message"]),
+                         ("failed", "target_not_found", mock_host.LEAD_POPPED))
+        self.assertEqual((self.lookup(COMPANION, led)["ended"], self.lookup(COMPANION, again)["ended"]), ("popped_by_player", "popped_by_player"))
 
     def test_the_companion_cannot_keep_a_player_in_a_bubble_the_player_wants_out_of(self):
         carry = self.carry()
-        held = self.send(COMPANION, "nature.cast", self.carry_args(), preview=True)
-        self.assertEqual(refusal(held)[:2], ("target_busy", "$.args.target"), "no second offer while one holds them")
+        led = self.lead(COMPANION, carry["data"]["bubble"], IN_THE_OPEN)
         x = self.send(PLAYER, "goal.stop", {"actor": GUBBLE})
         self.assertIn(carry["data"]["bubble"], x["affected"])
-        self.assertEqual(self.lookup(COMPANION, carry)["ended"], "popped_by_player", "X pops it, popped by the player")
+        self.assertEqual((self.lookup(COMPANION, carry)["ended"], self.lookup(COMPANION, led)["ended"], self.job(COMPANION, led)["state"]),
+                         ("popped_by_player", "stopped", "cancelled"), "X pops the bubble the Gubble leads, popped by the player")
+        # No pause after a pop (decision 59): the Gubble may offer again at once, and the ghost and its lead are the consent.
         again = self.send(COMPANION, "nature.cast", self.carry_args(), preview=True)
-        self.assertEqual(refusal(again), ("not_ready", "$.args.target", mock_host.BUBBLE_POP_RESPECT), "the Gubble waits after a no")
-        self.host.clock.advance(mock_host.BUBBLE_POP_RESPECT_S)
+        self.assertTrue(again["ok"], again)
         later = self.carry()
         self.assertTrue(later["ok"], later)
-        # The Gubble can never stop the player's own exit, and its stops pop only its own bubbles.
-        mine = self.send(PLAYER, "nature.cast", {"capability": "bubble_carry", "center_m": [self.feet[0] + 0.3, self.feet[1], self.feet[2] + 0.1],
-                                                  "radius_m": 0.08, "duration_s": 20})
+        # Another offer while one holds them replaces it (one bubble at a time), and the dive key pops that one too.
+        replaced = self.carry()
+        self.assertEqual((replaced["ok"], self.lookup(COMPANION, later)["ended"], len(self.host.bubbles)), (True, "popped", 1))
+        self.assertTrue(self.host.player_pops_bubble())
+        # The Gubble can never stop the player's own exit, and its stops pop only its own bubbles and the one it leads.
+        mine = self.send(PLAYER, "nature.cast", {"capability": "bubble_carry", "center_m": self.beside, "radius_m": 0.08, "duration_s": 20})
         theirs = self.send(COMPANION, "effect.stop", {"effect": mine["data"]["bubble"]})
         self.assertEqual(theirs["data"]["effects_stopped"], 0)
+        self.assertTrue(self.host.player_steps_into(mine["data"]["bubble"]))
         self.assertTrue(self.host.player_pops_bubble())
 
     def test_every_other_ability_still_refuses_the_players_avatar(self):
         outcome = {}
         for capability in ("bloom", "fire", "bubble_boat"):
             outcome[capability] = refusal(self.send(COMPANION, "nature.cast", {**self.carry_args(), "capability": capability}, preview=True))[:2]
-        outcome["bubbles"] = refusal(self.send(COMPANION, "effect.start", {"capability": "bubbles", "params": {}, "area": {"center_m": self.feet, "radius_m": 0.5},
-                                                                           "duration_s": 10, "targets": ["avatar:player"]}))[:2]
+        outcome["bubbles"] = refusal(self.send(COMPANION, "effect.start", self.the_bubble(self.feet, targets=["avatar:player"])))[:2]
         outcome["directing"] = refusal(self.send(COMPANION, "goal.set", {"actor": "avatar:player", "goal": "go_to", "position_m": IN_THE_OPEN}))[:2]
         outcome["the Gubble"] = refusal(self.send(COMPANION, "nature.cast", {**self.carry_args(), "target": GUBBLE}, preview=True))[:2]
         self.assertEqual(outcome, {"bloom": ("request_invalid", "$.args.capability"), "fire": ("request_invalid", "$.args.capability"),
                                    "bubble_boat": ("request_invalid", "$.args.capability"), "bubbles": ("permission_denied", "$.args.targets"),
                                    "directing": ("actor_denied", "$.args.actor"), "the Gubble": ("invalid_args", "$.args.target")})
 
+    def test_a_lead_targets_only_a_bubble_and_moves_the_player_only_under_the_carry_exception(self):
+        """goal.set lead (the security row, extended to it): its target is only a bubble (an effect: id), never an avatar or a
+        thing; it names a spot inside the island; the companion leads only a bubble the team sees; the actor is the Gubble."""
+        carry = self.bubble_on_the_player()
+        bubble = carry["data"]["bubble"]
+        refused = {
+            "the player": self.lead(COMPANION, "avatar:player", IN_THE_OPEN),
+            "the Gubble": self.lead(COMPANION, GUBBLE, IN_THE_OPEN),
+            "a thing": self.lead(COMPANION, "obj:box", IN_THE_OPEN),
+            "no spot": self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble}),
+            "an unknown bubble": self.lead(COMPANION, "effect:" + "a" * 26, IN_THE_OPEN),
+            "the player's body": self.send(COMPANION, "goal.set", {"actor": "avatar:player", "goal": "lead", "target": bubble, "position_m": IN_THE_OPEN}),
+            "outside the island": self.lead(COMPANION, bubble, [0.6, 0.0, 1.7]),
+        }
+        self.assertEqual({k: refusal(v)[:2] for k, v in refused.items()}, {
+            "the player": ("request_invalid", "$.args.target"), "the Gubble": ("request_invalid", "$.args.target"),
+            "a thing": ("request_invalid", "$.args.target"), "no spot": ("request_invalid", "$.args.position_m"),
+            "an unknown bubble": ("target_not_found", "$.args.target"), "the player's body": ("actor_denied", "$.args.actor"),
+            "outside the island": ("out_of_bounds", "$.args.position_m")})
+        self.assertEqual(refusal(refused["the player"])[2], refusals.LEAD_NAMES_A_BUBBLE)
+        # The lead runs as the Gubble's job: arriving, the bubble is at the spot and its receipt says arrived.
+        led = self.lead(COMPANION, bubble, IN_THE_OPEN)
+        self.assertEqual((led["data"]["goal"], led["data"]["bubble"], led["data"]["lift"], led["data"]["target_seen"], led["affected"]),
+                         ("lead", bubble, False, "now", [GUBBLE, bubble]))
+        self.assertEqual(self.host.goal_arrived(GUBBLE), "succeeded")
+        self.assertEqual((self.lookup(COMPANION, led)["ended"], self.host.bubbles[bubble].centre), ("arrived", IN_THE_OPEN))
+        # A higher spot is a lift (its price in the data), set by the player or the companion.
+        up = self.lead(PLAYER, bubble, [1.1, 0.3, 0.2])
+        self.assertEqual((up["data"]["lift"], up["data"]["lift_price"]), (True, 6))
+        # A new lead of the same bubble re-aims it; the Gubble's own stop pops the bubble it leads (popped), even the player's.
+        again = self.lead(COMPANION, bubble, self.beside)
+        self.assertEqual((self.job(PLAYER, up)["state"], self.lookup(PLAYER, up)["ended"], bubble in self.host.bubbles), ("cancelled", "stopped", True))
+        stop = self.send(COMPANION, "goal.stop", {})
+        self.assertIn(bubble, stop["affected"])
+        self.assertEqual((self.lookup(COMPANION, again)["ended"], self.lookup(COMPANION, carry)["ended"], self.job(COMPANION, again)["state"]),
+                         ("stopped", "popped", "cancelled"))
+        # A new goal pops the bubble the Gubble leads; a lead that cannot get on fails (target_unreachable).
+        players = self.send(PLAYER, "effect.start", self.the_bubble(self.beside))
+        follow_led = self.lead(PLAYER, players["data"]["bubble"], IN_THE_OPEN)
+        self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "follow"})
+        self.assertEqual((self.job(PLAYER, follow_led)["state"], self.lookup(PLAYER, players)["ended"]), ("cancelled", "popped"))
+        stuck = self.send(PLAYER, "effect.start", self.the_bubble(self.beside))
+        blocked = self.lead(PLAYER, stuck["data"]["bubble"], IN_THE_OPEN)
+        self.assertEqual(self.host.goal_blocked(GUBBLE, self.host.policy.unreachable_after_s), "failed")
+        self.assertEqual((self.job(PLAYER, blocked)["result"]["error"]["code"], self.lookup(PLAYER, blocked)["ended"], stuck["data"]["bubble"] in self.host.bubbles),
+                         ("target_unreachable", "blocked", True))
+
     def test_a_bubbles_receipt_says_how_it_ended(self):
         """The receipt the player marks (M8): the kind, the target, carried, and ended: timed out, popped by the Gubble's own stop."""
         timed = self.carry()
         self.host.clock.advance(21)
         self.assertEqual(self.lookup(COMPANION, timed)["ended"], "timed_out")
-        self.host.clock.advance(mock_host.BUBBLE_POP_RESPECT_S)
-        lift = self.carry(capability="bubble_lift")
+        carry = self.carry()
         self.send(COMPANION, "goal.stop", {})
-        ended = self.lookup(COMPANION, lift)
-        self.assertEqual((ended["capability"], ended["target"], ended["carried"], ended["ended"]), ("bubble_lift", "avatar:player", True, "popped"))
-        # A replay answers the receipt as it stands now, and a boat is refused on the box world's dry floor.
-        replay = self.host.handle(COMPANION, command("nature.cast", self.carry_args("bubble_lift", preview_id="f" * 32), lift["action_id"]))
+        ended = self.lookup(COMPANION, carry)
+        self.assertEqual((ended["capability"], ended["target"], ended["carried"], ended["ended"]), ("bubble_carry", "avatar:player", True, "popped"))
+        # A replay answers the receipt as it stands now; bubble_lift is no cast (Lift is a lead); no boat on the box world's dry floor.
+        replay = self.host.handle(COMPANION, command("nature.cast", self.carry_args(preview_id="f" * 32), carry["action_id"]))
         self.assertEqual(replay["error"]["code"], "action_id_conflict")
+        lift = self.carry(capability="bubble_lift")
+        self.assertEqual(refusal(lift), ("unsupported_capability", "$.args.capability", mock_host.BUBBLE_LIFT_IS_A_LEAD))
         boat = self.send(COMPANION, "nature.cast", {"capability": "bubble_boat", "center_m": IN_THE_OPEN, "radius_m": 0.12, "duration_s": 60})
         self.assertEqual(refusal(boat), ("invalid_args", "$.args.center_m", mock_host.BUBBLE_NO_WATER))
 
@@ -238,6 +350,23 @@ class ThroughMcp(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn(op.replace(".", "_"), tools)
             self.assertIn("nature_cast", tools)
 
+    async def test_the_tools_say_what_the_bubble_does_now(self):
+        """The companion's tool texts describe the Bubble as redesigned (M9's change request): one bubble at a spot where the
+        place decides, nature_cast's named forms and no bubble_lift cast, and goal_set's lead; nothing left of the stream."""
+        from enfractal_companion import server
+        async with McpHarness() as harness:
+            tools = {tool.name: tool.description for tool in (await harness.client.list_tools()).tools}
+        for words in ("bubble_carry", "bubble_boat", "bubble_lift is no cast", "goal_set lead", "One bubble at a time"):
+            self.assertIn(words, tools["nature_cast"])
+        for words in ("the place decides", "a carry round them", "a boat", "walk into it", "One bubble at a time"):
+            self.assertIn(words, tools["effect_start"])
+        self.assertIn("lead needs a target, a bubble's effect id (never an avatar or a thing), and position_m", tools["goal_set"])
+        self.assertIn("pop your bubbles and the bubble you lead", tools["goal_stop"])
+        for name in ("effect_start", "capabilities_list", "goal_stop", "nature_cast"):
+            self.assertNotIn("stream", tools[name], name)
+        self.assertNotIn("a stream of bubbles", server.INSTRUCTIONS)
+        self.assertIn("goal_set lead", server.INSTRUCTIONS)
+
     async def test_the_adapter_refuses_an_unpreviewed_carry_and_a_fractal_grab_before_sending_anything(self):
         async with McpHarness() as harness:
             carry = await harness.call("nature_cast", {"action_id": "carry-1", **CARRY})
@@ -248,6 +377,11 @@ class ThroughMcp(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((grab["error"]["code"], grab["error"]["field_path"]), ("permission_denied", "$.args.target"))
             fetch = await harness.call("goal_set", {"action_id": "fetch-1", "goal": "fetch", "target": "fractal:k3x9q2"})
             self.assertEqual(fetch["error"]["code"], "permission_denied")
+            # A lead names a bubble, never the player's avatar, and a spot: refused at the adapter as the game refuses it.
+            on_the_player = await harness.call("goal_set", {"action_id": "lead-1", "goal": "lead", "target": "avatar:player", "position_m": IN_THE_OPEN})
+            no_spot = await harness.call("goal_set", {"action_id": "lead-2", "goal": "lead", "target": "effect:" + "a" * 26})
+            self.assertEqual([(r["error"]["code"], r["error"]["field_path"]) for r in (on_the_player, no_spot)],
+                             [("request_invalid", "$.args.target"), ("request_invalid", "$.args.position_m")])
             self.assertEqual(harness.host.emitted, [], "refused before anything reached the game")
 
 

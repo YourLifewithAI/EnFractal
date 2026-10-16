@@ -172,7 +172,10 @@ public partial class CommandHostTest
         Check(new LocalGlowProgressStore(path).Load().Same(_host.GlowProgress), "and the new file reads back as the host holds it");
     }
 
-    /// <summary>The stream of bubbles teaches nothing and saves nothing: Bubble trail and Pond bubbles were dropped with it (the founder, 15 October).</summary>
+    /// <summary>
+    /// The plain Bubble teaches nothing and saves nothing (Bubble trail and Pond bubbles were dropped with the stream, the founder, 15
+    /// October): a bubble to walk into at a spot is no expertise, and there is no Bubble on the Gubble itself any more (decision 55).
+    /// </summary>
     private void TestBubblesStreamTeachesNothing()
     {
         GrowthStop("before-bubbles");
@@ -181,8 +184,9 @@ public partial class CommandHostTest
         _host.ConfigureGlowProgress(store);
         var self = Send(Glow("exp-stream-self", SelfArgs(capability: "bubbles")), Player);
         var point = Send(Glow("exp-stream-point", PointArgs(InTheOpen, capability: "bubbles")), Companion);
-        Check(Ok(self) && Ok(point) && _host.GlowProgress.Others.Count == 0 && _host.ExpertiseCount() == 0 && store.Saves == 0,
-            "a stream of bubbles, on the Gubble or at a spot, is no expertise: nothing is learned, counted or saved");
+        Check(Code(self) == "invalid_args" && Ok(point) && point["data"]?["kind"]?.GetValue<string>() == "walk_in" && _host.GlowProgress.Others.Count == 0 &&
+              _host.ExpertiseCount() == 0 && store.Saves == 0,
+            "the plain Bubble at a spot is no expertise (nothing is learned, counted or saved), and none is cast on the Gubble itself");
         GrowthStop("after-bubbles");
     }
 

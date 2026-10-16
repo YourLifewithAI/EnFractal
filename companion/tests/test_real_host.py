@@ -788,8 +788,9 @@ class McpClientOnTheRealHost(RealHostCase):
 
     async def test_an_mcp_client_glows_through_the_real_host(self):
         """Glow, Bubbles and Fireworks through the MCP server and the kernel host: the island's rules listed, the
-        companion's own light and a light at a spot it can see, bubbles and fireworks on itself and at a spot, the player
-        and other things refused as targets, reserved names refused before anything is sent, and each stopped by id."""
+        companion's own light and a light at a spot it can see, the Bubble at a spot (a bubble to walk into; never on the
+        companion itself) and fireworks at a spot, the player and other things refused as targets, reserved names refused
+        before anything is sent, and each stopped by id."""
         from mcp import Client
         await self.settle_rate()
         async with Client(server_parameters("--session-file", str(GAME.session_path)), mode="auto") as client:
@@ -813,15 +814,19 @@ class McpClientOnTheRealHost(RealHostCase):
             own = await call("effect_start", {"action_id": fresh_id("glow"), **light, "targets": ["avatar:companion"]})
             spot = await call("effect_start", {"action_id": fresh_id("glow"), **light,
                                                "area": {"center_m": [0.6, 0, 1.0], "radius_m": 0.5}})
+            on_itself = await call("effect_start", {"action_id": fresh_id("bubbles"), **light, "capability": "bubbles",
+                                                    "targets": ["avatar:companion"], "duration_s": 20})
             stream = await call("effect_start", {"action_id": fresh_id("bubbles"), **light, "capability": "bubbles",
-                                                 "targets": ["avatar:companion"], "duration_s": 20})
+                                                 "area": {"center_m": [0.45, 0, 1.0], "radius_m": 0.5}, "duration_s": 20})
             rocket = await call("effect_start", {"action_id": fresh_id("fireworks"), **light, "capability": "fireworks",
                                                  "area": {"center_m": [0.6, 0, 1.0], "radius_m": 1.0}, "duration_s": 6})
             outcome = {
                 "listed": [item["capability"] for item in listed["data"]["items"]],
                 "self": (code(own), own.get("data", {}).get("target"), own.get("data", {}).get("params")),
                 "point": (code(spot), spot.get("data", {}).get("target")),
-                "bubbles on itself": (code(stream), stream.get("data", {}).get("category"), stream.get("data", {}).get("target")),
+                "bubbles on itself": code(on_itself),
+                "the Bubble at a spot": (code(stream), stream.get("data", {}).get("category"), stream.get("data", {}).get("target"),
+                                         stream.get("data", {}).get("kind")),
                 "fireworks at a spot": (code(rocket), rocket.get("data", {}).get("category"), rocket.get("data", {}).get("target")),
                 # Stopped at once: a firework lasts at most 6 s.
                 "stops": [(await call("effect_stop", {"effect": r["created"][0]}))["data"]["effects_stopped"]
@@ -843,7 +848,8 @@ class McpClientOnTheRealHost(RealHostCase):
                 "listed": ["bloom", "bubbles", "fire", "fireworks", "glow"],
                 "self": ("ok", "self", {"intensity": 0.6}),
                 "point": ("ok", "point"),
-                "bubbles on itself": ("ok", "float", "self"),
+                "bubbles on itself": ("invalid_args", "$.args.targets"),
+                "the Bubble at a spot": ("ok", "float", "point", "walk_in"),
                 "fireworks at a spot": ("ok", "burst", "point"),
                 "the player": ("permission_denied", "$.args.targets"),
                 "bubbles on the player": ("permission_denied", "$.args.targets"),

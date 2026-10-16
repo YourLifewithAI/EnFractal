@@ -127,6 +127,24 @@ def effect_args_error(error: HostError) -> HostError:
     return HostError("request_invalid", error.message, field_path=path)
 
 
+LEAD_NAMES_A_BUBBLE = "A lead names the bubble it leads (its effect: id)."
+LEAD_NAMES_A_SPOT = "A lead names the spot it leads the bubble to."
+
+
+def lead_args_error(error: HostError, message: Any) -> HostError:
+    """goal.set lead's arguments as the kernel host checks them (CheckArgs): a lead whose target is not a bubble (an effect: id;
+    never an avatar or a thing), or that names no spot, is request_invalid, at the kernel's paths and in its words."""
+    args = message.get("args") if isinstance(message, dict) else None
+    if not (isinstance(message, dict) and message.get("op") == "goal.set" and isinstance(args, dict) and args.get("goal") == "lead"):
+        return error
+    if error.code != "invalid_args" or error.field_path not in ("$.args.target", "$.args.position_m"):
+        return error
+    target = args.get("target")
+    if not isinstance(target, str) or not target.startswith("effect:"):
+        return HostError("request_invalid", LEAD_NAMES_A_BUBBLE, field_path="$.args.target")
+    return HostError("request_invalid", LEAD_NAMES_A_SPOT, field_path="$.args.position_m")
+
+
 def nature_args_error(error: HostError) -> HostError:
     """The nature commands' arguments as the kernel host checks them (CommandHostNature.CheckNatureArgs): an argument it
     does not know is field_unknown, anything else wrong with them request_invalid, a position at the whole vector."""
