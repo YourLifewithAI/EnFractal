@@ -146,16 +146,21 @@ public static class PondSurvey
     }
 
     /// <summary>A bed probe that casts a ray straight down to the world layer; returns the bed's height or null.</summary>
-    public static Func<Vector3, float?> RayProbe(PhysicsDirectSpaceState3D space) => from =>
+    public static Func<Vector3, float?> RayProbe(PhysicsDirectSpaceState3D space)
     {
-        // Disposed at once, with the exclusions and the key made once (S12): the survey casts thousands of rays in one frame,
-        // and each left a query, an answer, an empty array (Create makes one when given none) and a key to the .NET finalizer.
-        using var query = PhysicsRayQueryParameters3D.Create(from, from + Vector3.Down * MaxDepthM, WorldMask, NoExclusions);
+        // One query for all the rays, its ends moved for each (S12 stopped leaving a query, an array and a key to the finalizer for
+        // every ray; the first recorded play's survey then made a new query for each of its thousands and 80 MB of garbage in all).
+        var query = PhysicsRayQueryParameters3D.Create(Vector3.Zero, Vector3.Down * MaxDepthM, WorldMask, NoExclusions);
         query.CollideWithAreas = false;
         query.HitBackFaces = false;
-        using var hit = space.IntersectRay(query);
-        return hit.Count > 0 ? hit[HitPosition].AsVector3().Y : null;
-    };
+        return from =>
+        {
+            query.From = from;
+            query.To = from + Vector3.Down * MaxDepthM;
+            using var hit = space.IntersectRay(query);
+            return hit.Count > 0 ? hit[HitPosition].AsVector3().Y : null;
+        };
+    }
 
     private static readonly Godot.Collections.Array<Rid> NoExclusions = new();
     private static readonly Variant HitPosition = "position";
@@ -163,20 +168,106 @@ public static class PondSurvey
     /// <summary>Survey every body of water under root, in a stable order (by where it lies), probing beds with bedBelow.</summary>
     public static List<Pond> Survey(Node root, Func<Vector3, float?> bedBelow)
     {
-        var bodies = new List<(WaterKind Kind, List<(Vector3 A, Vector3 B, Vector3 C)> Triangles)>();
-        foreach (var (mesh, kind) in WaterMeshes(root))
-            foreach (var body in Bodies(mesh))
-                bodies.Add((kind, body));
-        var ordered = bodies
-            .Select(b => (b.Kind, b.Triangles, Centre: b.Triangles.Aggregate(Vector3.Zero, (s, t) => s + (t.A + t.B + t.C) / 3f) / Math.Max(1, b.Triangles.Count)))
-            .OrderBy(b => b.Kind).ThenBy(b => MathF.Round(b.Centre.X, 3)).ThenBy(b => MathF.Round(b.Centre.Z, 3)).ToList();
-        var ponds = new List<Pond>();
-        foreach (var (kind, triangles, _) in ordered) ponds.Add(Rasterise(ponds.Count, kind, triangles, bedBelow));
-        return ponds;
+        var surveyor = new Surveyor(root, bedBelow, background: false);
+        while (!surveyor.Step(double.PositiveInfinity)) { }
+        return surveyor.Ponds.ToList();
     }
 
-    /// <summary>A water mesh's triangles in world space, split into connected bodies (shared corners, welded to a millimetre).</summary>
-    private static List<List<(Vector3 A, Vector3 B, Vector3 C)>> Bodies(MeshInstance3D mesh)
+    /// <summary>
+    /// The same survey spread over frames (the first recorded play: surveying the island's water in one frame stopped the game for
+    /// 0.6 to 0.8 s as the room opened). The main thread only reads the meshes' triangles (one mesh a step) and casts the bed rays,
+    /// a few at a time within the budget each step is given; splitting the water into bodies and laying each on its grid, which is
+    /// plain arithmetic on the triangles, goes to a worker thread. The ponds come out exactly as the one-shot survey made them (the
+    /// look suite compares the two).
+    /// </summary>
+    public sealed class Surveyor
+    {
+        private enum Stage { Read, Build, Probe, Done }
+
+        private readonly Func<Vector3, float?> _bedBelow;
+        private readonly bool _background;
+        private readonly List<(MeshInstance3D Mesh, WaterKind Kind)> _meshes;
+        private readonly List<(WaterKind Kind, List<(Vector3 A, Vector3 B, Vector3 C)> Triangles)> _read = new();
+        private System.Threading.Tasks.Task<List<Pond>>? _build;
+        private List<Pond> _ponds = new();
+        private Stage _stage = Stage.Read;
+        private int _next, _pond, _cell;
+
+        /// <summary>The rays cast so far, and the steps the survey took, for the report.</summary>
+        public int Rays { get; private set; }
+        public int Steps { get; private set; }
+
+        public Surveyor(Node root, Func<Vector3, float?> bedBelow, bool background = true)
+        {
+            _bedBelow = bedBelow;
+            _background = background;
+            _meshes = WaterMeshes(root);
+        }
+
+        public bool Done => _stage == Stage.Done;
+        public IReadOnlyList<Pond> Ponds => _ponds;
+
+        /// <summary>Work for about budgetMs on the calling (main) thread; true once the survey is complete.</summary>
+        public bool Step(double budgetMs)
+        {
+            Steps++;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (_stage != Stage.Done)
+            {
+                switch (_stage)
+                {
+                    case Stage.Read:
+                        if (_next < _meshes.Count)
+                        {
+                            var (mesh, kind) = _meshes[_next++];
+                            _read.Add((kind, Triangles(mesh)));
+                        }
+                        else
+                        {
+                            var read = _read.ToList();
+                            _build = _background ? System.Threading.Tasks.Task.Run(() => Build(read)) : System.Threading.Tasks.Task.FromResult(Build(read));
+                            _stage = Stage.Build;
+                        }
+                        break;
+                    case Stage.Build:
+                        if (!_build!.IsCompleted) return false;
+                        _ponds = _build.GetAwaiter().GetResult();
+                        _stage = Stage.Probe;
+                        break;
+                    case Stage.Probe:
+                        if (_pond >= _ponds.Count) { foreach (var pond in _ponds) pond.Summarise(); _stage = Stage.Done; break; }
+                        for (var batch = 0; batch < 32 && _pond < _ponds.Count; batch++)
+                        {
+                            var pond = _ponds[_pond];
+                            if (_cell >= pond.Surface.Length) { _pond++; _cell = 0; continue; }
+                            ProbeBed(pond, _cell++, _bedBelow);
+                            Rays++;
+                        }
+                        break;
+                }
+                if (clock.Elapsed.TotalMilliseconds >= budgetMs) break;
+            }
+            return _stage == Stage.Done;
+        }
+
+        /// <summary>Everything that needs no scene: the bodies of water, in a stable order, each laid on its grid (beds still unknown).</summary>
+        private static List<Pond> Build(List<(WaterKind Kind, List<(Vector3 A, Vector3 B, Vector3 C)> Triangles)> read)
+        {
+            var bodies = new List<(WaterKind Kind, List<(Vector3 A, Vector3 B, Vector3 C)> Triangles)>();
+            foreach (var (kind, triangles) in read)
+                foreach (var body in Bodies(triangles))
+                    bodies.Add((kind, body));
+            var ordered = bodies
+                .Select(b => (b.Kind, b.Triangles, Centre: b.Triangles.Aggregate(Vector3.Zero, (sum, t) => sum + (t.A + t.B + t.C) / 3f) / Math.Max(1, b.Triangles.Count)))
+                .OrderBy(b => b.Kind).ThenBy(b => MathF.Round(b.Centre.X, 3)).ThenBy(b => MathF.Round(b.Centre.Z, 3)).ToList();
+            var ponds = new List<Pond>();
+            foreach (var (kind, triangles, _) in ordered) ponds.Add(Rasterise(ponds.Count, kind, triangles));
+            return ponds;
+        }
+    }
+
+    /// <summary>A water mesh's triangles in world space.</summary>
+    private static List<(Vector3 A, Vector3 B, Vector3 C)> Triangles(MeshInstance3D mesh)
     {
         var transform = mesh.IsInsideTree() ? mesh.GlobalTransform : mesh.Transform;
         var triangles = new List<(Vector3, Vector3, Vector3)>();
@@ -189,6 +280,12 @@ public static class PondSurvey
             for (var i = 0; i + 2 < indices.Length; i += 3)
                 triangles.Add((transform * vertices[indices[i]], transform * vertices[indices[i + 1]], transform * vertices[indices[i + 2]]));
         }
+        return triangles;
+    }
+
+    /// <summary>Triangles split into connected bodies (shared corners, welded to a millimetre).</summary>
+    private static List<List<(Vector3 A, Vector3 B, Vector3 C)>> Bodies(List<(Vector3, Vector3, Vector3)> triangles)
+    {
         // Union-find over welded corners.
         var keys = new Dictionary<(long, long, long), int>();
         var parent = new List<int>();
@@ -221,16 +318,15 @@ public static class PondSurvey
         return groups.Values.ToList();
     }
 
-    private static Pond Rasterise(int index, WaterKind kind, List<(Vector3 A, Vector3 B, Vector3 C)> triangles, Func<Vector3, float?> bedBelow)
+    private static Pond Rasterise(int index, WaterKind kind, List<(Vector3 A, Vector3 B, Vector3 C)> triangles)
     {
         var min = new Vector2(float.MaxValue, float.MaxValue);
         var max = new Vector2(float.MinValue, float.MinValue);
         foreach (var (a, b, c) in triangles)
-            foreach (var v in new[] { a, b, c })
-            {
-                min = new Vector2(Math.Min(min.X, v.X), Math.Min(min.Y, v.Z));
-                max = new Vector2(Math.Max(max.X, v.X), Math.Max(max.Y, v.Z));
-            }
+        {
+            min = new Vector2(Math.Min(min.X, Math.Min(a.X, Math.Min(b.X, c.X))), Math.Min(min.Y, Math.Min(a.Z, Math.Min(b.Z, c.Z))));
+            max = new Vector2(Math.Max(max.X, Math.Max(a.X, Math.Max(b.X, c.X))), Math.Max(max.Y, Math.Max(a.Z, Math.Max(b.Z, c.Z))));
+        }
         var size = max - min;
         var cell = Math.Max(FinestCellM, MathF.Sqrt(Math.Max(size.X * size.Y, 1e-6f) / MaxCellsPerPond));
         var nx = Math.Max(1, (int)MathF.Ceiling(size.X / cell));
@@ -251,17 +347,18 @@ public static class PondSurvey
                     if (Barycentric(a, b, c, px, pz) is { } w) surface[z * nx + x] = a.Y * w.X + b.Y * w.Y + c.Y * w.Z;
                 }
         }
-        for (var i = 0; i < surface.Length; i++)
-        {
-            if (float.IsNaN(surface[i])) continue;
-            var x = i % nx;
-            var z = i / nx;
-            var from = new Vector3(min.X + (x + 0.5f) * cell, surface[i] + 0.002f, min.Y + (z + 0.5f) * cell);
-            if (bedBelow(from) is { } y && y < surface[i]) bed[i] = y;
-        }
-        var pond = new Pond { Index = index, Kind = kind, Min = min, Cell = cell, Nx = nx, Nz = nz, Surface = surface, Bed = bed };
-        pond.Summarise();
-        return pond;
+        return new Pond { Index = index, Kind = kind, Min = min, Cell = cell, Nx = nx, Nz = nz, Surface = surface, Bed = bed };
+    }
+
+    /// <summary>The bed under one wet cell of a pond's grid, by a ray straight down (left unknown where there is none).</summary>
+    private static void ProbeBed(Pond pond, int i, Func<Vector3, float?> bedBelow)
+    {
+        var surface = pond.Surface[i];
+        if (float.IsNaN(surface)) return;
+        var x = i % pond.Nx;
+        var z = i / pond.Nx;
+        var from = new Vector3(pond.Min.X + (x + 0.5f) * pond.Cell, surface + 0.002f, pond.Min.Y + (z + 0.5f) * pond.Cell);
+        if (bedBelow(from) is { } y && y < surface) pond.Bed[i] = y;
     }
 
     /// <summary>The barycentric weights of (x, z) in a triangle seen from above, or null outside it.</summary>
