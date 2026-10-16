@@ -153,10 +153,10 @@ public partial class MainMenu : Control
                  {
                      ("creative", "Creative", "Nothing hurts. Build, try, learn."),
                      ("challenge", "Challenge", "Hearts, stamina, and what you do counts."),
-                     ("live", MenuModel.ModeWords("live"), "Shared islands are coming."),
+                     ("live", MenuModel.ModeWords("live"), "Coming later."),
                  })
         {
-            var card = new Button { Name = "Mode_" + mode, ToggleMode = true, ButtonGroup = _modeGroup, FocusMode = FocusModeEnum.All, CustomMinimumSize = new Vector2(ModeCardWidth, 88) };
+            var card = new Button { Name = "Mode_" + mode, ToggleMode = true, ButtonGroup = _modeGroup, FocusMode = FocusModeEnum.All, CustomMinimumSize = new Vector2(ModeCardWidth, 92) };
             MenuStyle.AsCard(card);
             var inside = new VBoxContainer();
             inside.AddThemeConstantOverride("separation", 2);
@@ -257,10 +257,11 @@ public partial class MainMenu : Control
     }
 
     /// <summary>A card's contents, inside a margin, letting the mouse through to the card.</summary>
-    private static void Inside(Button card, Control contents, int margin)
+    private static void Inside(Button card, Control contents, int margin, int vertical = -1)
     {
         var padded = new MarginContainer();
-        foreach (var side in new[] { "left", "right", "top", "bottom" }) padded.AddThemeConstantOverride("margin_" + side, margin);
+        foreach (var side in new[] { "left", "right" }) padded.AddThemeConstantOverride("margin_" + side, margin);
+        foreach (var side in new[] { "top", "bottom" }) padded.AddThemeConstantOverride("margin_" + side, vertical >= 0 ? vertical : margin);
         padded.AddChild(contents);
         card.AddChild(padded);
         padded.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -341,7 +342,7 @@ public partial class MainMenu : Control
             var knacks = team.Knacks.Count == 0 ? "no knack yet" : string.Join(", ", team.Knacks.Select(k => TeamMaker.KnackName(Rules, k.Knack)));
             lines.AddChild(MenuStyle.Text(knacks + " · " + Trust.PlayerWords(team.Trust, team.GubbleName), 12, MenuStyle.Muted, "TeamKnackTrust"));
         }
-        Inside(button, row, 12);
+        Inside(button, row, 12, 8);
         var id = card.TeamId;
         button.Pressed += () => { Model.SelectTeam(id); Refresh(); };
         _teamRow.AddChild(button);
@@ -402,7 +403,7 @@ public partial class MainMenu : Control
         if (island.Tutorial) name.AddChild(MenuStyle.Text("tutorial", 13, MenuStyle.Warm, "TutorialTag"));
         lines.AddChild(name);
         lines.AddChild(MenuStyle.Text(SavesWords(island), 13, MenuStyle.Muted, "IslandSaves"));
-        Inside(button, lines, 10);
+        Inside(button, lines, 10, 7);
         var id = island.RoomId;
         button.Pressed += () => { Model.SelectIsland(id); Refresh(); };
         _islandRow.AddChild(button);

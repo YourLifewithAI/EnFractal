@@ -76,6 +76,7 @@ public partial class MenuBoot : NativeGameBoot
     /// <summary>The menu, over this machine's teams and islands, with the command line's choices made first.</summary>
     public MainMenu Open(IReadOnlyList<string> arguments)
     {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         DisplayServer.WindowSetTitle("EnFractal");
         if (RoomHud.StartsFullscreen(DisplayServer.GetName(), arguments.ToArray(), true, RoomHud.LoadFullscreen(RoomHud.ProfilePath)) && DisplayServer.GetName() != "headless")
         {
@@ -93,7 +94,7 @@ public partial class MenuBoot : NativeGameBoot
         Model = model;
         Menu = new MainMenu { Model = model, Characters = ShippedCharacters, Launch = launch => StartRoom(launch), QuitGame = () => GetTree().Quit() };
         AddChild(Menu);
-        GD.Print($"MENU_OPEN teams={model.Teams.Count} islands={model.Islands.Count}");
+        GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"MENU_OPEN teams={model.Teams.Count} islands={model.Islands.Count} in {clock.Elapsed.TotalMilliseconds:0} ms"));
         return Menu;
     }
 
