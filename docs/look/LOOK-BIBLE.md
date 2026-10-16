@@ -207,6 +207,10 @@ The founder (8 October): "Can there be fish in the water?", answered as living s
 - **Rules.** Placement is deterministic from the room's id and its water; the motion runs freely (and is deterministic for the same steps, which the tests use). Fish are not entities: not saved, not in the kernel, sight or map, and they collide with nothing.
 - **Under the water.** When a camera dips below a pond's surface, a full-screen veil clouds the water with distance (two thirds hidden at 22 cm) and stops at the surface, so the underside stays clear; above water its vertex stage draws nothing.
 
+## The living shore (Run 2, the first recorded play)
+
+The founder's mark 2 (16 October): the coastline was a perfect line where the water met the land; it should be dynamic, with waves gently washing against the shore (MECHANICS.md decision 66). Where the sea meets the land a wash now climbs the sand and draws back every 8 s, up to 4.5 cm over the sea's level and 4 cm under it, with a wet band on the sand and a little foam on the water's edge; the generator's coast is untouched. One function (`shore_wash.gdshaderinc`) serves the water shader (the sea's edge draws back) and the land shader (the wash on the sand and the damp band), only within 0.8 m of the island's coast and on ground that slopes, never while the intro plays, and on the engine's own `TIME` so nothing is set on a material each frame. The lagoon, the open sea, the mist, the seam and the view under water are as they were. Numbers, method, checks and what it costs: [SHORE.md](SHORE.md). The intro's two hitches and the 35 to 41 ms frames of the same play: [FRAMES.md](FRAMES.md).
+
 ## Budgets
 
 The preset budget is **16.7 ms per frame at 1920 × 1080 on an NVIDIA RTX 2070 SUPER (8 GB)**, at most three shadowed lights (sun, window sky fill, lamp). Reviews report p50, p95 and p99 frame time per camera; the numbers of this round are in `docs/look/reviews/run1/CAPTURES.md`. The VoxelGI bake runs once at room load (under 0.5 s for the test room) and is not part of the frame budget.
