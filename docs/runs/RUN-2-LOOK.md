@@ -216,7 +216,7 @@ Each is launched as one agent with this prompt, with `<packet>` filled in. The a
 
 ## 11. Built (15 October)
 
-**The hub.** DiamondAge pushes Wave 2 to `run2/integration` throughout the day, so this round merges into **`run2/look-plan`** instead: each packet's branch is cut from it and merged back into it with its change requests, and the founder (or DiamondAge's integrator) merges `run2/look-plan` into `run2/integration` once, after Wave 2. The packets ran as **desktop sessions** rather than subagents, so the founder could answer L9's blind pick in L9's own session; their hand-over notes are in the app's shared notes folder (`%APPDATA%\Claude\side-session-notes\`). The routing rows below move to ORCHESTRATION.md's log at that merge, to keep the two machines out of the same table today.
+**The hub.** DiamondAge pushes Wave 2 to `run2/integration` throughout the day, so this round merges into **`run2/look-plan`** instead: each packet's branch is cut from it and merged back into it with its change requests, and the founder (or DiamondAge's integrator) merges `run2/look-plan` into `run2/integration` once, after Wave 2. The packets ran as **desktop sessions** rather than subagents, so the founder could answer L9's blind pick in L9's own session; their hand-over notes are in the app's shared notes folder (`%APPDATA%\Claude\side-session-notes\`). The routing rows below were copied into ORCHESTRATION.md's routing log at the merge into `run2/integration` (16 October).
 
 | Date | Packet | Model | Result |
 |---|---|---|---|

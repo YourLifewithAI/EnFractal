@@ -753,6 +753,18 @@ pwsh -NoProfile -File C:\dev\EnFractal\run-room.ps1 -Room landscape_garage_nomin
 3. **Trust:** the numbers (+1, -3, ±2; bands 5, 15, 30); the commands counted beyond your words (adjusting a glow, the nature trail and its repair, undo, locking a thing); marks only on this session's receipts; whether the AI should hear the early warning (a contract notice); whether deep water and falls count as hazards for it.
 4. **Smaller:** "Health 100/100" lines stay in points; Trust and knack names have no reader on screen yet (M7 and the aura).
 
+## The look round (15 to 16 October, the first Windows machine, not DiamondAge)
+
+**Merged into `run2/integration` on 16 October** from its hub `run2/look-plan`, at the founder's word once DiamondAge was idle. The plan, the briefs, every merge, the runner lines and the routing rows are in [RUN-2-LOOK.md](RUN-2-LOOK.md) (sections 8 to 11). Four Opus 5.5 desktop sessions built it while DiamondAge ran Wave 2; the hub took `run2/integration` three times (`47f9e66`, `b1b5053`, `35c6ea7`) so the final step was a fast-forward.
+
+- **L9, the look of a Fractal** ([docs/look/FRACTALS.md](../look/FRACTALS.md)): a small star of light that bobs inside the kernel's box, a glint that reads from a band away, sparks at the pickup; at night a small unshadowed pool of light (the founder: "a fun way for players to find it"), at most 32 lit. The founder picked the star blind from three forms; the crystal and the seed stay behind `FractalLook.Tuning.Form`.
+- **L10, the seasons on the land** ([docs/look/SEASONS.md](../look/SEASONS.md)): broadleaves fresh with blossom in spring, gold to rust tree by tree in autumn, pale under snow in winter; conifers green; the meadow's straw and frost; albedo only, the light's pinned readings unchanged.
+- **The procedural grass** (the founder's prototype with L10's session): knee-high turf with a thatch, seed heads, weeds, flowers and stones; `--look-grass=kit` brings back the kit's tufts.
+- **L11, the hamlet's charm** ([docs/look/CHARM.md](../look/CHARM.md)): chimney smoke, warm windows and lantern glow with the lamps, bunting and washing that sway with the meadow's wind, fairy lights at night; `--look-charm=off`.
+- **For the founder:** with the grass, the player's view across open meadow on the 10x island runs at the 16.7 ms budget (p95 16.8 to 16.9 ms, 13.4 ms of GPU, about 7 before the grass); whether the light-level estimate (`LightLevelAt`) should count a Fractal's night light; large white flat stones near the camera read like paper; an exported lantern's glow shows a black dome at its foot.
+- **Findings for other lanes:** 12 of the garage's 24 Fractals (before M4's follow-up) cannot be seen from 10 to 16 m below at the 10 cm eye, because plants hide them (a proposed generator task); the exporter seats small plant copies 4 to 9 mm under the meadow; plant detail follows the avatars, not the capture camera.
+- **Worktrees to retire** (each with `.cache` junctions to unlink first): `C:\dev\EnFractal-run2\look-plan`, `look-fractals`, `look-seasons`, `look-charm` on the first Windows machine.
+
 ## The next session
 
 1. **The founder's first slice with Fractals** (the migration ran on the founder's launch of 15 October, and Challenge was played for about 35 minutes on the garage without Fractals): the regenerated stand-in garage (28 Fractals, the summit stair) still needs the founder's yes to install, with the current export backed up to `room-backups` first and a safe smoke boot.
