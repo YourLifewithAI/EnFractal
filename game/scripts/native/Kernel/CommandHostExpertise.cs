@@ -29,4 +29,7 @@ public partial class CommandHost
         catch (GlowProgressException) { return false; }
         return !ReferenceEquals(candidate, GlowProgress) && TrySaveExpertise(candidate);
     }
+
+    /// <summary>M9's events (Kernel/Bubble/CommandHostBubble.cs): the carry, the boat and the lift learned as Bubbles expertise, whose ids are the store's.</summary>
+    partial void OnBubbleLearned(string capability) => RecordExpertise(ExpertiseLists.Bubbles, capability);
 }

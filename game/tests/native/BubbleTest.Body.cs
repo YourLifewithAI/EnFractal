@@ -56,7 +56,7 @@ public partial class BubbleTest
         var landing = await UntilDown();
         Check(_player.Ride == SmallPlayerController.BubbleRide.None && _player.IsOnFloor() && Health == health && landing <= 0.01f,
             $"the body drifts down and stands, unhurt ({health} to {Health}), reporting no landing speed ({landing:0.000} m/s)");
-        Check(_learned.Contains("bubble_carry"), "a carry that set the player down safely is a carry learned (the expertise seam): " + string.Join(",", _learned));
+        Check(_learned.Contains("bubble_carry") && _host.GlowProgress.Has(ExpertiseLists.Bubbles, ExpertiseLists.BubbleCarry), "a carry that set the player down safely is a carry learned, kept in the team's expertise store (the seam, wired at the M9 and M11 merge): " + string.Join(",", _learned));
         // Put down somewhere else while it holds them (a recovery, a teleport), the body has left the bubble: it pops and never drags them back.
         Wait(BubbleLaws.PopRespectS);
         var again = CarryOnPlayer(Companion, out _);
