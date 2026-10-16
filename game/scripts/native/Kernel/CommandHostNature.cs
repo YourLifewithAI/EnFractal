@@ -348,6 +348,9 @@ public partial class CommandHost
     /// </summary>
     private JsonObject CastFire(JsonElement root, IslandAbility ability, Cast cast, string principal, string action, string fingerprint, bool preview, string? approvedBy)
     {
+        // Fire's camp: a cast that reaches an unlit firepit lights that firepit and nothing else (CommandHostCamps.LightFirepit).
+        if (UnlitFirepitUnder(cast.Center, cast.Radius) is { } firepit)
+            return LightFirepit(root, ability, cast.Center, cast.Radius, cast.Duration, firepit, principal, action, fingerprint, preview, approvedBy);
         NatureCell? Sample(int x, int z) => SampleNatureCell(x, z, cast.Center.Y);
         var targets = FireTargets(cast.Center, cast.Radius);
         if (targets.Count > MaxFireTargets) throw new Refusal("invalid_args", "That fire could touch too many things. Choose a smaller area.", "$.args.radius_m");

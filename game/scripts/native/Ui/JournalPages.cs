@@ -82,10 +82,26 @@ public static class JournalPages
         }),
         (ExpertiseLists.Fire, "Fire", new[]
         {
-            (ExpertiseLists.FirstFire, "First fire"), (ExpertiseLists.Campfire, "Campfire"), (ExpertiseLists.Fireline, "Fireline"),
+            (ExpertiseLists.FirstFire, "Fire"), (ExpertiseLists.Campfire, "Campfire"), (ExpertiseLists.Fireline, "Fireline"),
             (ExpertiseLists.Snuff, "Snuff"), (ExpertiseLists.WillOWisp, "Will-o'-wisp"),
         }),
     };
+
+    /// <summary>
+    /// An expertise's name as the journal writes it (the expertise announcement's card reads it too): Glow's discoveries and the other
+    /// abilities' lists; the id itself for one no list names.
+    /// </summary>
+    public static string ExpertiseTitle(string ability, string id)
+    {
+        if (ability == ExpertiseLists.Glow)
+            foreach (var (glowId, title, _) in GlowDiscoveries)
+                if (glowId == id) return title;
+        foreach (var (other, _, entries) in OtherExpertise)
+            if (other == ability)
+                foreach (var (entryId, title) in entries)
+                    if (entryId == id) return title;
+        return id;
+    }
 
     /// <summary>A page as the host's data writes it now. leaf counts PerLeaf entries from the start of a long page.</summary>
     public static JournalPage Build(string page, CommandHost? host, int leaf)

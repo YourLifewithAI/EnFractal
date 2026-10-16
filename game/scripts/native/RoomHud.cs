@@ -317,7 +317,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best zoomed out) · {K(Act.HudCustomize)} settings · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
         // The window (RoomHud.Screen.cs): the key, and what the game remembers for the next launch.
         AddKeyLine(_keyHelp, ScreenKeysLine, "ScreenKeys");
-        AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm · {K(Act.ItemGather)} gather a log or stone you hold into your wallet");
+        AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm · {K(Act.ItemGather)} gather a log or stone you hold into your wallet · {K(Act.Rest)} sit down by a lit campfire to rest (moving stands you up)");
         // The hand buttons, under the hand keys.
         _keyHelp.AddChild(hands);
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is), the buttons first.
@@ -705,6 +705,8 @@ public partial class RoomHud : CanvasLayer
         UpdateMinimap(delta);
         MeterCost.End(meterStart);
         UpdateDusk(delta);
+        // Fire's camp: the sit's end and the expertise announcement's card (RoomHud.Camp.cs).
+        TickCamp(delta);
         _washVeil.Color = new Color(_washVeil.Color, Player.HomeFade);
         RefreshKeyTextIfChanged();
         // The clock line likewise: written again when its minute, its steps, its day or a key changed.
@@ -905,6 +907,8 @@ public partial class RoomHud : CanvasLayer
             else if (PlayerControls.Hit(press, Act.Hands)) Hands();
             else if (PlayerControls.Hit(press, Act.Push)) Push();
             else if (PlayerControls.Hit(press, Act.ItemGather)) Gather();
+            // Fire's camp: sit down by a lit campfire to rest, and stand again (RoomHud.Camp.cs).
+            else if (PlayerControls.Hit(press, Act.Rest)) RestKey();
             // The look drag arms on the press; a click that never moves does nothing.
             else if (PlayerControls.Hit(press, Act.LookDrag))
             {

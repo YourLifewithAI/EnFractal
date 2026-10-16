@@ -137,10 +137,13 @@ public partial class CommandHost
     /// </summary>
     private void PublishProgress(GlowProgress candidate)
     {
-        var before = GlowProgress.ExpertiseCount;
+        var previous = GlowProgress;
+        var before = previous.ExpertiseCount;
         GlowProgress = candidate;
         GlowProgressNotice = "";
         if (candidate.ExpertiseCount <= before) return;
+        // The expertise announcement (Fire's camp): each one newly learned and saved, for the HUD's chime and card (CommandHostCamps).
+        NoteLearned(previous, candidate);
         for (var learned = before + 1; learned <= candidate.ExpertiseCount; learned++) NotePace("expertise", learned);
         ResolveVitalsRules(pace: true);
     }

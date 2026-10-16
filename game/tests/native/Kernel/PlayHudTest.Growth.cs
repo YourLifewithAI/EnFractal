@@ -134,7 +134,7 @@ public partial class PlayHudTest
         _hud.Journal.OpenPage(JournalPages.Discoveries);
         await Frames(JournalRefreshFrames);
         var text = _hud.JournalText;
-        Check(text.Contains("Bubbles\nBubble carry\nBubble lift", StringComparison.Ordinal) && text.Contains("Fire\nFirst fire\nWill-o'-wisp", StringComparison.Ordinal) &&
+        Check(text.Contains("Bubbles\nBubble carry\nBubble lift", StringComparison.Ordinal) && text.Contains("Fire\nFire\nWill-o'-wisp", StringComparison.Ordinal) &&
               !text.Contains("Bubble boat", StringComparison.Ordinal) && !text.Contains("Campfire", StringComparison.Ordinal) && !text.Contains("Fireline", StringComparison.Ordinal) &&
               !text.Contains("Snuff", StringComparison.Ordinal),
             "a learned expertise is listed by its plain name under its ability, and one not learned is not named");

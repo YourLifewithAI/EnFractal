@@ -123,6 +123,8 @@ public partial class PlayHudTest : Node
             await TestShoulderKeepsTheBodyInFrame();
             await TestShoulderFocusAndSwitches();
             await TestSwimHint();
+            // Fire's camp: the rest key and the expertise announcement (PlayHudTest.Camp.cs).
+            await TestCampHud();
             // The playtest record's keys (PlayHudTest.Playtest.cs).
             await TestPlaytestKeys();
 
@@ -184,6 +186,8 @@ public partial class PlayHudTest : Node
         ("gubble_slot_1", Key.Key1, false), ("gubble_slot_2", Key.Key2, false), ("gubble_slot_3", Key.Key3, false),
         ("gubble_slot_4", Key.Key4, false), ("gubble_slot_5", Key.Key5, false),
         ("hands", Key.F, false), ("push", Key.V, false), ("item_gather", Key.E, false),
+        // Fire's camp: sit down by a lit campfire (decision 70).
+        ("rest", Key.Z, false),
         ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
         ("bounce_step", Key.P, false), ("bounce_print", Key.P, true),
         ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("journal", Key.J, false), ("gubble_eyes", Key.I, false), ("mouse_release", Key.Escape, false),
@@ -363,7 +367,7 @@ public partial class PlayHudTest : Node
                 "F1 first person · F2 third person: wheel zooms out to look around, and zoomed out drag orbits and WASD follows the view",
                 "O observe (a very tight tilt-shift view, best zoomed out) · C settings · J journal (Esc closes either)",
                 "F11 full screen on or off (kept for your next launch)",
-                "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm · E gather a log or stone you hold into your wallet",
+                "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm · E gather a log or stone you hold into your wallet · Z sit down by a lit campfire to rest (moving stands you up)",
                 "The Gubble, your companion:",
                 "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look; on a bubble, choose it, then a spot to lead it there, a higher one to lift it); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
                 $"1 Glow{PriceWords("glow")}, 2 Bloom{PriceWords("bloom")}, 3 Bubbles{PriceWords("bubbles")}, 4 Fireworks{PriceWords("fireworks")} where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
