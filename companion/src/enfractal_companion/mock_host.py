@@ -44,6 +44,12 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
   nature change to take back, `room.undo` answers as the kernel's does for any other change: an earlier
   revision is unsupported_capability, a revision that is not earlier is invalid_args; outside Creative it is
   refused before anything else (there is no undo in Challenge or Live);
+- the Bubbles expertise (bubble_carry, bubble_boat, bubble_lift; the kernel's Kernel/Bubble/CommandHostBubble.cs) are hosted
+  abstractly, with the kernel's refusals in its order and its receipt: a carry or a lift on the player is previewed first (the
+  ghost, a 128-bit preview_id) and the companion's commits a moment after it, never straight after the player popped one; a
+  bubble at a point waits for the step-in (`player_steps_into`); the box world has no water, so a boat is refused; a committed
+  bubble is transient with an effect: id, popped by goal.stop of the Gubble, effect.stop, the dive key (`player_pops_bubble`)
+  or its timer, and its receipt says carried and ended. The mock has no physics: a bubble neither drifts nor deflates;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
 - the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v4.json:
   Glow, Bubbles, Fireworks, Bloom and Fire; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
@@ -109,14 +115,29 @@ UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only 
 # Outside Creative there is no undo at all (the founder, 13 October): the kernel's Unsupported, before any revision check.
 UNDO_NOT_IN_THIS_MODE = "There is no undo in Challenge or Live: what happens there stays."
 # The mechanics round (M0, and M1's gather): its player-only ops, and the kernel's words for what is not built yet
-# (CommandHost.Unsupported: MechanicsNotYet, DifficultyNotYet, BubblesNotYet) and for a Fractal the companion may not gather
-# (FractalRefusal). The kernel hosts the player's item.pickup and item.gather since M1; the mock, which places no Fractals and
+# (CommandHost.Unsupported: MechanicsNotYet, DifficultyNotYet) and for a Fractal the companion may not gather (FractalRefusal). The kernel hosts the player's item.pickup and item.gather since M1; the mock, which places no Fractals and
 # keeps no wallet, answers the player's not available yet.
 MECHANICS_PLAYER_OPS = frozenset({"item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset"})
 BUBBLES_EXPERTISE = frozenset({"bubble_carry", "bubble_boat", "bubble_lift"})
 MECHANICS_NOT_YET = "This operation is not available yet."
 DIFFICULTY_NOT_YET = "Difficulties are chosen at the opening menu, which is not built yet."
-BUBBLES_NOT_YET = "The Bubble's carry, boat and lift are not available yet."
+# The Bubble (M9): the kernel's provisional numbers (Kernel/Bubble/BubbleLaws.cs, held equal by test_kernel_alignment.py) and
+# its words for the refusals a companion meets most.
+BUBBLE_CARRY_RADIUS_M = (0.07, 0.2)
+BUBBLE_BOAT_RADIUS_M = (0.08, 0.3)
+BUBBLE_GHOST_LEAD_S = 1.0
+BUBBLE_GHOST_LIFETIME_S = 15.0
+BUBBLE_POP_RESPECT_S = 8.0
+BUBBLE_ENVELOP_REACH_M = 0.05
+BUBBLE_STEP_IN_CLEARANCE_M = 0.02
+BUBBLE_MAX = 2
+BUBBLE_MAX_GHOSTS = 8
+BUBBLE_GHOST_LEAD = "The player is still seeing the bubble's ghost; cast it again in a moment."
+BUBBLE_POP_RESPECT = "The player just left a bubble; offer another in a moment."
+BUBBLE_PREVIEW_AGAIN = "Preview this bubble again before casting: the place, the player or the time has changed."
+BUBBLE_ON_THE_PLAYER = ("The player stands there: cast the carry on the player (it is previewed first), or beside them so they can step "
+                        "in.")
+BUBBLE_NO_WATER = "A Bubble boat is cast on shallow water."
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
                            "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust"})
 # Durable, but they change no world state, so they do not move the room revision.
@@ -511,6 +532,28 @@ class ActiveEffect:
     connections: set[str] = field(default_factory=set)
 
 
+@dataclass
+class MockBubble:
+    """One bubble, abstractly (the kernel's Kernel/Bubble/Bubble.cs, with no physics): it neither drifts nor deflates here."""
+
+    id: str
+    capability: str
+    principal: str  # who cast it: the player may pop any bubble, a companion only its own
+    action_id: str
+    target: str | None  # the avatar a carry or a lift was cast on, or None (a bubble at a point: the step-in)
+    centre: list[float]
+    radius_m: float
+    expires_at: float
+    holding: bool  # it holds the player now
+    carried: bool  # it has held the player
+
+
+def _is_bubble(message: Any) -> bool:
+    """A nature.cast of a Bubbles expertise: transient, as an effect (the kernel's IsBubbleCapability)."""
+    return (isinstance(message, dict) and message.get("op") == "nature.cast" and isinstance(message.get("args"), dict)
+            and message["args"].get("capability") in BUBBLES_EXPERTISE)
+
+
 def _is_stop(message: Any) -> bool:
     return isinstance(message, dict) and message.get("schema") == COMMAND_SCHEMA and message.get("op") in STOP_OPS
 
@@ -591,6 +634,12 @@ class MockHost(JournalMixin):
         self._creation_counter = 0
         # The running effects, oldest first. Effects are not entities: no query lists them (as on the kernel host).
         self.effects: OrderedDict[str, ActiveEffect] = OrderedDict()
+        # The bubbles (M9), oldest first, their ghost previews, and when the player last said no (the dive key, X, a ghost turned
+        # away). In memory only, like effects.
+        self.bubbles: OrderedDict[str, MockBubble] = OrderedDict()
+        self.bubble_ghosts: OrderedDict[str, tuple] = OrderedDict()
+        self.player_left_bubble_at = float("-inf")
+        self._approving = False
         self._checkpoint_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
@@ -723,6 +772,8 @@ class MockHost(JournalMixin):
             if isinstance(rules, dict):
                 rules = parse_rules(self.contracts, rules)
             self._end_effects(list(self.effects.values()))
+            for bubble in list(self.bubbles.values()):
+                self._end_bubble(bubble, "popped")
             fresh = self._fresh_vitals()
             self.rules = rules
             self.rules_notice = "" if rules is not None else (notice or "This island has no rules, so the Gubble has no abilities.")
@@ -1161,7 +1212,7 @@ class MockHost(JournalMixin):
             return result
         if principal != PLAYER and (op in self.policy.companion_approval_ops or self._keyed_yes(message)):
             return self._hold(principal, message, fingerprint, prediction)
-        if op not in TRANSIENT_OPS and op != "room.checkpoint":
+        if op not in TRANSIENT_OPS and op != "room.checkpoint" and not _is_bubble(message):
             self._check_receipt_room(principal)
         result = self._commit(principal, message, handler)
         self._store_receipt(key, fingerprint, result)
@@ -1201,14 +1252,19 @@ class MockHost(JournalMixin):
     def _keyed_yes(self, message: dict) -> bool:
         """An ability of tier keyed_yes (T3) waits for the player's yes when a companion asks, whatever the policy's
         held set: the island's rules say so (the kernel's NeedsApproval)."""
-        if message["op"] != "effect.start" or self.rules is None:
+        if self.rules is None:
+            return False
+        if _is_bubble(message):
+            ability = self._bubbles_ability()
+            return ability is not None and ability.tier == "keyed_yes"
+        if message["op"] != "effect.start":
             return False
         ability = self.rules.ability(message["args"].get("capability"))
         return ability is not None and ability.tier == "keyed_yes"
 
     def _commit(self, principal: str, message: dict, handler, approved_by: str | None = None) -> dict:
         op = message["op"]
-        durable = op not in TRANSIENT_OPS
+        durable = op not in TRANSIENT_OPS and not _is_bubble(message)
         moves_revision = durable and op not in NO_REVISION_OPS
         new_revision = self.revision + 1 if moves_revision else None
         # The journal's facts about creations (built, changed, removed), from the team's knowledge, dated at the revision
@@ -1273,8 +1329,6 @@ class MockHost(JournalMixin):
             raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
         if message["op"] == "world.set_mode" and "difficulty" in message["args"]:
             raise HostError("unsupported_capability", DIFFICULTY_NOT_YET, field_path="$.op")
-        if message["op"] == "nature.cast" and message["args"].get("capability") in BUBBLES_EXPERTISE:
-            raise HostError("unsupported_capability", BUBBLES_NOT_YET, field_path="$.op")
         if message["op"] == "room.undo" and self.mode != "creative":
             raise HostError("unsupported_capability", UNDO_NOT_IN_THIS_MODE, field_path="$.op")
 
@@ -1397,9 +1451,14 @@ class MockHost(JournalMixin):
                     try:
                         self._check_revisions(approval.principal, message)
                         handler = getattr(self, "_op_" + message["op"].replace(".", "_"))
-                        handler(approval.principal, message, False, None)
-                        self._check_receipt_room(approval.principal)
-                        result = self._commit(approval.principal, message, handler, approved_by=PLAYER)
+                        self._approving = True
+                        try:
+                            handler(approval.principal, message, False, None)
+                            if not _is_bubble(message):
+                                self._check_receipt_room(approval.principal)
+                            result = self._commit(approval.principal, message, handler, approved_by=PLAYER)
+                        finally:
+                            self._approving = False
                         self._store_receipt(key, approval.fingerprint, result)
                         approval.state, approval.result = "approved", result
                     except HostError as error:
@@ -1452,6 +1511,7 @@ class MockHost(JournalMixin):
         finally:
             self._view = view
         self._expire_effects()
+        self._expire_bubbles()
 
     # ------------------------------------------------------------------ helpers
 
@@ -1929,6 +1989,9 @@ class MockHost(JournalMixin):
             self._cancel_job(actor)
             self.goals.pop(actor, None)
         ended = self._end_effects(ending)
+        # Its bubbles pop too, the player's X whoever cast them (the kernel's PopBubbles).
+        if carriers:
+            ended += self._pop_bubbles(principal, "all")
         return {"affected": actors + ended, "data": {"effects_stopped": len(ended)}}
 
     # ------------------------------------------------------------------ the island's abilities (effects)
@@ -2177,7 +2240,7 @@ class MockHost(JournalMixin):
         ending = [e for e in self._stoppable(principal) if which == "all" or e.id == which]
         if not apply:
             return {}  # a preview of a stop says nothing (the kernel's Previewed)
-        ended = self._end_effects(ending)
+        ended = self._end_effects(ending) + self._pop_bubbles(principal, which)
         outcome: dict = {"data": {"effects_stopped": len(ended)}}
         if ended:
             outcome["affected"] = ended
@@ -2238,8 +2301,189 @@ class MockHost(JournalMixin):
 
     def _op_nature_cast(self, principal, message, apply, new_revision):
         # The contract checked the args (as the kernel's CheckNatureArgs) and _check_revisions the expectations; the kernel's
-        # nature begins here, which this mock does not simulate.
+        # nature begins here, which this mock does not simulate. The Bubbles expertise are no ground change: hosted here.
+        if _is_bubble(message):
+            return self._bubble_cast(principal, message, apply)
         self._runtime_required("Bloom and Fire on the island's ground")
+
+    # ------------------------------------------------------------------ the Bubble (M9; the kernel's Kernel/Bubble)
+
+    def _bubbles_ability(self) -> Ability | None:
+        """The island's Bubbles (its particles.float ability), whose caster, reach and bounds every expertise uses."""
+        if self.rules is None:
+            return None
+        return next((a for a in self.rules.abilities if a.primitive == "particles.float"), None)
+
+    def _bubble_holding(self) -> MockBubble | None:
+        return next((b for b in self.bubbles.values() if b.holding), None)
+
+    def _bubble_cast(self, principal: str, message: dict, apply: bool) -> dict:
+        """The kernel's BubbleCast, its refusals in its order. A preview of a cast on the player shows the ghost (its preview_id);
+        the prediction before a commit checks the ghost (before any hold); the commit forms the bubble and answers its receipt."""
+        args = message["args"]
+        preview = message.get("preview") is True
+        player = principal.startswith("player:")
+        capability = args["capability"]
+        boat = capability == "bubble_boat"
+        target = args.get("target")
+        # The companion names only what the team has in sight now (the kernel's CheckPerceived), before the rules.
+        if target is not None and not player and self._entity(target) is None:
+            raise _not_found("$.args.target")
+        ability = self._bubbles_ability()
+        if ability is None:
+            raise HostError("unsupported_capability", "This island does not grant Bubbles.", field_path="$.args.capability")
+        if ("player" if player else "companion") not in ability.cast_by:
+            raise HostError("permission_denied", "This island does not allow this caster to use Bubbles.", field_path="$.args.capability")
+        centre = [_r(v) for v in args["center_m"]]
+        radius, duration = float(args["radius_m"]), float(args["duration_s"])
+        if radius > ability.area_radius_max_m:
+            raise HostError("invalid_args", "That radius is more than this island allows.", field_path="$.args.radius_m",
+                            allowed=ability.area_radius_max_m)
+        least, most = BUBBLE_BOAT_RADIUS_M if boat else BUBBLE_CARRY_RADIUS_M
+        if radius < least or radius > most:
+            raise HostError("invalid_args", "A Bubble boat is not that size." if boat else "A bubble that carries the player is not that size.",
+                            field_path="$.args.radius_m", allowed=[least, most])
+        if duration > ability.duration_max_s:
+            raise HostError("invalid_args", "That duration is more than this island allows.", field_path="$.args.duration_s",
+                            allowed=ability.duration_max_s)
+        if SEA_EXTENSION not in self.room.get("extensions", {}) and not _inside(centre, self.room_bounds):
+            raise HostError("out_of_bounds", "Choose a point inside this island.", field_path="$.args.center_m")
+        gubble = self.entities.get(GUBBLE)
+        if gubble is None or gubble.removed or math.dist(gubble.position, centre) > ability.reach_m:
+            raise HostError("out_of_bounds", "Bring the Gubble closer before casting.", field_path="$.args.center_m", retryable=True,
+                            allowed=ability.reach_m)
+        if not self._team_sees_spot(centre, principal, GUBBLE):
+            raise HostError("target_not_found", "The team must see the place the Gubble will affect.", field_path="$.args.center_m")
+        if target is not None and target != self.avatars[PLAYER]:
+            if target == GUBBLE:
+                raise HostError("invalid_args", "A Bubble carries the player; the Gubble floats on its own.", field_path="$.args.target")
+            raise _not_found("$.args.target")
+        body = self.entities.get(self.avatars[PLAYER])
+        if body is None or body.removed:
+            raise HostError("not_ready", "The player's body is not in the room yet.", retryable=True)
+        feet = body.position
+        if target is not None:
+            if math.dist(feet, centre) > radius + BUBBLE_ENVELOP_REACH_M:
+                raise HostError("invalid_args", "A carry on the player forms round them: center it where they stand.", field_path="$.args.center_m")
+        elif boat:
+            # The box world has no water: the kernel's ShallowWaterAt finds none either.
+            raise HostError("invalid_args", BUBBLE_NO_WATER, field_path="$.args.center_m")
+        elif math.dist(feet, centre) <= radius + BUBBLE_STEP_IN_CLEARANCE_M:
+            raise HostError("invalid_args", BUBBLE_ON_THE_PLAYER, field_path="$.args.center_m")
+        now = self.clock.now()
+        if target is not None and self._bubble_holding() is not None:
+            raise HostError("target_busy", "The player is already in a bubble.", field_path="$.args.target", retryable=True)
+        if target is not None and not player and now - self.player_left_bubble_at < BUBBLE_POP_RESPECT_S:
+            raise HostError("not_ready", BUBBLE_POP_RESPECT, field_path="$.args.target", retryable=True)
+        if len(self.bubbles) >= BUBBLE_MAX:
+            raise HostError("budget_exceeded", "Pop a bubble before casting another.", field_path="$.args.capability", retryable=True,
+                            allowed=BUBBLE_MAX)
+        if len(self.effects) + len(self.bubbles) >= self.policy.max_active_effects:
+            raise HostError("budget_exceeded", "As many effects are running as the room allows; stop one first.", field_path="$.args.capability",
+                            retryable=True, allowed=self.policy.max_active_effects)
+        keyed = not player and ability.tier == "keyed_yes"
+        signature = (capability, tuple(centre), radius, duration, target or "")
+        data = {"capability": capability, "center_m": centre, "radius_m": radius, "duration_s": duration, "cell_count": 0, "cells": [],
+                "cells_truncated": False, "requires_approval": keyed}
+        if target is not None:
+            data["target"] = target
+        if preview:
+            if target is not None:
+                data["preview_id"] = self._show_ghost(principal, signature, now)
+            return {"affected": [target], "data": data} if target is not None else {"data": data}
+        preview_id = args.get("preview_id")
+        # The player's click on a held cast is the consent itself (the kernel's approvedBy).
+        if (preview_id is not None or target is not None) and not self._approving:
+            ghost = self.bubble_ghosts.get(preview_id) if preview_id is not None else None
+            if ghost is None or ghost[0] != principal or ghost[1] != signature or ghost[3] <= now:
+                raise HostError("revision_conflict", BUBBLE_PREVIEW_AGAIN, field_path="$.args.preview_id", retryable=True)
+            if not player and now - ghost[2] < BUBBLE_GHOST_LEAD_S:
+                raise HostError("not_ready", BUBBLE_GHOST_LEAD, field_path="$.args.preview_id", retryable=True)
+        if not apply:
+            return {"data": data}
+        if preview_id is not None:
+            self.bubble_ghosts.pop(preview_id, None)
+        bubble_id = "effect:" + "".join(secrets.choice(EFFECT_ID_ALPHABET) for _ in range(EFFECT_ID_LENGTH))
+        bubble = MockBubble(bubble_id, capability, principal, message["action_id"], target, centre, radius, now + duration,
+                            holding=target is not None, carried=target is not None)
+        self.bubbles[bubble_id] = bubble
+        receipt = {"capability": capability, "bubble": bubble_id, "center_m": centre, "radius_m": radius, "duration_s": duration,
+                   "expires_utc": utc(bubble.expires_at), "requires_approval": keyed, "carried": bubble.carried}
+        if target is not None:
+            receipt["target"] = target
+        return {"created": [bubble_id], "affected": [bubble_id] + ([target] if target is not None else []), "data": receipt}
+
+    def _show_ghost(self, principal: str, signature: tuple, now: float) -> str:
+        while len(self.bubble_ghosts) >= BUBBLE_MAX_GHOSTS:
+            self.bubble_ghosts.popitem(last=False)
+        token = secrets.token_hex(16)
+        self.bubble_ghosts[token] = (principal, signature, now, now + BUBBLE_GHOST_LIFETIME_S)
+        return token
+
+    def _update_bubble_receipt(self, bubble: MockBubble, field_name: str, value: Any) -> None:
+        """What happened to a bubble since its cast, written into its receipt (a replay and receipt.lookup answer it so)."""
+        receipt = self.transient.get((bubble.principal, bubble.action_id))
+        if receipt is not None and receipt.result.get("data", {}).get("bubble") == bubble.id:
+            receipt.result["data"][field_name] = value
+
+    def _end_bubble(self, bubble: MockBubble, ended: str) -> None:
+        if self.bubbles.pop(bubble.id, None) is None:
+            return
+        bubble.holding = False
+        self._update_bubble_receipt(bubble, "ended", ended)
+
+    def _pop_bubbles(self, principal: str, which: str) -> list[str]:
+        """goal.stop of the Gubble and effect.stop: the bubbles this principal may stop (the player any, a companion its own), one by
+        id or all; the player's stop also turns away every ghost. Returns the ids popped (the kernel's PopBubbles)."""
+        self._expire_bubbles()
+        player = principal.startswith("player:")
+        turned_away = False
+        if which == "all":
+            if player:
+                turned_away = bool(self.bubble_ghosts)
+                self.bubble_ghosts.clear()
+            else:
+                for token in [t for t, ghost in self.bubble_ghosts.items() if ghost[0] == principal]:
+                    del self.bubble_ghosts[token]
+        popped = [b for b in self.bubbles.values() if (player or b.principal == principal) and (which == "all" or b.id == which)]
+        for bubble in popped:
+            self._end_bubble(bubble, "popped_by_player" if player else "popped")
+        if player and (turned_away or popped):
+            self.player_left_bubble_at = self.clock.now()
+        return [b.id for b in popped]
+
+    def _expire_bubbles(self) -> None:
+        """A bubble at its duration pops, timed_out; a ghost goes at its lifetime (the host's clock)."""
+        now = self.clock.now()
+        for bubble in [b for b in self.bubbles.values() if now >= b.expires_at]:
+            self._end_bubble(bubble, "timed_out")
+        for token in [t for t, ghost in self.bubble_ghosts.items() if ghost[3] <= now]:
+            del self.bubble_ghosts[token]
+
+    def player_pops_bubble(self) -> bool:
+        """The dive key in the game (the player's body, never the companion's connection): the bubble that holds the player pops,
+        popped by the player, and every ghost round them goes. Returns whether a bubble popped."""
+        with self._lock:
+            self._expire_bubbles()
+            self.player_left_bubble_at = self.clock.now()
+            self.bubble_ghosts.clear()
+            holding = self._bubble_holding()
+            if holding is None:
+                return False
+            self._end_bubble(holding, "popped_by_player")
+            return True
+
+    def player_steps_into(self, bubble_id: str) -> bool:
+        """The player's own step into a bubble waiting at a point (the game's body; the mock has no physics): the step-in is the
+        consent, so it holds them and its receipt says carried."""
+        with self._lock:
+            self._expire_bubbles()
+            bubble = self.bubbles.get(bubble_id)
+            if bubble is None or bubble.target is not None or bubble.holding or self._bubble_holding() is not None:
+                return False
+            bubble.holding = bubble.carried = True
+            self._update_bubble_receipt(bubble, "carried", True)
+            return True
 
     def _op_nature_trail(self, principal, message, apply, new_revision):
         self._runtime_required("The flower trail")

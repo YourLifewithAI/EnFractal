@@ -1035,7 +1035,9 @@ public partial class SmallPlayerController : CharacterBody3D
         // What the bar pays for beyond a climb (the ledger): which way the body moved this tick.
         var onFoot = false;
         var swam = false;
-        if (_climbing) Climb(dt, control);
+        // A bubble that holds the body moves it, and the body's own exit and deflate come first (SmallPlayerController.Bubble.cs).
+        if (RideBubble(dt, wish)) { }
+        else if (_climbing) Climb(dt, control);
         else if (Floats) Hover(dt, wish, sprint);
         else if (UpdateSwimming())
         {

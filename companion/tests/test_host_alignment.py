@@ -215,7 +215,8 @@ class AlignmentScenarios:
         """The companion never reaches the player's new ops, never carries, places, pushes or fetches a Fractal (the same
         answer whether or not it exists, before anything is looked up), may go to one, and casts the Bubbles expertise only
         under the targets rule: a Bubble on an avatar is previewed first, only the carry and the lift name a target, and the
-        target is an avatar. The Bubbles and the set-mode's difficulty are not built yet (M9, M3)."""
+        target is an avatar. The set-mode's difficulty is not built yet (M3); the Bubbles are (M9): a carry on the player is
+        centred where they stand (this spot is not), and a boat needs shallow water (neither host's room has any)."""
         await self.companion_home()
         spot = IN_THE_OPEN
         carry = {"capability": "bubble_carry", "center_m": spot, "radius_m": 0.08, "duration_s": 20, "target": "avatar:player"}
@@ -259,11 +260,47 @@ class AlignmentScenarios:
             "place a Fractal": ("permission_denied", "$.args.target"),
             "push a Fractal": ("permission_denied", "$.args.target"),
             "go to a Fractal": ("target_not_found", "$.args.target"),
-            "a carry on the player, previewed": ("unsupported_capability", "$.op"),
+            "a carry on the player, previewed": ("invalid_args", "$.args.center_m"),
             "a carry on the player, unpreviewed": ("request_invalid", "$"),
-            "a boat at a point": ("unsupported_capability", "$.op"),
+            "a boat at a point": ("invalid_args", "$.args.center_m"),
             "Bloom on the player": ("request_invalid", "$.args.capability"),
             "a carry of a thing": ("request_invalid", "$.args.target"),
+        })
+
+    # ----- The Bubble (M9): the carry, alike on both hosts -----
+
+    async def test_the_bubble_carries_the_player_alike(self):
+        """A carry on the player: previewed (the ghost's preview_id), refused if cast before the ghost's lead, cast a moment later
+        naming it (transient, its effect: id created), popped by the Gubble's own stop at once (popped), its receipt carrying the
+        kind, the target, carried and how it ended; a bubble at a point never forms round the player."""
+        await self.companion_home()
+        inspected = await self.ask(query("entity.inspect", {"target": "avatar:player"}, self.next_id("q")))
+        feet = inspected["data"]["entity"]["position_m"]
+        carry = {"capability": "bubble_carry", "center_m": feet, "radius_m": 0.08, "duration_s": 20, "target": "avatar:player"}
+        preview = await self.ask(command("nature.cast", carry, self.next_id("ghost"), preview=True))
+        token = preview.get("data", {}).get("preview_id", "0" * 32)
+        too_soon = await self.ask(command("nature.cast", {**carry, "preview_id": token}, self.next_id("carry")))
+        await self.wait(1.2)
+        cast = await self.ask(command("nature.cast", {**carry, "preview_id": token}, self.next_id("carry")))
+        stop = await self.ask(command("goal.stop", {}, self.next_id("stop")))
+        receipt = (await self.ask(query("receipt.lookup", {"action_id": cast["action_id"]}, self.next_id("q"))))["data"].get("receipt", {}).get("data", {})
+        at_the_feet = await self.ask(command("nature.cast", {k: v for k, v in carry.items() if k != "target"}, self.next_id("carry")))
+        bubble = cast.get("data", {}).get("bubble", "")
+        outcome = {
+            "the preview": (refusal(preview), len(token), preview.get("affected")),
+            "cast before the ghost's lead": refusal(too_soon),
+            "the cast": (refusal(cast), cast.get("transient"), cast.get("created") == [bubble], bubble.startswith("effect:")),
+            "the Gubble's stop pops it": bubble in stop.get("affected", []),
+            "its receipt": {k: receipt.get(k) for k in ("capability", "target", "carried", "ended")},
+            "a bubble at the player's feet": refusal(at_the_feet),
+        }
+        self.assertEqual(outcome, {
+            "the preview": ("ok", 32, ["avatar:player"]),
+            "cast before the ghost's lead": ("not_ready", "$.args.preview_id"),
+            "the cast": ("ok", True, True, True),
+            "the Gubble's stop pops it": True,
+            "its receipt": {"capability": "bubble_carry", "target": "avatar:player", "carried": True, "ended": "popped"},
+            "a bubble at the player's feet": ("invalid_args", "$.args.center_m"),
         })
 
     # ----- The Gubble's eyes (view.look): the same refusals on both hosts; a picture wherever the host can draw -----

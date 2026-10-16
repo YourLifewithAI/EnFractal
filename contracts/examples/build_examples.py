@@ -853,6 +853,9 @@ def magic_modes_and_wishes_refused(at: str) -> dict:
 # A Fractal on the island example, and the receipt the player marks (the Gubble's Bloom patch above).
 FRACTAL = "fractal:k3x9q2"
 BUBBLE_PREVIEW = hashlib.sha256(b"a bubble carry over the bean bag").hexdigest()[:32]
+# A bubble's id (M9): an effect: id, which effect.stop names and goal.stop of the Gubble pops.
+BUBBLE_ID = "effect:" + "".join("abcdefghijklmnopqrstuvwxyz234567"[b % 32] for b in hashlib.sha256(b"the carry's bubble").digest()[:26])
+BOAT_ID = "effect:" + "".join("abcdefghijklmnopqrstuvwxyz234567"[b % 32] for b in hashlib.sha256(b"the boat").digest()[:26])
 # The design's starting numbers as a rules pack's blocks, exactly as storybook_wild v5 ships them (MechanicsRoundTests).
 MECHANICS = {
     "traits": {
@@ -1121,8 +1124,27 @@ def mechanics_round(at: str) -> dict:
         "command_bubble_carry": command("nature.cast", "carry-0001", {**carry, "preview_id": BUBBLE_PREVIEW}),
         "command_bubble_boat_on_the_shallows": command("nature.cast", "boat-0001", {"capability": "bubble_boat", "center_m": [0.4, 0.0, 0.6],
                                                                                      "radius_m": 0.1, "duration_s": 60}),
-        "result_bubbles_not_yet": refused("nature.cast", "carry-0001", "companion:local", "unsupported_capability",
-                                          "The Bubble's carry, boat and lift are not available yet.", "$.op"),
+        # M9: a committed bubble is transient, its effect: id created; its receipt says carried, and ended once it is gone (here
+        # the player popped it with the dive key, as receipt.lookup and a replay answer).
+        "result_bubble_carry": result("nature.cast", "carry-0001", "companion:local", 5, at, transient=True,
+                                      affected=[BUBBLE_ID, "avatar:player"], created=[BUBBLE_ID],
+                                      data={"capability": "bubble_carry", "bubble": BUBBLE_ID, **placed({k: v for k, v in carry.items() if k != "target"}),
+                                            "expires_utc": "2026-10-06T00:05:20Z", "requires_approval": False, "target": "avatar:player", "carried": True}),
+        "result_bubble_carry_popped_by_the_player": {
+            **result("nature.cast", "carry-0001", "companion:local", 5, at, transient=True, replayed=True,
+                     affected=[BUBBLE_ID, "avatar:player"], created=[BUBBLE_ID]),
+            "data": {"capability": "bubble_carry", "bubble": BUBBLE_ID, **placed({k: v for k, v in carry.items() if k != "target"}),
+                     "expires_utc": "2026-10-06T00:05:20Z", "requires_approval": False, "target": "avatar:player", "carried": True,
+                     "ended": "popped_by_player"}},
+        "result_bubble_boat_on_the_shallows": result("nature.cast", "boat-0001", "companion:local", 5, at, transient=True,
+                                                     affected=[BOAT_ID], created=[BOAT_ID],
+                                                     data={"capability": "bubble_boat", "bubble": BOAT_ID, "center_m": [0.4, 0.0, 0.6], "radius_m": 0.1,
+                                                           "duration_s": 60, "expires_utc": "2026-10-06T00:06:00Z", "requires_approval": False,
+                                                           "carried": False}),
+        # The Gubble's cast on the player waits a moment after its ghost, and after the player popped a bubble.
+        "result_bubble_carry_before_its_ghost": {**result("nature.cast", "carry-0001", "companion:local", 5, at), "ok": False,
+                                                 "error": {"code": "not_ready", "field_path": "$.args.preview_id", "retryable": True,
+                                                           "message": "The player is still seeing the bubble's ghost; cast it again in a moment."}},
         # The Gubble may find a Fractal and go to it, never gather it.
         "command_companion_goes_to_a_fractal": command("goal.set", "go-to-fractal-0001", {"actor": "avatar:companion", "goal": "go_to",
                                                                                           "target": FRACTAL}),
@@ -1138,6 +1160,8 @@ def mechanics_round_refused(at: str) -> dict:
     exhausted = valid["result_energy_exhausted"]
     preview = valid["result_bubble_carry_preview"]
     carry = valid["command_bubble_carry"]
+    bubble = valid["result_bubble_carry"]
+    boat = valid["result_bubble_boat_on_the_shallows"]
     return {
         "command_pickup_of_an_object": command("item.pickup", "pickup-0009", {"target": "obj:bean_bag"}),
         "command_gather_of_a_creation": command("item.gather", "gather-0009", {"target": "creation:00000001"}),
@@ -1158,6 +1182,10 @@ def mechanics_round_refused(at: str) -> dict:
         "result_stamina_past_the_top_band": {**status, "data": {**status["data"], "max_stamina": 4.9}},
         "result_half_a_pip": {**status, "data": {**status["data"], "energy": {"pips": 2.5, "max_pips": 8, "shadow": False}}},
         "result_bubble_preview_with_fires_fields": {**preview, "data": {**preview["data"], "avatars_in_area": ["avatar:player"]}},
+        "result_bubble_carry_keeping_its_preview_cells": {**bubble, "data": {**bubble["data"], "cells": []}},
+        "result_bubble_that_melted": {**bubble, "data": {**bubble["data"], "ended": "melted"}},
+        "result_bubble_without_its_id": {**bubble, "data": {k: v for k, v in bubble["data"].items() if k != "bubble"}},
+        "result_boat_on_the_player": {**boat, "data": {**boat["data"], "target": "avatar:player"}},
         "result_fire_preview_with_a_target": {**valid_fire_preview(at), "data": {**valid_fire_preview(at)["data"], "target": "avatar:player"}},
     }
 

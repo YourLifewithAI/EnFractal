@@ -1,6 +1,7 @@
 """The mechanics round's contract at the companion boundary (M0, 14 October 2026; docs/companion/SECURITY.md, the rows marked
-planned for M0): the player's new ops have no tool and refuse the companion, a Fractal is never the companion's to gather,
-the Bubbles carry lands on the player's avatar only under the targets rule, and no field of a request changes a price.
+planned for M0, and the row built with M9): the player's new ops have no tool and refuse the companion, a Fractal is never the
+companion's to gather, the Bubbles carry lands on the player's avatar only under the targets rule (the preview or the step-in the
+consent, the dive key or X the exit), and no field of a request changes a price.
 
 test_host_alignment.py holds the companion's side of these on both hosts; this file holds the player's side on the mock, the
 adapter's refusals before anything is sent, and the prices the mock reads from the pack.
@@ -77,10 +78,13 @@ class OnTheMock(unittest.TestCase):
 
     def test_the_targets_rule(self):
         self.assertEqual(refusal(self.send(COMPANION, "nature.cast", CARRY))[:2], ("request_invalid", "$"), "a carry on an avatar is previewed first")
-        self.assertEqual(refusal(self.send(COMPANION, "nature.cast", CARRY, preview=True)),
-                         ("unsupported_capability", "$.op", mock_host.BUBBLES_NOT_YET))
-        self.assertEqual(refusal(self.send(COMPANION, "nature.cast", {**CARRY, "preview_id": "a" * 32})),
-                         ("unsupported_capability", "$.op", mock_host.BUBBLES_NOT_YET))
+        # M9: a carry on the player is centred where they stand; previewed, it answers the ghost's preview_id.
+        self.assertEqual(refusal(self.send(COMPANION, "nature.cast", CARRY, preview=True))[:2], ("invalid_args", "$.args.center_m"))
+        on_them = {**CARRY, "center_m": list(self.host.entities["avatar:player"].position)}
+        previewed = self.send(COMPANION, "nature.cast", on_them, preview=True)
+        self.assertTrue(previewed["ok"] and len(previewed["data"]["preview_id"]) == 32, previewed)
+        self.assertEqual(refusal(self.send(COMPANION, "nature.cast", {**on_them, "preview_id": "a" * 32})),
+                         ("revision_conflict", "$.args.preview_id", mock_host.BUBBLE_PREVIEW_AGAIN))
         for capability in ("bloom", "fire", "bubble_boat"):
             with self.subTest(capability=capability):
                 self.assertEqual(refusal(self.send(COMPANION, "nature.cast", {**CARRY, "capability": capability}, preview=True))[:2],
@@ -121,6 +125,109 @@ class OnTheMock(unittest.TestCase):
         today = new_host(rules_file=rules_path(rules_version=4)).handle(COMPANION, query("player.status", {}))["data"]
         self.assertFalse({"energy", "hearts", "bar"} & set(today))
         self.assertEqual((today["max_health"], today["max_stamina"]), (100.0, 0.45))
+
+
+class TheBubbleOnTheMock(unittest.TestCase):
+    """M9 on the mock (no physics: a bubble neither drifts nor deflates; the kernel suite native_kernel_bubble holds the body's
+    side, the deflate among it): the security notes' row, by name, and the receipt the player marks."""
+
+    def setUp(self):
+        self.host = new_host()
+        self.n = 0
+        self.feet = list(self.host.entities["avatar:player"].position)
+
+    def tearDown(self):
+        for result in self.host.emitted:
+            self.assertEqual(contract_problems(result), [], result)
+
+    def send(self, principal, op, args, **extra):
+        self.n += 1
+        return self.host.handle(principal, command(op, args, f"m9-{self.n}", **extra))
+
+    def carry_args(self, capability="bubble_carry", **extra):
+        return {"capability": capability, "center_m": self.feet, "radius_m": 0.08, "duration_s": 20, "target": "avatar:player", **extra}
+
+    def carry(self, principal=COMPANION, capability="bubble_carry", wait=True):
+        """Previewed, the ghost's lead waited out, then cast naming its preview: the commit's result."""
+        preview = self.send(principal, "nature.cast", self.carry_args(capability), preview=True)
+        if wait:
+            self.host.clock.advance(mock_host.BUBBLE_GHOST_LEAD_S + 0.05)
+        return self.send(principal, "nature.cast", self.carry_args(capability, preview_id=preview.get("data", {}).get("preview_id", "e" * 32)))
+
+    def lookup(self, principal, committed):
+        return self.host.handle(principal, query("receipt.lookup", {"action_id": committed["action_id"]}, f"q-{self.n}"))["data"]["receipt"]["data"]
+
+    def test_a_companion_cast_never_targets_the_player_without_the_preview_or_the_step_in(self):
+        unpreviewed = self.send(COMPANION, "nature.cast", self.carry_args())
+        made_up = self.send(COMPANION, "nature.cast", self.carry_args(preview_id="d" * 32))
+        at_the_feet = self.send(COMPANION, "nature.cast", {k: v for k, v in self.carry_args().items() if k != "target"})
+        too_soon = self.carry(wait=False)
+        self.assertEqual([refusal(r)[:2] for r in (unpreviewed, made_up, at_the_feet, too_soon)],
+                         [("request_invalid", "$"), ("revision_conflict", "$.args.preview_id"), ("invalid_args", "$.args.center_m"),
+                          ("not_ready", "$.args.preview_id")])
+        self.assertEqual(refusal(too_soon)[2], mock_host.BUBBLE_GHOST_LEAD)
+        self.assertFalse(self.host.bubbles, "no refusal forms a bubble")
+        # Beside the player a bubble waits, carrying no one, until they step in.
+        beside = self.send(COMPANION, "nature.cast", {"capability": "bubble_carry", "center_m": [self.feet[0] + 0.3, self.feet[1], self.feet[2] + 0.1],
+                                                       "radius_m": 0.08, "duration_s": 20})
+        self.assertTrue(beside["ok"] and beside["transient"] and beside["data"]["carried"] is False and "target" not in beside["data"], beside)
+        self.assertTrue(self.host.player_steps_into(beside["data"]["bubble"]))
+        self.assertIs(self.lookup(COMPANION, beside)["carried"], True)
+
+    def test_the_dive_key_pops_it_at_any_moment(self):
+        carry = self.carry()
+        self.assertTrue(carry["ok"] and carry["transient"] and carry["created"] == [carry["data"]["bubble"]], carry)
+        self.assertEqual(carry["affected"], [carry["data"]["bubble"], "avatar:player"])
+        self.assertTrue(self.host.player_pops_bubble())
+        self.assertEqual(self.lookup(COMPANION, carry)["ended"], "popped_by_player")
+        self.assertFalse(self.host.bubbles)
+
+    def test_the_companion_cannot_keep_a_player_in_a_bubble_the_player_wants_out_of(self):
+        carry = self.carry()
+        held = self.send(COMPANION, "nature.cast", self.carry_args(), preview=True)
+        self.assertEqual(refusal(held)[:2], ("target_busy", "$.args.target"), "no second offer while one holds them")
+        x = self.send(PLAYER, "goal.stop", {"actor": GUBBLE})
+        self.assertIn(carry["data"]["bubble"], x["affected"])
+        self.assertEqual(self.lookup(COMPANION, carry)["ended"], "popped_by_player", "X pops it, popped by the player")
+        again = self.send(COMPANION, "nature.cast", self.carry_args(), preview=True)
+        self.assertEqual(refusal(again), ("not_ready", "$.args.target", mock_host.BUBBLE_POP_RESPECT), "the Gubble waits after a no")
+        self.host.clock.advance(mock_host.BUBBLE_POP_RESPECT_S)
+        later = self.carry()
+        self.assertTrue(later["ok"], later)
+        # The Gubble can never stop the player's own exit, and its stops pop only its own bubbles.
+        mine = self.send(PLAYER, "nature.cast", {"capability": "bubble_carry", "center_m": [self.feet[0] + 0.3, self.feet[1], self.feet[2] + 0.1],
+                                                  "radius_m": 0.08, "duration_s": 20})
+        theirs = self.send(COMPANION, "effect.stop", {"effect": mine["data"]["bubble"]})
+        self.assertEqual(theirs["data"]["effects_stopped"], 0)
+        self.assertTrue(self.host.player_pops_bubble())
+
+    def test_every_other_ability_still_refuses_the_players_avatar(self):
+        outcome = {}
+        for capability in ("bloom", "fire", "bubble_boat"):
+            outcome[capability] = refusal(self.send(COMPANION, "nature.cast", {**self.carry_args(), "capability": capability}, preview=True))[:2]
+        outcome["bubbles"] = refusal(self.send(COMPANION, "effect.start", {"capability": "bubbles", "params": {}, "area": {"center_m": self.feet, "radius_m": 0.5},
+                                                                           "duration_s": 10, "targets": ["avatar:player"]}))[:2]
+        outcome["directing"] = refusal(self.send(COMPANION, "goal.set", {"actor": "avatar:player", "goal": "go_to", "position_m": IN_THE_OPEN}))[:2]
+        outcome["the Gubble"] = refusal(self.send(COMPANION, "nature.cast", {**self.carry_args(), "target": GUBBLE}, preview=True))[:2]
+        self.assertEqual(outcome, {"bloom": ("request_invalid", "$.args.capability"), "fire": ("request_invalid", "$.args.capability"),
+                                   "bubble_boat": ("request_invalid", "$.args.capability"), "bubbles": ("permission_denied", "$.args.targets"),
+                                   "directing": ("actor_denied", "$.args.actor"), "the Gubble": ("invalid_args", "$.args.target")})
+
+    def test_a_bubbles_receipt_says_how_it_ended(self):
+        """The receipt the player marks (M8): the kind, the target, carried, and ended: timed out, popped by the Gubble's own stop."""
+        timed = self.carry()
+        self.host.clock.advance(21)
+        self.assertEqual(self.lookup(COMPANION, timed)["ended"], "timed_out")
+        self.host.clock.advance(mock_host.BUBBLE_POP_RESPECT_S)
+        lift = self.carry(capability="bubble_lift")
+        self.send(COMPANION, "goal.stop", {})
+        ended = self.lookup(COMPANION, lift)
+        self.assertEqual((ended["capability"], ended["target"], ended["carried"], ended["ended"]), ("bubble_lift", "avatar:player", True, "popped"))
+        # A replay answers the receipt as it stands now, and a boat is refused on the box world's dry floor.
+        replay = self.host.handle(COMPANION, command("nature.cast", self.carry_args("bubble_lift", preview_id="f" * 32), lift["action_id"]))
+        self.assertEqual(replay["error"]["code"], "action_id_conflict")
+        boat = self.send(COMPANION, "nature.cast", {"capability": "bubble_boat", "center_m": IN_THE_OPEN, "radius_m": 0.12, "duration_s": 60})
+        self.assertEqual(refusal(boat), ("invalid_args", "$.args.center_m", mock_host.BUBBLE_NO_WATER))
 
 
 class ThroughMcp(unittest.IsolatedAsyncioTestCase):

@@ -238,8 +238,8 @@ public partial class CommandHost
         {
             if (Str(args, "capability") is not ("bloom" or "fire" or "bubble_carry" or "bubble_boat" or "bubble_lift"))
                 throw new Refusal("request_invalid", "capability is bloom or fire.", "$.args.capability");
-            // The targets rule (the mechanics round): only the Bubbles carry and lift envelop an avatar. Until M9 they are
-            // refused as not available yet (Unsupported), the preview-first rule with them.
+            // The targets rule (the mechanics round): only the Bubbles carry and lift envelop an avatar, and such a cast is its
+            // preview or names it (CheckEnvelope); the cast itself is the Bubble's (Kernel/Bubble/CommandHostBubble).
             if (args.TryGetProperty("target", out var envelops) && Str(args, "capability") is not ("bubble_carry" or "bubble_lift"))
                 throw new Refusal("request_invalid", "Only the Bubble's carry and lift name a target.", "$.args.capability");
             if (envelops.ValueKind != JsonValueKind.Undefined && (envelops.ValueKind != JsonValueKind.String || !AvatarId.IsMatch(envelops.GetString()!)))
@@ -270,6 +270,8 @@ public partial class CommandHost
         var action = Str(root, "action_id")!;
         var args = root.GetProperty("args");
         var preview = root.TryGetProperty("preview", out var p) && p.ValueKind == JsonValueKind.True;
+        // The Bubbles expertise change no ground and are saved nowhere: a bubble lives for the session, as an effect does.
+        if (op == "nature.cast" && IsBubbleCapability(Str(args, "capability"))) return BubbleCast(root, principal, fingerprint, approvedBy);
         RequireNature();
         // What every change needs, before a preview, a hold or a commit, and again when the player's click commits a held one.
         RequireChange(principal);
