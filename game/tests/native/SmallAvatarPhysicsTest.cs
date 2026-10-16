@@ -99,6 +99,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestGubbleCatchesUp();
             await TestGubbleWalksAgainOnALongTrip();
             await TestExertion();
+            await TestClimbAcrossASeam();
             await TestSeaEdge();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);

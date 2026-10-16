@@ -394,7 +394,13 @@ public partial class RoomHud : CanvasLayer
     {
         // Over-the-shoulder framing scales with the body (0.10 m player: 8 cm up, 32 cm behind).
         var height = Player.BodyHeightM;
-        _arm = new SpringArm3D { Name = "FollowCameraArm", Position = new Vector3(Player.BodyRadiusM * 2.2f, height * 0.8f, 0), SpringLength = height * 3.2f, Margin = height * 0.1f, CollisionMask = 1 };
+        // The arm sweeps a lens-sized sphere, not a ray, so a camera held in along a face never stands closer to it than the lens's near
+        // plane (mark 1's arm part: a ray grazing a slope left the lens just behind the face).
+        _arm = new SpringArm3D
+        {
+            Name = "FollowCameraArm", Position = new Vector3(Player.BodyRadiusM * 2.2f, height * 0.8f, 0), SpringLength = height * 3.2f, Margin = height * 0.1f,
+            CollisionMask = Room.RoomBuilder.WorldLayer, Shape = new SphereShape3D { Radius = height * ArmLensRadiusHeights },
+        };
         Player.AddChild(_arm);
         _armLength = _arm.SpringLength;
         ShoulderDistanceM = _armLength;
@@ -498,9 +504,56 @@ public partial class RoomHud : CanvasLayer
     private void UpdateShoulderArm()
     {
         var slide = Mathf.SmoothStep(ShoulderNearM, OrbitFromM, ShoulderDistanceM);
-        _arm.Position = slide <= 0 ? _shoulderAt : _shoulderAt.Lerp(_centreAt, slide);
+        var pivot = slide <= 0 ? _shoulderAt : _shoulderAt.Lerp(_centreAt, slide);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - ShoulderArmPitchOffsetRad, ShoulderArmPitchMinRad, ShoulderArmPitchMaxRad), 0, 0);
-        _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, Mathf.Min(ShoulderDistanceM, OrbitFromM), Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
+        var length = Mathf.Min(ShoulderDistanceM, OrbitFromM);
+        // Mark 1 of the first recorded play (16 October), the arm's part: hung from the right shoulder, 2.2 radii out from the body's
+        // middle, the arm met a face on the body's right within centimetres and the camera stood beside the body, which left the frame.
+        // When the camera the shoulder's arm would give loses the body toward the frame's edge, the pivot comes in to just behind the
+        // head on the body's middle line, so a camera held in stays behind the body, a body radius and more from it.
+        var held = ViewMode == 1 && !Orbiting ? ShoulderHeldIn(pivot, length) : 0;
+        _arm.Position = held > 0 ? pivot.Lerp(new Vector3(0, pivot.Y, Player.BodyRadiusM * ArmBehindHeadRadii), held) : pivot;
+        _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, length, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
+    }
+
+    /// <summary>F2's arm sweeps a sphere this many body heights round (6 mm for the 10 cm body: more than the lens's 5 mm near plane).</summary>
+    public const float ArmLensRadiusHeights = 0.06f;
+    /// <summary>Held in, F2's arm hangs from this many body radii behind the body's middle line, at the shoulder's height: outside the body.</summary>
+    public const float ArmBehindHeadRadii = 1.5f;
+    /// <summary>The share of the way from the frame's middle to its edge where the body's middle starts the arm's pivot in from the shoulder.</summary>
+    private const float ArmHeldFromEdge = 0.6f;
+    private Godot.Collections.Array<Rid>? _armExclude;
+
+    /// <summary>
+    /// How far F2's arm pivot comes in from the shoulder (0 to 1): 0 while the camera the shoulder's arm gives, held in by whatever
+    /// it meets, has the body's middle well inside its frame (the view as it always was); 1 once that middle would be at the
+    /// frame's edge, beside the camera or behind it. Measured from the shoulder's own arm each frame, so it never feeds on itself.
+    /// </summary>
+    private float ShoulderHeldIn(Vector3 pivot, float length)
+    {
+        var basis = Player.GlobalBasis * _arm.Basis;
+        var from = Player.GlobalTransform * pivot;
+        var space = Player.GetWorld3D().DirectSpaceState;
+        _armExclude ??= new Godot.Collections.Array<Rid> { Player.GetRid() };
+        // A shoulder in, past or against a wall beside the body (walking along it, or a face on the right; the lens's sphere would start
+        // in it): nothing the arm meets from there counts.
+        var middleLine = Player.GlobalTransform * new Vector3(0, pivot.Y, pivot.Z);
+        var outward = from - middleLine;
+        var beyond = outward.LengthSquared() > 1e-10f ? from + outward.Normalized() * (Player.BodyHeightM * ArmLensRadiusHeights + 0.001f) : from;
+        using (var reach = PhysicsRayQueryParameters3D.Create(middleLine, beyond, _arm.CollisionMask, _armExclude))
+        using (var wall = space.IntersectRay(reach))
+            if (wall.Count > 0) return 1;
+        using var query = PhysicsRayQueryParameters3D.Create(from, from + basis.Z * length, _arm.CollisionMask, _armExclude);
+        using var hit = space.IntersectRay(query);
+        if (hit.Count == 0) return 0;
+        var free = Mathf.Max(0, from.DistanceTo(hit[Kernel.KernelNames.HitPosition].AsVector3()) - _arm.Margin - Player.BodyHeightM * ArmLensRadiusHeights);
+        // The body's middle as that camera would see it (its space: -Z ahead).
+        var seen = basis.Inverse() * (Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.5f) - (from + basis.Z * free));
+        if (seen.Z > -1e-4f) return 1;
+        var size = GetViewport().GetVisibleRect().Size;
+        var tanHalf = Mathf.Tan(Mathf.DegToRad(ShoulderFovDeg * 0.5f));
+        var edge = Mathf.Max(Mathf.Abs(seen.Y) / tanHalf, Mathf.Abs(seen.X) / (tanHalf * (size.Y > 0 ? size.X / size.Y : 16f / 9f))) / -seen.Z;
+        return Mathf.SmoothStep(ArmHeldFromEdge, 1f, edge);
     }
 
     /// <summary>Orbit the diorama camera by a mouse movement in pixels: sideways turns around the player, up and down tilts.</summary>
