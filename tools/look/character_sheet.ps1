@@ -104,6 +104,7 @@ Write-Output "GPU: $gpuNote"
 
 $userArgs = @("--out=$($outPath -replace '\\', '/')", "--assets=$($assets -replace '\\', '/')", "--tile=$Tile",
     "--commit=$commit$(if ($dirty) { '+uncommitted' })", "--note=$gpuNote")
+$userArgs += '--no-playtest-record'  # a sheet is not a play: the playtest recorder (R1) stays off in this window
 if ($Characters) { $userArgs += "--characters=$Characters" }
 if ($Timing) { $userArgs += '--timing=true' }
 if ($Timing -and $Variants) { $userArgs += '--variants=true' }

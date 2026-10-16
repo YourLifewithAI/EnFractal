@@ -105,3 +105,6 @@ Copy-Item -LiteralPath $landscapeRoom -Destination $installed -Recurse
 $boot = Invoke-EnfractalRoomBoot -Toolchain $toolchain -Room 'landscape_garage_nominal' -Frames 240 -TimeoutSeconds 120
 Write-Output "$($boot.Ready)`n$($boot.Quit)"
 Write-Output ("MAIN_SCENE_BOOT landscape_garage_nominal from the user folder: ready, quit, exit 0 in {0:0.0} s" -f $boot.Seconds)
+# The playtest recorder (R1) is off in a boot check: no record may appear in the runner's own user folder.
+$records = Join-Path $toolchain.RepositoryPath '.cache/native-test/appdata/Godot/app_userdata/EnFractal/playtests'
+if (Test-Path -LiteralPath $records) { throw "A boot check wrote a playtest record: $records" }

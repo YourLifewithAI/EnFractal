@@ -188,6 +188,8 @@ public partial class RoomWorld : Node3D
             natureLook.Configure(commandHost, Built);
             // The player's AI: the companion link in front of the command host (A2).
             CompanionBridge.Attach(this);
+            // The playtest record (R1): a windowed launch records itself; off headless, with --no-playtest-record and in a boot check.
+            Playtest.PlaytestRecorder.Attach(this);
             Navigation.RoomNavigation.Attach(this);
             SetMeta("room_id", Room.RoomId);
             SetMeta("room_manifest_sha256", Room.ManifestSha256);
