@@ -169,7 +169,7 @@ public partial class RoomHud
         if (Host is not { } host) return;
         var weather = WeatherWords(host.NatureWeather.Pattern);
         // The meters are drawn: this line carries their numbers only when the player's setting asks for them.
-        _islandVitalsLine.Text = host.Mode == "creative" || !MeterNumbers ? $"{ModeWords(host.Mode)} · {weather}" :
+        _islandVitalsLine.Text = host.IslandHeld ? $"{IslandPaused.Name} · {weather}" : host.Mode == "creative" || !MeterNumbers ? $"{ModeWords(host.Mode)} · {weather}" :
             $"{ModeWords(host.Mode)} · Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · {MeterWords.Name(host, "stamina")} {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}% · {weather}";
         if (!MagicPanelOpen) return;
         RefreshNaturePage(); RefreshGlowPage(); RefreshWishPage();

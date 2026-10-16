@@ -21,7 +21,7 @@ public static class MeterMath
     public const int ShakeAtQuarters = QuartersPerHeart;
     /// <summary>A price is drawn as this many dots at most; a larger one (a pack's own number) reads as a count.</summary>
     public const int MaxDots = 8;
-    /// <summary>The glyph of one pip in words: the pips round the Gubble and the price of an ability are the same dot.</summary>
+    /// <summary>The glyph of one pip in words: the pips in their row and the price of an ability are the same dot.</summary>
     public const char PipGlyph = '●';
     /// <summary>The first bar's length in metres when the pack has no bands (the design's "2.0 m on the first bar").</summary>
     public const float LegacyRowM = 2.0f;

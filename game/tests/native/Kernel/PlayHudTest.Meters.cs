@@ -16,8 +16,8 @@ namespace EnFractal.Tests.Kernel;
 /// <summary>
 /// The three meters and the minimap (the mechanics round's packet M2, docs/game/MECHANICS.md sections 1, 4, 5, 6 and 8), in the
 /// real room with the real HUD, headless. Hearts are drawn from the body's health in quarters, two rows of fifteen at most, and
-/// shake at one heart; the bar sits under them in rows of five bands; in Creative both are full and grey. The pips trail the
-/// Gubble (dots, spent ones rings, a shadow in Creative); the price of an ability is what the PLAYER pays (by principal), as dots
+/// shake at one heart; the bar sits under them in rows of five bands; in Creative both are full and grey. The pips are a row
+/// under the bar, always (dots, spent ones rings, a shadow in Creative; decision 51); the price of an ability is what the PLAYER pays (by principal), as dots
 /// on the wheel and the key hints and as "needs N" when the pool is short; an empty pool's refusal is the host's own words. The
 /// numbers option is off until the player turns it on and lives in the profile. The minimap draws only what the host's
 /// discovered map holds. The journal's Discoveries page reads the pack's word for expertise. The gather key sends item.gather.
@@ -216,11 +216,11 @@ public partial class PlayHudTest
         await Frames(4);
         Check(_hud.MeterNumbers && _hud.HeartsNumbers.Visible && _hud.HeartsNumbers.Text == "Hearts 3½/5" && _hud.BarNumbers.Visible && _hud.BarNumbers.Text == "Stamina bar 0.40/0.40 m",
             $"with it on, the hearts and the bar carry their numbers in the pack's words ({_hud.HeartsNumbers.Text}, {_hud.BarNumbers.Text})");
-        Check(RoomHud.LoadMeterNumbers(RoomHud.ProfilePath) && _hud.Pips.Numbers == $"Pips {host.Vitals.Pips}/{host.BodyRules.MaxPips}" && _hud.NumbersToggle!.ButtonPressed,
-            $"it is kept in the machine's profile with the other switches, and the pool says its numbers too ({_hud.Pips.Numbers})");
+        Check(RoomHud.LoadMeterNumbers(RoomHud.ProfilePath) && _hud.PipsRow.Numbers == $"Pips {host.Vitals.Pips}/{host.BodyRules.MaxPips}" && _hud.NumbersToggle!.ButtonPressed,
+            $"it is kept in the machine's profile with the other switches, and the pool says its numbers too ({_hud.PipsRow.Numbers})");
         _hud.SetMeterNumbers(false);
         await Frames(4);
-        Check(!_hud.MeterNumbers && !_hud.HeartsNumbers.Visible && !_hud.BarNumbers.Visible && _hud.Pips.Numbers == "" && !RoomHud.LoadMeterNumbers(RoomHud.ProfilePath),
+        Check(!_hud.MeterNumbers && !_hud.HeartsNumbers.Visible && !_hud.BarNumbers.Visible && _hud.PipsRow.Numbers == "" && !RoomHud.LoadMeterNumbers(RoomHud.ProfilePath),
             "and off again: the meters are drawn without numbers, and the profile says so");
         FreshBodies(host);
         host.PlayerMode("creative");
@@ -242,7 +242,7 @@ public partial class PlayHudTest
 
         // Creative: the shadow pool. Eight pips, drawn as a shadow; the price shown; a cast it cannot pay still happens.
         var slotPrice = (Label)_hud.FindChild("SlotPrice", true, false)!;
-        Check(_hud.Pips.Shadow && _hud.Pips.MaxPips == 8 && _hud.Pips.Pips == 8 && host.BodyRules.ShadowPool,
+        Check(_hud.PipsRow.Shadow && _hud.PipsRow.MaxPips == 8 && _hud.PipsRow.Pips == 8 && host.BodyRules.ShadowPool,
             "in Creative the pool is drawn as a shadow pool: eight pips, none spent");
         Check(slotPrice.Visible && slotPrice.Text == Dots(2) && _hud.SlotPrice(0) == 2 && _hud.SlotPrice(1) == 4 && _hud.SlotPrice(2) == 2 && _hud.SlotPrice(3) == 2 && _hud.SlotPrice(4) == 0,
             $"the key by Glow's button says what it costs, two dots (Bloom four, Bubbles and Fireworks two, Build nothing): \"{slotPrice.Text}\"");
@@ -255,12 +255,12 @@ public partial class PlayHudTest
             Check(CastGlow(host, spot + new Vector3(0.02f * i, 0, 0)), $"Glow {i + 1} in Creative is cast");
         }
         await Frames(4);
-        Check(host.Vitals.Pips == 0 && _hud.Pips.Pips == 0 && slotPrice.Text == "needs 2" && Math.Abs(slotPrice.Modulate.A - 0.5f) < 0.01f &&
+        Check(host.Vitals.Pips == 0 && _hud.PipsRow.Pips == 0 && slotPrice.Text == "needs 2" && Math.Abs(slotPrice.Modulate.A - 0.5f) < 0.01f &&
               HelpLines().Any(line => line.Contains("1 Glow needs 2, 2 Bloom needs 4", StringComparison.Ordinal)),
             $"four Glows drain the shadow pool: the key now says \"{slotPrice.Text}\", faint, and the help line says it too");
         var fifth = CastGlow(host, spot + new Vector3(0.1f, 0, 0));
         await Frames(2);
-        Check(fifth && host.Vitals.Pips == 0 && _hud.Pips.Pips == 0,
+        Check(fifth && host.Vitals.Pips == 0 && _hud.PipsRow.Pips == 0,
             "a cast the shadow pool cannot pay still happens, and the pool stays at none");
         _hud._UnhandledInput(RightButton(true));
         await Frames(20);
@@ -277,14 +277,14 @@ public partial class PlayHudTest
         FreshBodies(host);
         host.PlayerMode("challenge");
         await Frames(4);
-        Check(!_hud.Pips.Shadow && _hud.Pips.Pips == 8 && _hud.Pips.MaxPips == 8 && !host.BodyRules.ShadowPool && slotPrice.Text == Dots(2) && Math.Abs(slotPrice.Modulate.A - 1f) < 0.01f,
+        Check(!_hud.PipsRow.Shadow && _hud.PipsRow.Pips == 8 && _hud.PipsRow.MaxPips == 8 && !host.BodyRules.ShadowPool && slotPrice.Text == Dots(2) && Math.Abs(slotPrice.Modulate.A - 1f) < 0.01f,
             "in Challenge the pool is real: eight pips drawn as dots, the key says two dots");
         Check(_hud.SlotPrice(0) == host.PriceFor("glow", CommandHost.PlayerPrincipal) && _hud.SlotPrice(0) == 2 && host.PriceFor("glow", CommandHost.CompanionPrincipal) == 1 &&
               _hud.SlotPrice(1) == 4 && host.PriceFor("bloom", CommandHost.CompanionPrincipal) == 2,
             "the HUD shows what the player pays, the ordered price (Glow 2, Bloom 4), never the Gubble's own-idea half");
         for (var i = 0; i < 3; i++) CastGlow(host, spot + new Vector3(0.02f * i, 0, 0));
         await Frames(4);
-        Check(host.Vitals.Pips == 2 && _hud.Pips.Pips == 2 && _hud.Pips.MaxPips == 8,
+        Check(host.Vitals.Pips == 2 && _hud.PipsRow.Pips == 2 && _hud.PipsRow.MaxPips == 8,
             "three Glows spend six pips: two of eight are left on the dots");
         var needs4 = HelpLines().Any(line => line.Contains($"1 Glow {Dots(2)}, 2 Bloom needs 4, 3 Bubbles {Dots(2)}, 4 Fireworks {Dots(2)} where you point", StringComparison.Ordinal));
         Check(needs4 && slotPrice.Text == Dots(2), "with two pips left Bloom's hint says \"needs 4\" and the others still read as their price: " + HelpLines()[8]);
@@ -296,7 +296,7 @@ public partial class PlayHudTest
         _hud._UnhandledInput(RightButton(false));
         CastGlow(host, spot + new Vector3(0.1f, 0, 0));
         await Frames(4);
-        Check(host.Vitals.Pips == 0 && _hud.Pips.Pips == 0 && slotPrice.Text == "needs 2",
+        Check(host.Vitals.Pips == 0 && _hud.PipsRow.Pips == 0 && slotPrice.Text == "needs 2",
             "the fourth Glow empties the pool: all eight pips are spent rings and the key says \"needs 2\"");
         // An empty pool: the host refuses with its own words, and the HUD says them; the pips blink.
         var effects = host.ActiveEffectIds.Count;
@@ -304,7 +304,7 @@ public partial class PlayHudTest
         await Frames(3);
         var notice = (Label)_hud.FindChild("Notice", true, false)!;
         Check(host.ActiveEffectIds.Count == effects && _hud.Cue.State == "refused" && _hud.Cue.Reason == "The Gubble needs a moment" && notice.Text == CommandHost.EnergyExhaustedMessage &&
-              _hud.Pips.FlashLeftS > 0,
+              _hud.PipsRow.FlashLeftS > 0,
             $"1 with no pips: nothing is cast, the Gubble shakes its head with \"The Gubble needs a moment\" (the host's words), the pips blink: \"{_hud.Cue.Reason}\" / \"{notice.Text}\"");
         _hud.StopGubble();
 
@@ -354,48 +354,6 @@ public partial class PlayHudTest
         await Frames(4);
     }
 
-    // ---- the pips trail the Gubble ----
-
-    private async Task TestPipsTrail()
-    {
-        var host = CommandHost.Of(_world)!;
-        var companion = _world.Companion;
-        FreshBodies(host);
-        host.PlayerMode("challenge");
-        host.PlayerGoal("stay");
-        _hud.SetViewMode(1);
-        await Frames(10);
-        var camera = _hud.GetViewport().GetCamera3D();
-        var over = camera.UnprojectPosition(companion.GlobalPosition);
-        var screen = _hud.GetViewport().GetVisibleRect();
-        Check(screen.HasPoint(over) && _hud.Pips.Following && _hud.Pips.MaxPips == 8,
-            "the Gubble is in view and the pips follow it (the pool's eight)");
-        var spread = Enumerable.Range(0, 8).Select(i => _hud.Pips.Slot(i)).ToArray();
-        Check(spread.All(p => p.Y < over.Y && p.DistanceTo(over) < 220 && p.DistanceTo(over) > 8) && spread.Select(p => p.X).Distinct().Count() == 8 &&
-              spread.OrderBy(p => p.X).Select(p => p.X).SequenceEqual(spread.Select(p => p.X)),
-            "the eight pips hover in an arc over the Gubble's head, near it, one apart from another, left to right");
-        // Out of view: no dots; the Gubble behind the camera is not drawn.
-        _hud.Pips.Follow(null, 0, 0.016);
-        Check(!_hud.Pips.Following, "a Gubble out of view has no dots");
-        // They trail: the Gubble moves 200 px and the dots do not jump with it.
-        var anchor = new Vector2(500, 300);
-        for (var i = 0; i < 120; i++) _hud.Pips.Follow(anchor, 40, 1 / 60.0);
-        var settled = _hud.Pips.FirstDotAt;
-        _hud.Pips.Follow(anchor + new Vector2(200, 0), 40, 1 / 60.0);
-        var lag = _hud.Pips.FirstDotAt.X - settled.X;
-        for (var i = 0; i < 120; i++) _hud.Pips.Follow(anchor + new Vector2(200, 0), 40, 1 / 60.0);
-        var arrived = _hud.Pips.FirstDotAt.X - settled.X;
-        Check(lag > 0 && lag < 100 && arrived > 190 && arrived < 210,
-            $"when the Gubble moves its pips trail behind and catch up ({lag:0} px of 200 after one frame, {arrived:0} after two seconds)");
-        await Frames(6);
-        // Spent pips are rings, the shadow pool is not the aura's colour: the meter says which (the draw reads these).
-        Check(_hud.Pips.Pips == 8 && !_hud.Pips.Shadow && _hud.Pips.Aura.IsEqualApprox(companion.AuraColor ?? companion.AppearanceColor),
-            "a real pool is drawn in the Gubble's own colour");
-        FreshBodies(host);
-        host.PlayerMode("creative");
-        await Frames(4);
-    }
-
     // ---- the minimap ----
 
     private async Task TestMinimap()
@@ -416,8 +374,8 @@ public partial class PlayHudTest
         player.ResetPhysicsInterpolation();
         await Frames(80);
         var behind = new Node[] { _hud.Wheel, _hud.Book, _hud.FindChild("MagicPanel", true, false)!, _hud.GetNode<PanelContainer>("HelpFooter") };
-        Check(_hud.Pips.GetIndex() < map.GetIndex() && behind.All(n => n.GetIndex() > map.GetIndex()),
-            "the minimap draws under the wheel, the Magic panel, the help and the book (the wheel's title reaches into its corner), over only the pips' layer");
+        Check(behind.All(n => n.GetIndex() > map.GetIndex()),
+            "the minimap draws under the wheel, the Magic panel, the help and the book (the wheel's title reaches into its corner)");
         Check(map.Builds >= 1 && map.InkPixels > 0 && map.Strips > 0, $"it is drawn from the team's discovered map: {map.Strips} strips of ground seen, {map.InkPixels} pixels of ink");
         // Everything inked was seen: each inked pixel's ground is in the host's discovered map (read here on its own, the journal's data).
         var data = new DiscoveredMapData();

@@ -296,4 +296,114 @@ public partial class PlayHudTest
         if (world.WorldReady) await Frames(5);
         return world.WorldReady ? world : null;
     }
+
+    // ---- a held island is paused (decision 54) ----
+
+    /// <summary>
+    /// The host's two facts about a held island, set as a held boot sets them (CommandHost.HoldIsland, which also refuses every save and
+    /// is exercised by the team saves suite): this suite's room is not a team boot, and what the HUD reads is these two.
+    /// </summary>
+    private static void HoldIslandForTests(CommandHost host, bool held, string notice)
+    {
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public;
+        typeof(CommandHost).GetProperty(nameof(CommandHost.IslandHeld), flags)!.GetSetMethod(true)!.Invoke(host, new object[] { held });
+        typeof(CommandHost).GetProperty(nameof(CommandHost.TeamNotice), flags)!.GetSetMethod(true)!.Invoke(host, new object[] { notice });
+    }
+
+    /// <summary>
+    /// While an island is held (the boot could not set its mode), the Nature page of the Magic panel, the panel's island line and the
+    /// journal's Character page say the island is paused, with the host's reason, instead of describing the Creative the host happens
+    /// to play; when it is not held they describe the mode as before. A held island's Fractals do not pulse the book.
+    /// </summary>
+    private async Task TestIslandPausedWords()
+    {
+        var host = CommandHost.Of(_world)!;
+        FreshBodies(host);
+        host.PlayerMode("creative");
+        var keptNotice = host.TeamNotice;
+        var heldWords = CommandHost.IslandHeldWords("challenge");
+        var line = (Label)_hud.FindChild("IslandVitalsLine", true, false)!;
+        var modeName = (Label)_hud.FindChild("ModeName", true, false)!;
+        var modeHelp = (Label)_hud.FindChild("ModeHelp", true, false)!;
+        await Frames(6);
+
+        // Not held: the pages describe the mode.
+        _hud.ToggleMagicPanel();
+        await Frames(20);
+        Check(!host.IslandHeld && modeName.Text == "Creative" && modeHelp.Text.StartsWith("Explore freely.", StringComparison.Ordinal) && line.Text.StartsWith("Creative · ", StringComparison.Ordinal),
+            $"not held: the Nature page names the mode and what it allows ({modeName.Text}; {line.Text})");
+        _hud.ToggleMagicPanel();
+        await Frames(4);
+        _hud.OpenJournal();
+        await Frames(JournalMoveFrames);
+        _hud.Journal.OpenPage(JournalPages.Character);
+        await Frames(2);
+        var normal = _hud.Journal.PageText;
+        Check(normal.Contains("Creative mode", StringComparison.Ordinal) && normal.Contains("Explore freely:", StringComparison.Ordinal) && !normal.Contains("paused", StringComparison.OrdinalIgnoreCase),
+            "and so does the journal's Character page");
+        _hud.CloseJournal();
+        await Frames(JournalMoveFrames);
+
+        // Held: the Nature page and the island line say paused.
+        try
+        {
+            HoldIslandForTests(host, true, heldWords);
+            _hud.ToggleMagicPanel();
+            await Frames(20);
+            Check(host.IslandHeld && modeName.Text == "Paused" && modeHelp.Text.Contains("This island is paused.", StringComparison.Ordinal) && modeHelp.Text.Contains(heldWords, StringComparison.Ordinal) &&
+                  !modeHelp.Text.Contains("Explore freely", StringComparison.Ordinal) && line.Text.StartsWith("Paused · ", StringComparison.Ordinal) && !line.Text.Contains("Creative", StringComparison.Ordinal),
+                $"held: the Nature page says the island is paused and why, with nothing about Creative ({modeName.Text}; {line.Text})");
+            Check(!_hud.FindChild("MagicPanel", true, false)!.FindChildren("*", "Label", true, false).OfType<Label>().Any(l => l.IsVisibleInTree() && l.Text.Contains("Creative", StringComparison.Ordinal)),
+                "and no visible label of the panel mentions Creative");
+            _hud.ToggleMagicPanel();
+            await Frames(4);
+
+            // The journal's Character page: the same words in place of the mode, the pool and the wallet.
+            _hud.OpenJournal();
+            await Frames(JournalMoveFrames);
+            _hud.Journal.OpenPage(JournalPages.Character);
+            await Frames(JournalRefreshFrames);
+            var paused = _hud.Journal.PageText;
+            Check(paused.Contains("This island is paused", StringComparison.Ordinal) && paused.Contains(heldWords, StringComparison.Ordinal) &&
+                  !paused.Contains("Creative mode", StringComparison.Ordinal) && !paused.Contains("Explore freely", StringComparison.Ordinal) && !paused.Contains("shadow pool", StringComparison.Ordinal),
+                "held: the journal's Character page says the island is paused and why, and does not describe Creative");
+            Check(_hud.Journal.Lines.Any(l => l.Ink == JournalInk.Heading && l.Text == "This island is paused"), "(under a heading of its own)");
+            _hud.CloseJournal();
+            await Frames(JournalMoveFrames);
+
+            // The host's words are kept when it gave none: the page is never left without a reason.
+            HoldIslandForTests(host, true, "");
+            Check(IslandPaused.Words(host) == IslandPaused.Fallback && IslandPaused.Fallback.Contains("held as it was", StringComparison.Ordinal), "with no words from the host the page still says why");
+
+            // A held island's Fractals do not invite a spend the host would refuse.
+            HoldIslandForTests(host, true, heldWords);
+            host.ConfigurePlayerVitals(BodyHolding(6));
+            host.PlayerMode("challenge");
+            await Frames(40);
+            Check(FractalSpend.CanAfford(host) && !_hud.JournalPulsing, "six Fractals in hand on a held island: the book does not pulse");
+        }
+        finally
+        {
+            HoldIslandForTests(host, false, keptNotice);
+        }
+
+        // Released: the pages describe the mode again, and the book pulses for the six.
+        await Frames(40);
+        Check(!host.IslandHeld && _hud.JournalPulsing, "(no longer held: the six Fractals pulse the book)");
+        FreshBodies(host);
+        host.PlayerMode("creative");
+        _hud.ToggleMagicPanel();
+        await Frames(20);
+        Check(modeName.Text == "Creative" && modeHelp.Text.StartsWith("Explore freely.", StringComparison.Ordinal) && line.Text.StartsWith("Creative · ", StringComparison.Ordinal),
+            "and once the island is no longer held the Nature page describes the mode again");
+        _hud.ToggleMagicPanel();
+        await Frames(4);
+        _hud.OpenJournal();
+        await Frames(JournalMoveFrames);
+        _hud.Journal.OpenPage(JournalPages.Character);
+        await Frames(JournalRefreshFrames);
+        Check(_hud.Journal.PageText.Contains("Creative mode", StringComparison.Ordinal) && !_hud.Journal.PageText.Contains("paused", StringComparison.OrdinalIgnoreCase), "and so does the journal's Character page");
+        _hud.CloseJournal();
+        await Frames(JournalMoveFrames);
+    }
 }
