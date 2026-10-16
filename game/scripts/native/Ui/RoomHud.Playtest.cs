@@ -75,6 +75,8 @@ public partial class RoomHud
     {
         if (action == Act.ViewEye) return "eye";
         if (action == Act.ViewShoulder) return "shoulder";
+        // Reported before the key is handled: where the window is going.
+        if (action == Act.ViewFullscreen) return Fullscreen ? "to a window" : "to full screen";
         for (var i = 0; i < Act.GubbleSlots.Length; i++)
             if (action == Act.GubbleSlots[i]) return SlotName(i);
         if (_wheel.Held) return "while the wheel is open";

@@ -103,6 +103,14 @@ public partial class PlayHudTest
             await Frames(10);
             _hud._UnhandledInput(Press(Key.F2));
             await Frames(2);
+            // The full-screen key and the swim hint (PlayHudTest.Screen.cs) reach the record as the others do.
+            _hud._UnhandledInput(Press(Key.F11));
+            await Frames(2);
+            _hud._UnhandledInput(Press(Key.F11));
+            await Frames(2);
+            await StandForViews(FreeSpot, 0.4f, 0f);
+            await AddWater();
+            await RemoveWater();
             recorder.Finish(quitStill: false);
             var events = PlaytestRecords.Events(recorder.Folder);
             var marks = events.Kind("mark").Select(m => (m.Str("flag"), m["number"]!.GetValue<int>())).ToList();
@@ -120,6 +128,15 @@ public partial class PlayHudTest
             Check(notices.Any(n => n.Str("channel") == "hud" && n.Str("text") == "Mark 1") && notices.Any(n => n.Str("channel") == "hud" && n.Str("text") == "Stills are already off.") &&
                   notices.Any(n => n.Str("channel") == "gubble" && n.Str("text").Length > 0),
                 "and its notices: the line's words and the Gubble's bubble, the moment they changed");
+            var screenActions = events.Kind("action").Where(a => a.Str("name") == "view_fullscreen").Select(a => a.Str("detail")).ToList();
+            Check(screenActions.SequenceEqual(new[] { "to full screen", "to a window" }) &&
+                  notices.Any(n => n.Str("channel") == "hud" && n.Str("text") == "Full screen: F11 goes back to a window.") &&
+                  notices.Any(n => n.Str("channel") == "hud" && n.Str("text") == "A window again: F11 goes full screen."),
+                "the full-screen key lands as an action with where it goes, and its two notices as the line's words: " + string.Join(", ", screenActions));
+            var hudTexts = notices.Where(n => n.Str("channel") == "hud").Select(n => n.Str("text")).ToList();
+            var hintAt = hudTexts.IndexOf("Deep water: Space leaps · hold Ctrl to dive · B home");
+            Check(hintAt >= 0 && hudTexts.Skip(hintAt + 1).FirstOrDefault() == "" && hudTexts.Count(text => text.StartsWith("Deep water", StringComparison.Ordinal)) == 1,
+                "the swim hint lands as a notice, once for the entry, and the clear after it when the body left the water");
             var shape = PlaytestRecords.Shape(recorder.Folder);
             Check(shape.Count == 0, "the record holds to the contract's shape: " + string.Join("; ", shape));
             if (PlaytestRecords.Validate(recorder.Folder) is { } verdict) Check(verdict.Ok, "contracts/validate.py passes the HUD's record: " + verdict.Output);

@@ -10,7 +10,7 @@
 # old files (Saves/SaveMigration.cs).
 # -Knack quick_feet:3 (or -Knack quick_feet:3,cat_feet:2, up to three; the rank 1 to 3, 1 when left off) overrides the team file's
 # knacks for this play only, as --knack= (a test's override, M5); the team file keeps the knacks knack.set chose.
-param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty, [string[]]$Knack, [switch]$NoRecord)
+param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty, [string[]]$Knack, [switch]$NoRecord, [switch]$Fullscreen)
 $ErrorActionPreference = 'Stop'
 if ($Profile -and $Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$') { throw '-Profile takes a short name of letters, digits, - and _.' }
 if ($Team -and $Team -cnotmatch '^[a-z][a-z0-9_-]{0,63}$') { throw '-Team takes a team id: lowercase letters, digits, - and _, starting with a letter.' }
@@ -37,6 +37,8 @@ $userArgs = @()
 $commit = & git -C $PSScriptRoot rev-parse --short HEAD 2>$null
 if ($LASTEXITCODE -eq 0 -and $commit) { $userArgs += "--build=$commit$(if (& git -C $PSScriptRoot status --porcelain --untracked-files=no) { '+dirty' })" }
 if ($NoRecord) { $userArgs += '--no-playtest-record' }
+# -Fullscreen plays this launch in full screen (the game reads --fullscreen); the full-screen key, F11, remembers the choice for every launch.
+if ($Fullscreen) { $userArgs += '--fullscreen' }
 if ($Style) { $userArgs += "--style=$Style" }
 if ($Room) { $userArgs += "--room=$Room" }
 if ($Team) { $userArgs += "--team=$Team" }

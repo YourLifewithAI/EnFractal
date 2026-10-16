@@ -29,6 +29,8 @@ public static class Act
     public static readonly StringName ViewEye = "view_eye";
     public static readonly StringName ViewShoulder = "view_shoulder";
     public static readonly StringName ViewObserve = "view_observe";
+    /// <summary>F11: the window in full screen and back (the founder, 16 October, decision 66); the choice is kept in the machine's settings for the next launch.</summary>
+    public static readonly StringName ViewFullscreen = "view_fullscreen";
     /// <summary>F2 only: the wheel zooms the over-the-shoulder view in, towards the shoulder.</summary>
     public static readonly StringName ViewZoomIn = "view_zoom_in";
     /// <summary>F2 only: the wheel zooms the over-the-shoulder view out, to look around.</summary>
@@ -132,6 +134,8 @@ public static class PlayerControls
         new(Act.BodyRecover, ControlContext.Always), new(Act.BodyHome, ControlContext.Always),
         new(Act.ViewEye, ControlContext.Always), new(Act.ViewShoulder, ControlContext.Always),
         new(Act.ViewObserve, ControlContext.Always),
+        // The window's own key is live everywhere, as the record's: the panels and the Gubble's eyes fill the screen too.
+        new(Act.ViewFullscreen, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),
         new(Act.ViewZoomIn, ControlContext.Shoulder), new(Act.ViewZoomOut, ControlContext.Shoulder),
         new(Act.GubbleAsk, ControlContext.Always), new(Act.GubbleRecall, ControlContext.Always), new(Act.GubbleStop, ControlContext.Always),
         new(Act.GubbleSlot1, ControlContext.Always), new(Act.GubbleSlot2, ControlContext.Always), new(Act.GubbleSlot3, ControlContext.Always),
