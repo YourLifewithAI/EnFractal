@@ -1,13 +1,14 @@
 # Playtest: landscape_garage_nominal, 16 October 2026 (Challenge, standard; build `db41d8a`; record `20261016-044825-landscape_garage_nominal`)
 
-**Read with** [RUN-2-PLAYTEST-LOOP.md](../RUN-2-PLAYTEST-LOOP.md), [RUN-2-STATUS.md](../RUN-2-STATUS.md), the brief the play tested ([RUN-2-MECHANICS.md](../RUN-2-MECHANICS.md), the first slice: M1's energy and vitals, M2's meters) and [AGENTS.md](../../../AGENTS.md). 4.8 minutes, a clean quit, 2 marks, 0 refusals, worst frame window 979 ms at 0:14 (the intro), 51% of the time within 2 m of the Gubble. **The first play the game recorded itself**: the record validated under the contract as written, the reader's report and sheet came from it with no hand edit, and this page was written from them with the founder's three notes.
+**Read with** [RUN-2-PLAYTEST-LOOP.md](../RUN-2-PLAYTEST-LOOP.md), [RUN-2-STATUS.md](../RUN-2-STATUS.md), the brief the play tested ([RUN-2-MECHANICS.md](../RUN-2-MECHANICS.md), the first slice: M1's energy and vitals, M2's meters) and [AGENTS.md](../../../AGENTS.md). 4.8 minutes, a clean quit, 2 marks, 0 refusals, worst frame window 979 ms at 0:14 (the intro), 51% of the time within 2 m of the Gubble. **The first play the game recorded itself**: the record validated under the contract as written, the reader's report and sheet came from it with no hand edit, and this page was written from them with the founder's notes from the chat, three while playing and two when asked about the marks and the window.
 
 ## What the founder found (16 October, early hours, DiamondAge, "EnFractal Landscape" at `db41d8a`)
 
 - **Stickbear disappears into a wall.** "I note that the Stickbear character disappears into a wall." (mark 1 at 1:05, still `0006-mark-1.jpg`: climbing a rock face in the shoulder view)
 - **Standing still costs stamina.** "If I stop while swimming or climbing I continue to lose stamina."
 - **No dive button.** "There's no dive button that I'm aware of."
-- Mark 2 at 2:36 (still `0018-mark-2.jpg`: standing on the jetty's gravel with a full bar, after two short swims and two B homes) came without a note: one of the three above, or a fourth thing? (Open, below.)
+- **The coastline is a ruler's line.** Mark 2 at 2:36 (still `0018-mark-2.jpg`: standing on the jetty's gravel, looking along the shore), asked about afterwards: "I meant to point out something for Look at this mark. The coastline is a perfect line where the water meets the land. This should be dynamic, with waves gently washing against the shore."
+- **The card takes too much of the screen.** Asked about the window: "I tend to want to play at full screen because whatever this card is called in the screenshot takes up a lot of visual space. Eventually I'm going to want that to go away and just have Health, Stamina, and Pips on the upper left. I'd rather a lot of these details show up in the H, help screen or overlay, however that's set up."
 
 ## What the record shows
 
@@ -29,9 +30,12 @@
 - **The placeholder notice.** `RoomHud._noticeText` starts as Run 0's sentence, and `LookNotice` replaces it only when it is not empty; a verified style pin and a normal renderer give an empty one, so the first notice of every play is the placeholder.
 - **The frames.** The two near-second hitches sit at the intro's start and the island's reveal, at the spawn. The recorder's own cost was measured in R1 (the mean frame unchanged at every beat, a still's frame about 19 ms), so the 35 to 41 ms frames in most windows are the island's own, to be checked by eye with `-NoRecord`.
 
-## What the founder decided
+## What the founder decided (16 October, from the chat; MECHANICS.md decisions 64 to 66)
 
-- Nothing yet. The questions: (1) should hanging still on a face and floating still in deep water cost nothing, or less than moving, and is a metre of bar per metre of climb right against a 0.4 m starting bar; (2) which note was mark 2, or was it a fourth thing; (3) should the game open at the window size last used (the play started at 1280×720 and was resized).
+- **Still costs nothing.** "Standing still on a face and floating still in deep water should cost nothing."
+- **A metre of bar buys 1.5 m of climb.** "I also think the 1 m bar per metre climb is a bit harsh. Let's increase that by 1.5x and keep testing to see how that feels." A pack value, so it keeps moving as plays say.
+- **The shore moves.** Mark 2 is the Look lane's: waves washing gently against the land where today a straight line meets it.
+- **The card goes; the meters stay.** Full screen is how the founder wants to play, and the upper-left card is in the way: in time only hearts, the bar and the pips stay there, and the status lines and key lines move into the H help overlay.
 
 ## Keep
 
@@ -44,10 +48,12 @@
 Written as guesses the next play can check, each with the lane it falls to.
 
 1. **A swim hint when the body enters deep water** (Lane P, the HUD): "deep water: Space leaps · hold Ctrl to dive · B home", placed as "right-click: go and look" is. The guess: the founder dives on the next play without being told.
-2. **Still costs nothing**, if the founder says so (M1's kernel and M5's body): the holding cost 0 for a climber that is not moving, and the deep-water seconds reported only while a movement key is held; the pack's rates stay. The guess: a stop on a face becomes a rest, and the first band reads as a climb budget rather than a timer.
+2. **Still costs nothing, and a metre of bar buys 1.5 m of climb** (decisions 64 and 65; a contract round for the pack, then M1's kernel and M5's body): the holding cost 0 for a climber that is not moving; the body reports deep-water seconds only while a movement key is held (the pack's 0.02 m/s stays for swimming, 0.04 for diving); a new pack value for the climb's metres per metre of bar, 1.5 in `storybook_wild` v5, which Steady climber multiplies. The guess: a stop on a face becomes a rest, and the first band reads as a climb budget rather than a timer; the 0.4 m start then buys 60 cm of climb.
 3. **The climb and the camera at a face seam** (Lane P): reproduce at the scree-to-rock seam; keep the shoulder camera outside the face (the arm's collision against the terrain's layer, a larger margin) and the climber in front of a one-sided face; a test at that seam.
 4. **The HUD's first notice** (Lane P, one line): an empty default. The guess: the next record's first notice is a real one.
 5. **The intro's two hitches and the 35 to 41 ms frames** (Lane L): measure with the recorder on, once with the intro and once with "Play the intro" off.
+6. **A living shore** (Lane L, decision 66's look half): where the sea meets the land, waves that wash gently in and draw back, with a wet band and a little foam, instead of the straight line of mark 2; the generator's coast stays as it is, the look does the moving. The guess: the founder marks the shore "keep this" on the next play.
+7. **The card goes; the meters stay** (Lane P, the HUD, M2's row): hearts, the bar and the pips alone at the upper left; the room's title, the status lines ("10 cm player · gravity · the Gubble: follow", the clock, "Challenge · Fair weather") and the key lines into the H help overlay, which becomes the one place every key and setting is read; a `-Fullscreen` switch on `run-room.ps1` and the shortcut, or the window remembered. The guess: the founder plays full screen and never opens H to find a key they already learnt.
 
 ## Drop
 

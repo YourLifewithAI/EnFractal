@@ -265,6 +265,12 @@ Multiplayer is a later phase and out of scope for the engine work now.
 62. Firepits are scattered evenly over the island and double as campsites: a firepit the Gubble has lit with Fire becomes a campfire the player can choose to return to. Campfires and campsites refill hearts faster.
 63. Fire's five expertise for now: learning Fire itself at the starting campfire; **Campfire**, the first firepit lit; **Fireline**, Fire cast several times along one line (afterwards Fireline is cast by dragging a line); **Snuff**, rain falling on a fire the Gubble started, or the Bubble cast on a fire; **Will-o'-wisp**, Fire cast on water (a ghostly flame hovering over the water, a lantern at night and a floating flame by day; later fish or squid rise toward it to be collected, decorative for now). Fire grows in strength and with other abilities later.
 
+**Decided by the founder after the first recorded playtest (16 October, the small hours; [docs/runs/playtests/2026-10-16-landscape_garage_nominal.md](../runs/playtests/2026-10-16-landscape_garage_nominal.md))** (stamina and the screen):
+
+64. **Standing still costs nothing.** A climber that is not moving on a face pays no holding cost (today 0.01 m of bar a second), and a swimmer floating still in deep water pays no drain (today 0.02 m a second by time): the deep-water and dive rates charge only while the body is moved. The rates themselves stay the pack's.
+65. **A metre of bar buys one and a half metres of climb.** "The 1 m bar per metre climb is a bit harsh. Let's increase that by 1.5x and keep testing to see how that feels." A pack value (1.5 in `storybook_wild` v5), which Steady climber multiplies, so a 0.4 m starting bar buys 60 cm of climb; it keeps moving as plays say.
+66. **The screen: the meters alone at the upper left, the rest behind H, and full screen.** The upper-left card (the room's title, the status lines, the key lines) goes; hearts, the bar and the pips stay there; every key and setting is read in the H help overlay; the game plays full screen (a launch switch, or the window remembered). The look half of the same play: the shore moves, with waves washing gently against the land where today a straight line meets it.
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
