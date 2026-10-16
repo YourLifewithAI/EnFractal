@@ -126,7 +126,7 @@ public static class JournalPages
         for (var i = 0; i < Sections.Length; i++)
         {
             lines.Add(new JournalLine(JournalInk.Link, $"{i + 1:00}   {Title(Sections[i], host)}", Sections[i]));
-            lines.Add(Faint(SectionWords[i]));
+            lines.Add(Faint(Sections[i] == Character ? $"Your character sheet, and {MeterWords.Name(host, "fractals")} to spend" : SectionWords[i]));
         }
         return new(lines, false, "Written together, a little at a time.");
     }
@@ -233,7 +233,7 @@ public static class JournalPages
                 lines.Add(Faint($"Reaches {Distance(ability.ReachM)} from the Gubble · {(limit == 1 ? "one at a time" : $"up to {limit} at once")}"));
                 // What it costs you in pips (the ordered price: the player's order, never a field).
                 if (host.PriceFor(ability.Capability, CommandHost.PlayerPrincipal) is > 0 and var cost)
-                    lines.Add(Faint($"Costs {cost} {(cost == 1 ? "pip" : MeterWords.Name(host, "pips").ToLowerInvariant())}"));
+                    lines.Add(Faint($"Costs {cost} {MeterWords.Counted(host, "pips", cost)}"));
                 if (ability.Category == "light" && host.GlowProgress.Discoveries.Count > 0)
                     lines.Add(Faint("Learned together: " + string.Join(", ", GlowDiscoveries.Where(d => host.GlowProgress.HasDiscovery(d.Id)).Select(d => d.Title))));
             }
@@ -292,14 +292,14 @@ public static class JournalPages
             var mode = status["mode"]?.GetValue<string>() ?? "creative";
             lines.Add(Heading($"{ModeWords(mode)} mode"));
             if (status["consequences"]?.GetValue<bool>() != true)
-                lines.Add(Text("Explore freely: climbing uses no stamina, and falls do not hurt you."));
+                lines.Add(Text($"Explore freely: climbing uses no {MeterWords.Lower(host, "stamina")}, and falls do not hurt you."));
             else
             {
                 var stamina = Number(status["stamina"]);
                 var maxStamina = Number(status["max_stamina"]);
                 var share = maxStamina > 0 ? Math.Clamp(stamina / maxStamina * 100, 0, 100) : 0;
                 lines.Add(Text($"Health {Number(status["health"]):0}/{Number(status["max_health"]):0}"));
-                lines.Add(Text($"Stamina {share:0}% · climbing capacity {maxStamina:0.00} m"));
+                lines.Add(Text($"{MeterWords.Name(host, "stamina")} {share:0}% · climbing capacity {maxStamina:0.00} m"));
                 lines.Add(Text($"Climbs completed {Number(status["completed_climbs"]):0} · recoveries {Number(status["recoveries"]):0}"));
             }
         }
