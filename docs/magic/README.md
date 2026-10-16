@@ -184,6 +184,15 @@ Each needs its behaviour built first (the island's firepits from the generator, 
 
 **Grow's unlocks** follow its count, as Glow's lights do: two Grow expertise open growing without seeds (flowers and grass on bare soil, what Bloom painted); three open plants across gaps; five open crops that grow faster. The last two wait for their behaviours, since a discovery that promises a behaviour waits until it works.
 
+**Grow's first version (proposed by the integrator on 16 October; waiting for the founder before any code).** Facts it rests on: the island's scattered plants are rows in the manifest's plant tables (`plant:<set>-n`), drawn in 8 m tiles, and only trees have collision (a trunk, a hidden pole and one-sided perches); plants do not burn yet (the fire rebuild is the Fire packet's).
+
+- **What grows:** every plant whose root lies in the circle: grass tufts, flowers, ferns, shrubs and trees. The ground's painted grass is terrain and does not grow. Cast at a point within reach (2 m) and sight; the circle 0.5 m (at most 1.0), about a tree or two and the plants round it.
+- **How much:** each cast makes each plant a quarter of its natural size bigger. Full size (the cap) is twice its natural size or one band (0.4 m) taller than it started, whichever comes first: a 0.95 m tree is full in two casts at 1.35 m, a 5 cm tuft in four at 10 cm.
+- **Climbing:** a grown tree is climbed as trees are today, its trunk, pole and perches grown with it; the climb still costs the bar, and its top perch is at most 0.4 m higher, so it never skips a whole ladder. Shrubs, ferns, grass and flowers grow but are not climbable in this version.
+- **Saved:** the grown plants (id and size) in the island's nature save, at most 4,096; Creative's undo takes a cast back.
+- **Fire:** until plants burn, a fire on the ground under a grown plant shrinks it back to its natural size and leaves ash; the Fire packet makes plants burn as fuel, more when grown.
+- **Price and names:** 4 ordered, 2 as the Gubble's idea (decision 52). Bloom's trail goes; `bloom` becomes `grow` in v5 (still a draft) with its own primitive, `growth.grow`, in the contract, the mock and the wheel; the store gains Grow's list above.
+
 ### Choose a touch
 
 Start with **one optional expressive touch per ability**, selected outside the casting gesture: plain, or one available look. Choices can be swapped freely without spending points. Capacity growth and personal expression do not compete for a scarce currency, and plain remains a complete ability.
