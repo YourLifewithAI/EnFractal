@@ -95,6 +95,7 @@ public partial class PlayHudTest : Node
             await TestProfileField();
             await TestJournalBook();
             await TestExpertiseWords();
+            await TestRenamedWords();
             await TestEyesSetting();
             await TestGubbleView();
             await TestCharacterChoice();

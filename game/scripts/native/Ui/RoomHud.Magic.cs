@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Godot;
+using EnFractal.Native.Ui;
 
 namespace EnFractal.Native;
 
@@ -169,7 +170,7 @@ public partial class RoomHud
         var weather = WeatherWords(host.NatureWeather.Pattern);
         // The meters are drawn: this line carries their numbers only when the player's setting asks for them.
         _islandVitalsLine.Text = host.Mode == "creative" || !MeterNumbers ? $"{ModeWords(host.Mode)} · {weather}" :
-            $"{ModeWords(host.Mode)} · Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · Stamina {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}% · {weather}";
+            $"{ModeWords(host.Mode)} · Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · {MeterWords.Name(host, "stamina")} {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}% · {weather}";
         if (!MagicPanelOpen) return;
         RefreshNaturePage(); RefreshGlowPage(); RefreshWishPage();
     }
