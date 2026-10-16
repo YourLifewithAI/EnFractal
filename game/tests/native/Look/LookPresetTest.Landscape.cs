@@ -73,12 +73,12 @@ public partial class LookPresetTest
         var declarations = Regex.Matches(source, @"^\s*(?:(?:instance|global)\s+)?uniform\s+\w+\s+(\w+)[^;]*;", RegexOptions.Multiline);
         var body = Regex.Replace(source, @"^\s*(?:(?:instance|global)\s+)?uniform\s+[^;]*;", "", RegexOptions.Multiline);
         var ignored = declarations.Select(m => m.Groups[1].Value).Where(n => !Regex.IsMatch(body, $@"\b{n}\b")).ToArray();
-        // Besides the material's own: two per-instance values (the paint seed, the intro's mark) and the intro's five globals (Look/Intro).
+        // Besides the material's own: three per-instance values (the paint seed, the intro's mark, a plant's season habit), the intro's five globals (Look/Intro) and the land's season globals (LandSeason).
         string[] Scoped(string scope) => Regex.Matches(source, $@"^\s*{scope}\s+uniform\s+\w+\s+(\w+)", RegexOptions.Multiline).Select(m => m.Groups[1].Value).Order().ToArray();
         var instances = Scoped("instance");
         var globals = Scoped("global");
-        Check(declarations.Count == declared.Count + instances.Length + globals.Length && instances.SequenceEqual(new[] { "intro_part", "paint_seed" })
-            && globals.SequenceEqual(new[] { "intro_area", "intro_colour", "intro_grow", "intro_rise", "intro_start" }) && ignored.Length == 0,
+        Check(declarations.Count == declared.Count + instances.Length + globals.Length && instances.SequenceEqual(new[] { "intro_part", "paint_seed", "season_habit" })
+            && globals.SequenceEqual(new[] { "intro_area", "intro_colour", "intro_grow", "intro_rise", "intro_start" }.Concat(LandSeason.Globals.Select(g => g.Name)).Concat(GrassLook.Globals.Select(g => g.Name)).Order()) && ignored.Length == 0,
             $"the land shader reads every uniform it declares (and its per-instance seed and intro mark, and the intro's globals: {string.Join(",", instances.Concat(globals))}): ignored " + string.Join(",", ignored));
         var lightFunction = body[body.IndexOf("void light()", StringComparison.Ordinal)..];
         Check(!Regex.IsMatch(lightFunction, @"1\.0\s*-\s*ATTENUATION") && Regex.IsMatch(lightFunction, @"band\s*=[^;]*\*\s*light_warmth\s*;"),
