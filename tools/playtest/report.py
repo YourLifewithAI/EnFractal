@@ -84,15 +84,20 @@ SHEET_MAX = 60
 SHEET_COLUMNS = 6
 THUMB = (256, 144)
 
-# Height above the floor, in bands (m): [low, high) and its name. The avatar is about 10 cm tall; the room's furniture is metres.
-HEIGHT_BANDS = (
-    (-math.inf, -0.005, "below the floor (diving)"),
-    (-0.005, 0.1, "on the floor (under 0.1 m)"),
-    (0.1, 0.5, "0.1 to 0.5 m"),
-    (0.5, 1.0, "0.5 to 1 m"),
-    (1.0, 2.0, "1 to 2 m"),
-    (2.0, math.inf, "2 m and above"),
-)
+# Height above the floor, in the game's own bands: a band is 0.4 m (the stamina bar's step and a climb's rise in the rules pack,
+# `band_m` 0.4, docs/game/MECHANICS.md), so band 1 is 0 to 0.4 m, band 2 is 0.4 to 0.8 m, and so on up to BANDS_SHOWN.
+BAND_M = 0.4
+BANDS_SHOWN = 20
+BELOW_FLOOR = "below the floor (diving)"
+
+
+def band_label(n: int) -> str:
+    if n >= BANDS_SHOWN:
+        return f"band {BANDS_SHOWN} and up: {(BANDS_SHOWN - 1) * BAND_M:.1f} m and above"
+    return f"band {n}: {(n - 1) * BAND_M:.1f} to {n * BAND_M:.1f} m"
+
+
+HEIGHT_LABELS = [BELOW_FLOOR] + [band_label(n) for n in range(1, BANDS_SHOWN + 1)]
 STATE_ORDER = ("standing", "walking", "running", "swimming", "diving", "climbing", "falling", "carried", "fading_home")
 LINK_ORDER = ("offline", "listening", "planning", "acting", "waiting")
 NO_BREADCRUMB = "(no breadcrumb)"
@@ -734,10 +739,10 @@ def command_rows(play: Play) -> list:
 
 
 def height_band(height: float) -> str:
-    for low, high, name in HEIGHT_BANDS:
-        if low <= height < high:
-            return name
-    return HEIGHT_BANDS[-1][2]
+    """The game's band (0.4 m each) a height above the floor falls in; a diver below the floor has its own."""
+    if height < -0.005:
+        return BELOW_FLOOR
+    return band_label(max(1, int((height + 1e-9) // BAND_M) + 1) if height < BANDS_SHOWN * BAND_M else BANDS_SHOWN)
 
 
 def budgets(play: Play) -> "dict[str, list]":
@@ -776,7 +781,7 @@ def budgets(play: Play) -> "dict[str, list]":
         cursor = end
     for name in names:
         put(name, NO_BREADCRUMB, length - cursor)
-    order = {"state": STATE_ORDER, "link": LINK_ORDER, "height": tuple(b[2] for b in HEIGHT_BANDS),
+    order = {"state": STATE_ORDER, "link": LINK_ORDER, "height": tuple(HEIGHT_LABELS),
              "gubble": ("within %g m of the Gubble" % NEAR_GUBBLE_M, "farther than %g m from the Gubble" % NEAR_GUBBLE_M)}
     out = {}
     for name in names:
@@ -1082,7 +1087,7 @@ def section_time(play: Play, stills: list, marks: list, refusals: list, frames: 
         return out + ["No breadcrumbs, so no time budgets.", ""]
     out += [f"Breadcrumbs come every {BREADCRUMB_S:g} seconds; one holds until the next, for at most {BREADCRUMB_HOLD_CAP_S:g} s, and anything "
             f"before the first or in a gap is {code(NO_BREADCRUMB)}. Each table adds up to the play's length, {fmt_dur(play.length_s)}.", ""]
-    titles = {"state": "By body state", "height": "By height above the floor", "gubble": f"Near the Gubble ({NEAR_GUBBLE_M:g} m)",
+    titles = {"state": "By body state", "height": f"By height above the floor (the game's {BAND_M:g} m bands)", "gubble": f"Near the Gubble ({NEAR_GUBBLE_M:g} m)",
               "link": "By companion link"}
     for name in ("state", "height", "gubble", "link"):
         rows = tables[name]
@@ -1102,7 +1107,7 @@ def section_frames(play: Play, stills: list, marks: list, refusals: list, frames
     mean = sum(f.mean_ms * f.window_s for f in frames) / covered if covered > 0 else sum(f.mean_ms for f in frames) / len(frames)
     hitches = sum(1 for f in frames if f.longest_ms > HITCH_MS)
     out += [f"{len(frames)} windows; mean frame {mean:.1f} ms overall; {hitches} had a frame over {HITCH_MS:g} ms. "
-            f"The {min(WORST_FRAMES, len(frames))} worst by longest frame:", ""]
+            f"The {min(WORST_FRAMES, len(frames))} worst by longest single frame (the stutters):", ""]
     worst = sorted(frames, key=lambda f: (-f.longest_ms, -f.mean_ms, f.ev.t))[:WORST_FRAMES]
     body = []
     for f in worst:
@@ -1117,6 +1122,9 @@ def section_frames(play: Play, stills: list, marks: list, refusals: list, frames
                      code(state, 24) if state else "", ops or ""])
     out += table(["Window", "Longest ms", "Mean ms", "Physics ms", "Position", "Body", "Commands that changed things (not queries)"], body,
                  ["---", "---:", "---:", "---:", "---", "---", "---"])
+    slow = sorted(frames, key=lambda f: (-f.mean_ms, f.ev.t))[:3]
+    out += ["Those are the biggest single stutters. The windows that were slow all the way through (the highest mean frame time): "
+            + ", ".join(f"{fmt_t(f.ev.t - f.window_s)}–{fmt_t(f.ev.t)} at {f.mean_ms:.1f} ms (longest {f.longest_ms:.1f})" for f in slow) + ".", ""]
     return out
 
 

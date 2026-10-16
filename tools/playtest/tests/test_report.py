@@ -170,8 +170,9 @@ class FixtureReport(unittest.TestCase):
         self.assertAlmostEqual(tables["state"]["climbing"], 80.0)
         self.assertAlmostEqual(tables["state"]["swimming"], 90.0)
         self.assertAlmostEqual(tables["state"]["carried"], 40.0)
-        self.assertAlmostEqual(tables["height"]["2 m and above"], 56.0)  # the climb's last 12 s, the shelf, the first of the fall
-        self.assertAlmostEqual(tables["height"]["below the floor (diving)"], 58.0)
+        self.assertAlmostEqual(tables["height"][report.band_label(6)], 14.0)  # 2.0 to 2.4 m: the climb's last 12 s and the first of the fall
+        self.assertAlmostEqual(tables["height"][report.band_label(7)], 42.0)  # 2.4 to 2.8 m: the shelf top
+        self.assertAlmostEqual(tables["height"][report.BELOW_FLOOR], 58.0)  # the dive
         self.assertAlmostEqual(tables["gubble"]["farther than 2 m from the Gubble"], 318.0)
         self.assertAlmostEqual(tables["link"]["offline"], 118.3)  # the two stretches without the AI, to the quit
         self.assertAlmostEqual(tables["state"][report.NO_BREADCRUMB], 2.0)  # before the first breadcrumb
@@ -185,6 +186,9 @@ class FixtureReport(unittest.TestCase):
         self.assertIn("`nature.cast` (companion)", rows[0][6])  # what the Gubble was casting while the frames hitched
         self.assertIn("240 windows", frames)
         self.assertIn("7 had a frame over 33.3 ms", frames)
+        # and the windows that were slow all the way through, which is a different list: the highest mean frame time
+        self.assertIn("the highest mean frame time): 17:05–17:10 at 25.0 ms (longest 48.0), 10:40–10:45 at 17.3 ms (longest 188.0), "
+                      "10:00–10:05 at 16.8 ms (longest 212.4).", frames)
 
     def test_the_notices_in_order(self):
         notices = [line for line in section(self.text, "## Notices, in order").splitlines() if line.startswith("- `")]
@@ -382,9 +386,20 @@ class TimeBudgets(unittest.TestCase):
                   body(8.0, height=1.99, distance=5.0), body(10.0, height=2.0, distance=1.0), body(12.0, height=-0.3, distance=1.0)]
         _, tables = self.budgets(events + [ev(14.0, "quit", played_s=14.0, events=7, stills=0, marks=0)])
         self.assertEqual({k: v for k, v in tables["height"].items() if k != report.NO_BREADCRUMB},
-                         {"on the floor (under 0.1 m)": 2.0, "0.1 to 0.5 m": 2.0, "0.5 to 1 m": 2.0, "1 to 2 m": 2.0, "2 m and above": 2.0, "below the floor (diving)": 2.0})
+                         {report.band_label(1): 4.0, report.band_label(2): 2.0, report.band_label(5): 2.0, report.band_label(6): 2.0, report.BELOW_FLOOR: 2.0})
         self.assertEqual(tables["gubble"]["within 2 m of the Gubble"], 8.0)  # exactly two metres is within
         self.assertEqual(tables["gubble"]["farther than 2 m from the Gubble"], 4.0)
+
+    def test_the_height_bands_are_the_games_own_point_four_metre_bands(self):
+        """The rules pack's band_m is 0.4 (docs/game/MECHANICS.md): band 1 is 0 to 0.4 m, and a height exactly on an edge is in the band above it."""
+        wanted = {0.0: 1, 0.39: 1, 0.4: 2, 0.79: 2, 0.8: 3, 1.2: 4, 1.6: 5, 2.0: 6, 2.4: 7, 3.99: 10, 7.6: 20, 1000.0: 20, -0.004: 1}
+        for height, band in wanted.items():
+            self.assertEqual(report.height_band(height), report.band_label(band), height)
+        self.assertEqual(report.height_band(-0.3), report.BELOW_FLOOR)
+        self.assertEqual(report.band_label(1), "band 1: 0.0 to 0.4 m")
+        self.assertEqual(report.band_label(report.BANDS_SHOWN), "band 20 and up: 7.6 m and above")
+        self.assertEqual(report.BAND_M, 0.4)
+        self.assertEqual(len(set(report.HEIGHT_LABELS)), report.BANDS_SHOWN + 1)
 
     def test_no_breadcrumbs_means_one_bucket_that_is_the_whole_play(self):
         play, tables = self.budgets([command(3.0, "observe"), ev(10.0, "quit", played_s=10.0, events=2, stills=0, marks=0)])
