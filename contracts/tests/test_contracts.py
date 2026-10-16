@@ -2059,6 +2059,8 @@ class MechanicsRoundTests(unittest.TestCase):
         for path in documents:
             with self.subTest(document=path.name):
                 self.assertEqual(validate.check_document(path), [])
+        # The expertise store keys several abilities in one version (M11): Glow's, then Bubbles' and Fire's, each its own record.
+        self.assertEqual(list(validate.load_strict(TEAM / "expertise.json")["abilities"]), ["glow", "bubbles", "fire"])
         invalid = {p.stem: p for p in (EXAMPLES / "teams_invalid").glob("*.json")}
         self.assertEqual(set(invalid), set(TEAM_FAILURES))
         for name, reason in TEAM_FAILURES.items():

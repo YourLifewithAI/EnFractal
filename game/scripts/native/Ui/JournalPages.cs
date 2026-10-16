@@ -70,6 +70,23 @@ public static class JournalPages
         ("skylight_sky", GlowProgress.Skylight, "Could we try a light above us, under the open sky?"),
     };
 
+    /// <summary>
+    /// The plain names of the other abilities' expertise, for a learned one to be listed by (M11): no words, no hints and no smudges
+    /// for Bubbles or Fire while their lists are not final.
+    /// </summary>
+    private static readonly (string Ability, string Name, (string Id, string Title)[] Entries)[] OtherExpertise =
+    {
+        (ExpertiseLists.Bubbles, "Bubbles", new[]
+        {
+            (ExpertiseLists.BubbleCarry, "Bubble carry"), (ExpertiseLists.BubbleBoat, "Bubble boat"), (ExpertiseLists.BubbleLift, "Bubble lift"),
+        }),
+        (ExpertiseLists.Fire, "Fire", new[]
+        {
+            (ExpertiseLists.FirstFire, "First fire"), (ExpertiseLists.Campfire, "Campfire"), (ExpertiseLists.Fireline, "Fireline"),
+            (ExpertiseLists.Snuff, "Snuff"), (ExpertiseLists.WillOWisp, "Will-o'-wisp"),
+        }),
+    };
+
     /// <summary>A page as the host's data writes it now. leaf counts PerLeaf entries from the start of a long page.</summary>
     public static JournalPage Build(string page, CommandHost? host, int leaf)
     {
@@ -124,6 +141,7 @@ public static class JournalPages
         {
             lines.Add(Heading("Magic we found"));
             lines.AddRange(GlowLines(host));
+            lines.AddRange(OtherLines(host));
         }
         lines.Add(Heading("Places & things"));
         if (leaf == 0) lines.Add(Faint(GroundWords(discovered)));
@@ -169,6 +187,21 @@ public static class JournalPages
             yield return Text(words);
         }
         if (host.GlowProgressNotice.Length > 0) yield return Text(host.GlowProgressNotice);
+    }
+
+    /// <summary>
+    /// The expertise the pair learned in the other abilities, each by its plain name under its ability's name, and nothing for an
+    /// ability with none learned: no words, no use counts and no smudge for what is still to come. The host's own record.
+    /// </summary>
+    public static IEnumerable<JournalLine> OtherLines(CommandHost host)
+    {
+        foreach (var (ability, name, entries) in OtherExpertise)
+        {
+            if (host.GlowProgress.Of(ability) is not { Discoveries.Count: > 0 } record) continue;
+            yield return Title(name);
+            foreach (var (id, title) in entries)
+                if (record.Has(id)) yield return Text(title);
+        }
     }
 
     /// <summary>How much ground the team has looked over: the discovered cells of every level.</summary>

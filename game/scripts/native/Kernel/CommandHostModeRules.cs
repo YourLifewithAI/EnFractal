@@ -48,8 +48,8 @@ public partial class CommandHost
         if (Player != null && IsInstanceValid(Player)) Player.Knacks = BodyKnacks.FromPack(Rules?.Knacks, _knacks);
     }
 
-    /// <summary>The expertise learned by the pair, which raises the pool's maximum one pip per expertise_per_pip (today Glow's discoveries).</summary>
-    public int ExpertiseCount() => GlowProgress.Discoveries.Count;
+    /// <summary>The expertise learned by the pair in every ability (Glow's, Bubbles', Fire's and Grow's), which raises the pool's maximum one pip per expertise_per_pip.</summary>
+    public int ExpertiseCount() => GlowProgress.ExpertiseCount;
 
     private VitalsRules ResolvedRules(string mode) => VitalsRules.For(Rules, mode, Difficulty, _knacks, ExpertiseCount());
 

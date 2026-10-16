@@ -45,6 +45,7 @@ public partial class CommandHostTest
         await TestGlowUnload(look);
         TestAura(look);
         await TestGlowGrowth(look);
+        TestExpertise();
         _host.UseRules(null, "The glow checks are over.");
         _host.LookHook = null;
         look.QueueFree();

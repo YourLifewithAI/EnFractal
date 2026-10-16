@@ -989,7 +989,10 @@ def team_documents(at: str) -> dict:
                       "knacks": {"slots_open": 1, "chosen": [{"slot": 1, "knack": "quick_feet", "rank": 1}], "earned": {"high_hop": 2}},
                       "gubble": {"name": "Wisp", "colour": "#65b9b0"}, "trust": {"count": 0}},
         "expertise.json": {"schema": "enfractal.glow_progress", "version": 3, "team_id": TEAM_ID,
-                           "abilities": {"glow": {"successful_casts": 14, "discoveries": ["lantern", "torch"], "delivered_hints": ["lantern_self"]}},
+                           # Several abilities, each against its own list (Glow's first); an ability with nothing recorded is not written.
+                           "abilities": {"glow": {"successful_casts": 14, "discoveries": ["lantern", "torch"], "delivered_hints": ["lantern_self"]},
+                                         "bubbles": {"successful_casts": 0, "discoveries": ["bubble_carry"], "delivered_hints": []},
+                                         "fire": {"successful_casts": 0, "discoveries": ["first_fire"], "delivered_hints": []}},
                            "touch": "ember", "sound_volume": 0.35, "muted": False},
         "modes/challenge/vitals.json": {"schema": "enfractal.player_modes", "version": 2, "team_id": TEAM_ID, "mode": "challenge",
                                         "written_utc": at, "vitals": vitals},

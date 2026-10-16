@@ -128,13 +128,41 @@ public partial class CommandHost
             GlowProgressNotice = "The Glow journal could not be saved. This change was cancelled; your earlier progress is safe. Try again once saving is available.";
             throw new Refusal("not_ready", GlowProgressNotice, retryable: true);
         }
-        var learned = candidate.Discoveries.Count > GlowProgress.Discoveries.Count;
+        PublishProgress(candidate);
+    }
+
+    /// <summary>
+    /// The candidate is saved: it becomes the team's progress. Every expertise it adds, in any ability, is a reward with a pace line
+    /// of its own (the total counted), and the pool's maximum may rise with the total (a pace line of its own).
+    /// </summary>
+    private void PublishProgress(GlowProgress candidate)
+    {
+        var before = GlowProgress.ExpertiseCount;
         GlowProgress = candidate;
         GlowProgressNotice = "";
-        if (!learned) return;
-        // A new expertise is a reward: its pace line, and the pool's maximum may rise with it (a pace line of its own).
-        NotePace("expertise", candidate.Discoveries.Count);
+        if (candidate.ExpertiseCount <= before) return;
+        for (var learned = before + 1; learned <= candidate.ExpertiseCount; learned++) NotePace("expertise", learned);
         ResolveVitalsRules(pace: true);
+    }
+
+    /// <summary>
+    /// Saves a candidate for an expertise that is a reward and no precondition (Bubbles, Fire, the Bubble's events): when the
+    /// journal cannot be saved the cast or the fire it came from goes on, nothing is learned yet, and the notice says so (the same
+    /// expertise comes again at the next chance). Glow's own casts are different: its journal cancels the cast (SaveGlowProgress).
+    /// Returns whether the candidate was saved and published.
+    /// </summary>
+    private bool TrySaveExpertise(GlowProgress candidate)
+    {
+        // A store that could not be loaded is waiting to be recovered (its notice says so): nothing is written to it.
+        if (_glowProgressUnavailable) return false;
+        try { _glowProgressStore?.Save(candidate); }
+        catch (GlowProgressException)
+        {
+            GlowProgressNotice = "The journal could not be saved, so what the Gubble just learned was not kept. Your earlier progress is safe; it can be learned again once saving is available.";
+            return false;
+        }
+        PublishProgress(candidate);
+        return true;
     }
 
     public JsonObject PlayerGlowTouch(string touch) => PlayerCommand("glow.configure", new JsonObject { ["touch"] = touch });

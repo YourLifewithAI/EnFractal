@@ -53,6 +53,7 @@ public partial class NatureTest : Node3D
             await TestScene();
             await TestConsequences();
             await TestEnergy();
+            await TestExpertise();
             await FreeWorld();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine error while the suite ran ({_errors.Count}; first: {_errors.First})");
