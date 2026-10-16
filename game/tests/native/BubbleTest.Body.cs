@@ -94,9 +94,13 @@ public partial class BubbleTest
         var inside = _player.GlobalPosition;
         await Frames(60);
         Check(LevelGap(_player.GlobalPosition, inside) < 0.01f, "holding the player it stays where it is until the Gubble leads it");
+        // The drawn body is told it is held (BodyState.InBubble), so it floats inside the bubble (the gait layer).
+        Check(_player.LastBodyState.InBubble, "a bubble that holds the player puts it in the body's state, for the drawn body to float");
         await DiveKey();
         await UntilDown();
         Check(!_host.PlayerInBubble && ReceiptData(Companion, waiting)?["ended"]?.GetValue<string>() == "popped_by_player", "and the dive key pops it");
+        await Frames(4);
+        Check(!_player.LastBodyState.InBubble, "and popped, the body's state says it is out of the bubble");
     }
 
     // ---- the boat ----
@@ -135,7 +139,7 @@ public partial class BubbleTest
         var ride = Lead(Player, BubbleOf(boat), new Vector3(-1.1f, WaterY, 1.1f));
         var state = await UntilLeadEnds(Player, ride, 900);
         Check(Code(dry) == "invalid_args" && Path(dry) == "$.args.position_m" && Ok(ride) && state == "succeeded" && _player.Ride == SmallPlayerController.BubbleRide.Aboard &&
-              LevelGap(_player.GlobalPosition, aboard) > 0.3f && ReceiptData(Player, ride)?["ended"]?.GetValue<string>() == "arrived",
+              LevelGap(_player.GlobalPosition, aboard) > 0.3f && ReceiptData(Player, ride)?["ended"]?.GetValue<string>() == "arrived" && !_player.LastBodyState.InBubble,
             $"a boat is led over water only ({Code(dry)}); the player's lead takes the occupied boat there and the player rides it ({state}, {LevelGap(_player.GlobalPosition, aboard):0.00} m)");
         // The dive key leaves it at once: the boat floats on, and takes the player again only once they have stepped off it.
         await DiveKey();

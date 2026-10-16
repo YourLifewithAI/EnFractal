@@ -1103,6 +1103,7 @@ public partial class LookDirector : Node3D
     {
         UpdateGlows(delta);
         UpdateEffects(delta);
+        UpdateBubbles(delta);
         if (Preset == null) return;
         KeepFarPlane();
         _highlight?.Prune();

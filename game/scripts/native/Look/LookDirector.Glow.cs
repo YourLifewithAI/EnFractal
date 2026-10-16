@@ -230,7 +230,6 @@ public partial class LookDirector
         /// <summary>How far the halo has opened (BloomFrom to 1); the breath swells and settles around it.</summary>
         public float Opened = 1f;
         public string Variant = "plain", Touch = "plain";
-        public string? BubbleSource;
         public Vector3 Anchor;
         public MultiMeshInstance3D? Decoration;
         public AudioStreamPlayer3D? Chime;
@@ -261,18 +260,19 @@ public partial class LookDirector
     /// <summary>
     /// Give every running glow the colour a restart would give it now (GlowLook.LightColor of the aura of the body it follows, or for
     /// a wisp of the Gubble's): its light, its halo, a wisp's heart and a spark in flight, in place, so a wisp keeps its spot and its
-    /// effect id; bubbles and fireworks take it for their next bubbles and sparks. The HUD calls this when the Gubble's colour
+    /// effect id; the Bubble's film and the fireworks' sparks take it too. The HUD calls this when the Gubble's colour
     /// changes. Returns how many effects it recoloured.
     /// </summary>
     public int RecolorGlows()
     {
         foreach (var glow in _glowOrder) Paint(glow, GlowLook.LightColor(AuraOf(glow.Follow ?? CompanionBody())));
-        // Bubbles and fireworks take it too: new bubbles and sparks, and a flash that is lit.
+        // Fireworks take it too: new sparks, and a flash that is lit. The Bubble's film wears the aura as its rim.
         foreach (var effect in _effectOrder)
         {
             effect.Color = GlowLook.LightColor(AuraOf(effect.Follow ?? CompanionBody()));
             if (effect.Flash != null && IsInstanceValid(effect.Flash)) effect.Flash.LightColor = effect.Color;
         }
+        RecolorBubbles();
         return _glowOrder.Count + _effectOrder.Count;
     }
 
@@ -461,7 +461,7 @@ public partial class LookDirector
             }
             glow.Spark.Free();
             glow.Spark = null;
-            var visibleSource = glow.Variant is not ("bioluminesce" or "glowing_bubbles");
+            var visibleSource = glow.Variant != "bioluminesce";
             glow.Halo.Visible = visibleSource;
             if (glow.Core != null) glow.Core.Visible = visibleSource;
         }
@@ -565,7 +565,7 @@ public partial class LookDirector
             return origin + Vector3.Up * glow.Lift;
         }
         if (!drawing) return glow.Center;
-        if (glow.Variant is "bioluminesce" or "skylight" or "glowing_bubbles") return glow.Center;
+        if (glow.Variant is "bioluminesce" or "skylight") return glow.Center;
         return glow.Center + Vector3.Up * (GlowLook.BobAmplitudeM * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BobPeriodS + glow.Phase));
     }
 

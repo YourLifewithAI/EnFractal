@@ -325,7 +325,7 @@ public partial class RoomHud : CanvasLayer
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is), the buttons first.
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
         _keyHelp.AddChild(actions);
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop · {K(Act.GubbleEyes)} look through its eyes", "GubbleKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look; on a bubble, choose it, then a spot to lead it there, a higher one to lift it); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop · {K(Act.GubbleEyes)} look through its eyes", "GubbleKeys");
         AddKeyLine(_keyHelp, MagicKeysLine, "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
@@ -706,6 +706,10 @@ public partial class RoomHud : CanvasLayer
             NoticeLineShown(_noticeText);
         }
         UpdateFocus(delta);
+        BubbleCost.CloseFrame();
+        var bubbleStart = BubbleCost.Begin();
+        UpdateBubble(delta);
+        BubbleCost.End(bubbleStart, BubbleCost.Piece.Select);
         UpdateAskTag(delta);
         UpdateSwimHint();
         UpdateChains();
@@ -882,6 +886,8 @@ public partial class RoomHud : CanvasLayer
                 if (Customizing) ToggleCustomization();
                 if (MagicPanelOpen) SetMagicPanelOpen(false);
                 EndDrag();
+                // Esc lets go of the bubble the smart ask chose (RoomHud.Bubble.cs).
+                ClearBubbleSelection();
             }
             if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleCustomization();
             if (ReadingPanelOpen) return;

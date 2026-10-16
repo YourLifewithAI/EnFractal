@@ -333,7 +333,7 @@ public partial class CommandHostTest
         var bubble = blown["data"]?["bubble"]?.GetValue<string>() ?? "";
         var burst = Effect(_host.PlayerEffect("fireworks", InTheOpen));
         Check(Code(onTheGubble) == "invalid_args" && Ok(blown) && blown["data"]?["kind"]?.GetValue<string>() == "walk_in" && _host.ActiveBubbles.Count == 1 &&
-              look.KindOf(bubble) != LookDirector.EffectKind.Bubbles && !look.HasGlow(bubble) && look.KindOf(burst) == LookDirector.EffectKind.Fireworks && !look.HasGlow(burst) &&
+              look.KindOf(bubble) == LookDirector.EffectKind.None && !look.HasGlow(bubble) && look.KindOf(burst) == LookDirector.EffectKind.Fireworks && !look.HasGlow(burst) &&
               look.EffectCount == 3,
             "PlayerEffect of bubbles is one bubble at a spot (none on the Gubble, no stream of small bubbles); fireworks at a spot start the look's fireworks, not a glow");
         // goal.stop of the Gubble ends its effects too, of every kind (the contract: an actor's goals and its effects), and pops its bubble.

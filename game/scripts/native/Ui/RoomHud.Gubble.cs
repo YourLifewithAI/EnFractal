@@ -171,6 +171,8 @@ public partial class RoomHud
             }
         }
         var atGubble = collider != null && collider == Companion;
+        // How far along the ray the aim reaches before it meets the world or the Gubble (the bubble must come before).
+        var reachM = hitSomething ? from.DistanceTo(point) : from.DistanceTo(to);
         // The Gubble is small: a ray that passes near its middle, before what it hit, is aimed at it.
         if (!atGubble && Companion != null && IsInstanceValid(Companion) && Companion.IsInsideTree())
         {
@@ -179,6 +181,16 @@ public partial class RoomHud
             var t = (middle - from).Dot(along);
             var nearest = from + along * t;
             atGubble = t > 0 && t <= from.DistanceTo(point) + 0.01f && nearest.DistanceTo(middle) <= Companion.BodyRadiusM * GubbleAimRadii;
+            if (atGubble) reachM = Mathf.Min(reachM, t);
+        }
+        // The one bubble, when the ray passes through it first (the kernel's BubbleAt picks it; it has no collider of its own).
+        string? bubbleId = null;
+        var viewInside = false;
+        if (Host?.ActiveBubble is { } bubbleView)
+        {
+            var aimStart = BubbleCost.Begin();
+            bubbleId = BubbleOnRay(bubbleView, from, to, reachM, out viewInside);
+            BubbleCost.End(aimStart, BubbleCost.Piece.Aim);
         }
         string? entity = null;
         for (var node = collider as Node; node != null && entity == null; node = node.GetParent())
@@ -203,7 +215,7 @@ public partial class RoomHud
                     }
             }
         }
-        return new GubbleMagic.Aim(hitSomething || atGubble, atGubble && !hitSomething ? Companion!.GlobalPosition : point, atGubble ? null : entity, atGubble);
+        return new GubbleMagic.Aim(hitSomething || atGubble, atGubble && !hitSomething ? Companion!.GlobalPosition : point, atGubble ? null : entity, atGubble, bubbleId, viewInside && bubbleId != null);
     }
 
     /// <summary>The player's body as the aim's exclusions, made once (S12).</summary>
@@ -219,7 +231,7 @@ public partial class RoomHud
     }
 
     /// <summary>The smart ask for an aim (GubbleMagic.Decide).</summary>
-    public GubbleMagic.Ask DecideAsk(GubbleMagic.Aim aim) => GubbleMagic.Decide(aim, Carryable, DarkWithinReach, GubbleHolds);
+    public GubbleMagic.Ask DecideAsk(GubbleMagic.Aim aim) => GubbleMagic.Decide(aim, Carryable, DarkWithinReach, GubbleHolds, SelectedBubble);
 
     /// <summary>The reticle's tag, asked at the focus's pace: what a tap would do, beside the reticle.</summary>
     private void UpdateAskTag(double delta)
@@ -237,6 +249,8 @@ public partial class RoomHud
             var words = GubbleMagic.AskWords(AskPreview.Rule, Companion.CurrentIntent == "follow", SlotName(0));
             // A tap that lights a spot spends Glow's price: the reticle says so (dots, or "needs N").
             if (words.Length > 0 && AskPreview.Rule == GubbleMagic.AskRule.Glow) words += SlotPriceSuffix(0);
+            // A tap that leads the chosen bubble asks the host first: a lead, or a lift with its price, or the refusal's words (RoomHud.Bubble.cs).
+            if (AskPreview.Rule == GubbleMagic.AskRule.LeadBubble) words = LeadWords(AskPreview.Point);
             _askTag.Text = words.Length == 0 ? "" : $"{K(Act.GubbleAsk)}: {words}";
         }
         _askTag.Visible = _askTag.Text.Length > 0;
@@ -307,6 +321,9 @@ public partial class RoomHud
             case GubbleMagic.AskRule.Look: GoAndLook(ask.Point); break;
             case GubbleMagic.AskRule.PutHere: PutDown(null); break;
             case GubbleMagic.AskRule.PutThere: PutDown(ask.Point); break;
+            case GubbleMagic.AskRule.SelectBubble: SelectBubble(ask.Aim.Bubble); break;
+            case GubbleMagic.AskRule.LeadBubble: LeadSelectedBubble(ask.Point); break;
+            case GubbleMagic.AskRule.ClearBubble: ClearBubbleSelection(); break;
             default: _cue.Shrug(GubbleMagic.UnknownIcon, GubbleMagic.NothingThere); break;
         }
     }
@@ -457,6 +474,7 @@ public partial class RoomHud
         _recallSerial = null;
         _lookAfter = null;
         _fetchJob = null;
+        _leadJob = null;
         _castAfter = null;
         _putAfter = null;
     }
@@ -465,20 +483,13 @@ public partial class RoomHud
     private void OnGoalFinished(string actor, string jobId, string state)
     {
         if (actor != CommandHost.CompanionAvatarId) return;
+        if (LeadFinished(jobId, state)) return;
         if (_fetchJob != null && jobId == _fetchJob)
         {
             _fetchJob = null;
             if (state == "succeeded") _cue.Done();
-            else if (state == "failed")
-            {
-                // The host's own reason for the job, from its record.
-                var status = Host?.HandleObject(CanonicalJson.Text(new JsonObject
-                {
-                    ["schema"] = "enfractal.query", ["version"] = 1, ["query_id"] = "hud-ask-" + Guid.NewGuid().ToString("N")[..24],
-                    ["room_id"] = Host.Room.RoomId, ["op"] = "jobs.status", ["args"] = new JsonObject { ["job_id"] = jobId },
-                }), CommandHost.PlayerPrincipal);
-                _cue.Refuse(status?["data"]?["result"]?["error"]?["message"]?.GetValue<string>());
-            }
+            // The host's own reason for the job, from its record.
+            else if (state == "failed") _cue.Refuse(JobFailureWords(jobId));
             else _cue.Clear();
         }
         else if ((_lookAfter != null || _castAfter != null || _putAfter != null) && state == "failed") _goalFailed = true;

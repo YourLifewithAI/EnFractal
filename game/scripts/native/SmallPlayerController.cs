@@ -1139,6 +1139,7 @@ public partial class SmallPlayerController : CharacterBody3D
             SwimTilt = _tilt,
             Diving = IsDiving,
             Floating = Floats,
+            InBubble = Ride == BubbleRide.Enveloped,
             Carrying = HandsFull?.Invoke() ?? false,
             Sprinting = sprinting,
             WalkSpeedMps = WalkSpeedNowMps,

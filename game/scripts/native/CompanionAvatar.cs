@@ -606,14 +606,12 @@ public partial class CompanionAvatar : SmallPlayerController
     public const double ShiverS = 1.2;
     public const double WiggleS = 0.45;
     public const double ShrugS = 0.6;
-    /// <summary>The cast: a quick lean toward the spot (a toss) that peaks at CastPeakFraction, then settles; the look's spark leaves at its start.</summary>
+    /// <summary>The cast: a quick lean toward the spot (a toss) that peaks at CastPeakFraction, then settles; the look's spark leaves at its start. The Bubble is cast like Glow, one bubble at a spot (decision 55): no longer lean blowing a stream.</summary>
     public const double CastS = 0.55;
-    /// <summary>Bubbles: a slower, longer lean, blowing the stream (the look's bubbles leave at once and keep coming).</summary>
-    public const double BlowS = 0.9;
     /// <summary>Fireworks: a quick toss as the rocket leaves (the look's rocket leaves at once and bursts 0.35 to 1 s later).</summary>
     public const double TossS = 0.4;
     /// <summary>How long the cast gesture plays for each ability category (the look's timing, docs/look/EFFECTS.md).</summary>
-    public static double CastSeconds(string category) => category switch { "float" => BlowS, "burst" => TossS, _ => CastS };
+    public static double CastSeconds(string category) => category switch { "burst" => TossS, _ => CastS };
     /// <summary>The category of the last cast gesture (its timing).</summary>
     public string LastCastCategory { get; private set; } = "";
     public const float CastPeakFraction = 0.25f;
