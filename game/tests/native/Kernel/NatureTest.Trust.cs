@@ -34,6 +34,19 @@ public partial class NatureTest
     private JsonObject GubbleStays(string? actionId = null) =>
         Send(Command(actionId ?? NextId("gubble"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay" }), Companion);
 
+    private int _gubbleBuilds;
+
+    /// <summary>
+    /// A command of the Gubble's that changes the world and costs no pips (the cheapest initiative): a small wooden build of its own on
+    /// the open floor north of the box, each at a spot of its own, far from where the tests light fires.
+    /// </summary>
+    private JsonObject GubbleBuilds()
+    {
+        var n = _gubbleBuilds++;
+        var spot = new JsonArray(0.8 + 0.22 * (n % 4), 0, -0.45 - 0.22 * (n / 4 % 3));
+        return Send(Command(NextId("gubble-build"), "creation.place", new JsonObject { ["source"] = Source($"Gubble's post {n}"), ["placement"] = new JsonObject { ["position_m"] = spot } }), Companion);
+    }
+
     private JsonObject Mark(string gubbleActionId, string mark, string? actionId = null, string principal = Player, bool preview = false) =>
         Send(Command(actionId ?? NextId("mark"), "receipt.mark", new JsonObject { ["action_id"] = gubbleActionId, ["mark"] = mark }, preview), principal);
 
@@ -76,16 +89,23 @@ public partial class NatureTest
             "the bands widen the own-idea discount in whole pips, never below one for a priced ability: " + string.Join(" ", prices));
         var t0 = new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc);
         var ledger = new TrustLedger();
-        TrustLedger.Entry Act(string id, double at, bool counted = true) => new() { ActionId = id, Op = "goal.set", What = "move", At = t0.AddSeconds(at), Counted = counted };
+        TrustLedger.Entry Act(string id, double at, bool counted = true, bool initiative = true) =>
+            new() { ActionId = id, Op = "creation.place", What = "build", At = t0.AddSeconds(at), Counted = counted, Initiative = initiative };
         ledger.Note(Act("a", 0));
         ledger.Note(Act("b", 10));
         ledger.Note(Act("c", 30));
         ledger.Note(Act("d", 130));
         ledger.Note(Act("e", 200, counted: false));
+        ledger.Note(Act("g", 260, initiative: false));
         ledger.Consequence(t0.AddSeconds(85));
-        var settled = ledger.Settle(t0.AddSeconds(300)).Select(s => $"{s.Entry.ActionId}:{(s.Clean ? "clean" : "spoiled")}:{(s.Gained ? "+1" : "0")}").ToList();
-        Check(settled.SequenceEqual(new[] { "a:clean:+1", "b:clean:0", "c:spoiled:0", "d:clean:+1", "e:clean:0" }) && ledger.Settle(t0.AddSeconds(400)).Count == 0,
-            "a window closing clean gains, at most once in two minutes; a consequence inside a window spoils it; Creative's actions never gain; each window settles once: " + string.Join(" ", settled));
+        var settled = ledger.Settle(t0.AddSeconds(400)).Select(s => $"{s.Entry.ActionId}:{(s.Clean ? "clean" : "spoiled")}:{(s.Gained ? "+1" : "0")}").ToList();
+        Check(settled.SequenceEqual(new[] { "a:clean:+1", "b:clean:0", "c:spoiled:0", "d:clean:+1", "e:clean:0", "g:clean:0" }) && ledger.Settle(t0.AddSeconds(400)).Count == 0,
+            "a window closing clean gains, at most once in two minutes; a consequence inside a window spoils it; Creative's actions and directional commands never gain; each window settles once: " + string.Join(" ", settled));
+        var world = new[] { ("nature.cast", (string?)null), ("effect.start", null), ("creation.place", null), ("entity.push", null), ("goal.set", "fetch"), ("goal.set", "lead") };
+        var directional = new[] { ("goal.set", (string?)"follow"), ("goal.set", "stay"), ("goal.set", "come"), ("goal.set", "go_to"), ("goal.set", "look_at"), ("goal.set", "point_at"),
+            ("goal.set", "wander"), ("goal.stop", null), ("effect.stop", null), ("journal.note", null), ("room.checkpoint", null) };
+        Check(world.All(w => Trust.ChangesTheWorld(w.Item1, w.Item2)) && !directional.Any(d => Trust.ChangesTheWorld(d.Item1, d.Item2)),
+            "the founder's rule: only the Gubble's commands that change the world are initiative; directional goals, stops, notes and checkpoints are not");
         ledger.Note(Act("f", 400));
         ledger.Reset();
         Check(ledger.Settle(t0.AddSeconds(900)).Count == 0 && ledger.LastGain == null && ledger.Find("f") != null, "the player's reset closes every open window with no gain; the receipts can still be marked");
@@ -96,32 +116,46 @@ public partial class NatureTest
     private async Task TestTrustFromInitiative()
     {
         await EnergyWorld("trust-initiative");
-        var first = GubbleStays();
+        var first = GubbleBuilds();
         Later(30);
         Check(Ok(first) && _host.TrustCount == 0, "a Gubble action's window is still open at 30 s: nothing yet");
         Later(31);
         Check(_host.TrustCount == 1, $"its next 60 s produced no consequence fact: +1 ({_host.TrustCount})");
-        GubbleStays();
+        GubbleBuilds();
         Later(61);
         Check(_host.TrustCount == 1, "a second clean window within two minutes of the last gain gains nothing");
-        GubbleStays();
+        GubbleBuilds();
         Later(61);
         Check(_host.TrustCount == 2, $"once two minutes have passed since the last gain, a clean window gains again ({_host.TrustCount})");
-        GubbleStays(); // still the Gubble's: a stop, a note or a checkpoint is no action, and opens no window
+        GubbleBuilds(); // still the Gubble's: a stop, a note or a checkpoint is no action, and opens no window
         Send(Command(NextId("note"), "journal.note", new JsonObject { ["text"] = "Staying put." }), Companion);
         Send(Command(NextId("stop"), "goal.stop", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }), Companion);
         var player = Send(Command(NextId("order"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay" }), Player);
         Check(Ok(player) && _host.TrustRemembered == 4, $"the player's own orders, the Gubble's stops and notes are not its initiative ({_host.TrustRemembered} remembered)");
+        // The founder, 16 October: "Trust shouldn't be impacted by simple directional commands, only things that impact the world."
+        _now += TimeSpan.FromSeconds(200);
+        var moves = new[]
+        {
+            GubbleStays(),
+            Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "follow" }), Companion),
+            Send(Command(NextId("go-to"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "go_to", ["position_m"] = new JsonArray(0.6, 0, 1.0) }), Companion),
+        };
+        Later(61);
+        Check(moves.All(Ok) && _host.TrustCount == 2 && _host.TrustRemembered == 7,
+            $"a stay, a follow and a go_to of the Gubble's gain nothing, two minutes clear of the last gain ({_host.TrustCount}); they are remembered for a mark");
+        GubbleBuilds();
+        Later(61);
+        Check(_host.TrustCount == 3, $"a build of its own at the same point gains: the directional ones gained nothing for their own sake ({_host.TrustCount})");
 
         // The Gubble's fire hurts the player: the consequence fact costs 3 and spoils every window open over it, its own included.
         _now += TimeSpan.FromSeconds(200);
         var before = _host.TrustCount;
-        var stay = GubbleStays();
+        var built = GubbleBuilds();
         var lit = Fire(Companion, PlayerSpot(), 0.25, 6, out _);
         Steps(2);
         Check(Ok(lit) && _host.TrustCount == before - 3, $"a consequence fact costs 3 ({before} to {_host.TrustCount})");
         Later(61);
-        Check(Ok(stay) && _host.TrustCount == before - 3, "the windows the consequence fell in (the fire's and the one before it) gain nothing");
+        Check(Ok(built) && _host.TrustCount == before - 3, "the windows the consequence fell in (the fire's and the build before it) gain nothing");
         Check(Lessons().Any(l => l.StartsWith("The Gubble's fire burned you", StringComparison.Ordinal)), "the consequence fact is the journal's, as before M8");
 
         // Decision 45: a suggestion of the Gubble's the player approves is still its own idea, and earns initiative if nothing follows.
@@ -135,7 +169,7 @@ public partial class NatureTest
 
         // Creative counts nothing: a clean window gains nothing there.
         await NewWorld(SavePath("trust-creative"));
-        GubbleStays();
+        GubbleBuilds();
         Later(61);
         Check(_host.Mode == "creative" && _host.TrustCount == 0, "in Creative Trust is not counted");
     }
@@ -176,7 +210,7 @@ public partial class NatureTest
         var reset = ResetTrust();
         Check(Ok(reset) && reset["transient"]?.GetValue<bool>() == true && reset["data"] == null && _host.TrustCount == 0 && _host.TrustBand == 0 &&
             Lessons().First() == "You reset the Gubble's Trust: the Gubble is earning your trust.", "the player's reset: back to base, and the journal says so");
-        GubbleStays();
+        GubbleBuilds();
         ResetTrust();
         Later(61);
         Check(_host.TrustCount == 0, "a reset closes the windows open at it: no gain from before the reset");

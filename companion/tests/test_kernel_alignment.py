@@ -464,6 +464,9 @@ class TrustMatchesTheKernel(unittest.TestCase):
         host = _text(TRUST_HOST)
         for line in ("You marked the Gubble's ", ": yes, like that.", ": not that.", "You reset the Gubble's Trust: "):
             self.assertIn(line, host)
+        # The founder's rule (16 October): the same commands change the world, and so open a window, on both hosts.
+        self.assertEqual(mock_trust.WORLD_OPS, set(re.findall(r'"([a-z_.]+)"', _match(TRUST, r"WorldOps = new\(StringComparer\.Ordinal\)\s*\{([^}]*)\};"))))
+        self.assertEqual(mock_trust.WORLD_GOALS, set(re.findall(r'"([a-z_]+)"', _match(TRUST, r"WorldGoals = new\(StringComparer\.Ordinal\) \{([^}]*)\};"))))
 
     def test_the_kernel_hosts_the_marks_and_the_reset(self):
         source = _text(COMMAND_HOST)

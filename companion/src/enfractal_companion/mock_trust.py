@@ -2,8 +2,9 @@
 
 - The count is the team's (the kernel keeps it in team.json; the mock keeps it with the host, so a room reload never erases it),
   computed only from what happened, and counted in Challenge and Live only.
-- Clean initiative, +1: a committed command of the Gubble's (stops, notes and checkpoints are not actions) opens a 60 s window;
-  a window that closes with no consequence fact in it gains, at most once in two minutes. The mock simulates no nature, so it
+- Clean initiative, +1: a committed command of the Gubble's that changes the world (WORLD_OPS, and goal.set only for WORLD_GOALS;
+  the founder, 16 October: "only things that impact the world") opens a 60 s window; a window that closes with no consequence fact
+  in it gains, at most once in two minutes. Directional goals, stops, notes and checkpoints never gain. The mock simulates no nature, so it
   writes no consequence facts of its own; the -3 is the kernel's.
 - receipt.mark and trust.reset are the player's alone: the companion is refused before any handler runs (player-only ops). A
   mark names a receipt of the Gubble's from this room's session, each once: +2 for yes, -2 for not that.
@@ -34,7 +35,17 @@ MARK_NOT_FOUND = "There is no receipt of the Gubble's from this session with tha
 MARKED_ONCE = "That receipt is already marked: each receipt is marked once."  # kernel: CommandHost.MarkedOnce
 CONSEQUENCE_PLACE_M = 1.5  # kernel: CommandHost.ConsequencePlaceM
 _NOT_ACTIONS = frozenset({"goal.stop", "effect.stop", "wish.stop", "journal.note", "room.checkpoint"})
+# kernel: TrustLaws.WorldOps and TrustLaws.WorldGoals (the Gubble's commands that change the world, so open a window)
+WORLD_OPS = frozenset({"nature.cast", "nature.trail", "nature.repair", "room.undo", "effect.start", "effect.adjust",
+                       "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
+                       "creation.place", "creation.revise", "creation.activate", "protect.lock"})
+WORLD_GOALS = frozenset({"fetch", "lead"})
 _KNOWN_ID = re.compile(r"(obj|creation):[A-Za-z0-9_-]{1,64}")
+
+
+def changes_the_world(op: str, goal: str | None) -> bool:
+    """The kernel's Trust.ChangesTheWorld."""
+    return goal in WORLD_GOALS if op == "goal.set" else op in WORLD_OPS
 
 
 def band(count: int) -> int:
@@ -71,6 +82,7 @@ class TrustEntry:
     place: list[float] | None
     at: float
     counted: bool
+    initiative: bool = True
     spoiled: bool = False
     settled: bool = False
     mark: str | None = None
@@ -145,7 +157,8 @@ class TrustMixin:
         entries = self._trust_entries
         entries.pop(message["action_id"], None)
         entries[message["action_id"]] = TrustEntry(message["action_id"], op, _what(op, capability, self.rules), _place(args),
-                                                   self.clock.now(), self._trust_counts())
+                                                   self.clock.now(), self._trust_counts(),
+                                                   changes_the_world(op, args.get("goal") if op == "goal.set" else None))
         while len(entries) > MAX_REMEMBERED:
             entries.popitem(last=False)
 
@@ -155,7 +168,7 @@ class TrustMixin:
         closed = sorted((e for e in self._trust_entries.values() if not e.settled and e.closes <= now), key=lambda e: e.closes)
         for entry in closed:
             entry.settled = True
-            if entry.spoiled or not entry.counted:
+            if entry.spoiled or not entry.counted or not entry.initiative:
                 continue
             if self._trust_last_gain is None or entry.closes - self._trust_last_gain >= GAIN_SPACING_S:
                 self._trust_last_gain = entry.closes

@@ -13,8 +13,9 @@ namespace EnFractal.Native.Kernel;
 /// docs/runs/RUN-2-MECHANICS.md): a count per team the host keeps in the team file, computed only from what happened.
 /// <list type="bullet">
 /// <item><b>Clean initiative, +1.</b> Every command on the Gubble's connection is its own idea (decision 5), an approved suggestion
-/// too (decision 45): when one commits, a 60 s window opens; a window that closes with no consequence fact in it gains, at most once
-/// in two minutes. Stops, notes and checkpoints are not actions.</item>
+/// too (decision 45): when one that changes the world commits (Trust.ChangesTheWorld; the founder, 16 October: "only things that
+/// impact the world"), a 60 s window opens; a window that closes with no consequence fact in it gains, at most once in two minutes.
+/// Directional goals (follow, stay, come, go_to, look and point), stops, notes and checkpoints never gain.</item>
 /// <item><b>Consequence facts, -3.</b> The Gubble's fire hurting the player (CommandHostConsequences) and, since M8, the Gubble's
 /// fire burning a build: one fact per fire for each.</item>
 /// <item><b>The player's marks, +2 and -2.</b> receipt.mark ("yes, like that" or "not that") on a receipt of the Gubble's from this
@@ -100,7 +101,8 @@ public partial class CommandHost
         _trustLedger.Note(new TrustLedger.Entry
         {
             ActionId = Str(root, "action_id")!, Op = op, Capability = capability, What = TrustWhat(op, capability), Place = TrustPlace(op, args),
-            At = Clock(), Counted = TrustCounts, ApprovedBy = result["approved_by"]?.GetValue<string>(),
+            At = Clock(), Counted = TrustCounts, Initiative = Trust.ChangesTheWorld(op, op == "goal.set" ? Str(args, "goal") : null),
+            ApprovedBy = result["approved_by"]?.GetValue<string>(),
         });
     }
 
