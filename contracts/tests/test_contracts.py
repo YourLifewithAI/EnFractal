@@ -1899,9 +1899,11 @@ class MechanicsRoundTests(unittest.TestCase):
             # "That operation does not exist."
             self.assertLessEqual(new, set(re.findall(r'"([a-z_.]+)"', re.search(r"CommandOps = new\(\)\s*\{([^}]*)\};", host).group(1))))
             unsupported = host[host.index("private string? Unsupported("):]
-            # The player's pickup and gather are hosted since M1, knack.set since M3 (Saves/CommandHostTeams.cs) and fractal.spend
-            # since M1's fix round (Kernel/CommandHostFractals.cs); receipt.mark and trust.reset answer as not available yet until M8.
-            self.assertIn('"receipt.mark" or "trust.reset" => MechanicsNotYet', unsupported)
+            # The player's pickup and gather are hosted since M1, knack.set since M3 (Saves/CommandHostTeams.cs), fractal.spend
+            # since M1's fix round (Kernel/CommandHostFractals.cs), and receipt.mark and trust.reset since M8 (Kernel/CommandHostTrust.cs).
+            self.assertNotIn('"receipt.mark" or "trust.reset" =>', unsupported)
+            self.assertIn('"receipt.mark" => MarkReceipt(', host)
+            self.assertIn('"trust.reset" => ResetTrust(', host)
             self.assertNotIn('"fractal.spend" =>', unsupported)
             self.assertIn('"fractal.spend" => SpendFractals(', host)
             self.assertNotIn('"knack.set" or', unsupported)
