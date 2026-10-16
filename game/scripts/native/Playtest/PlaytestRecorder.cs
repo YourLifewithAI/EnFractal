@@ -108,6 +108,10 @@ public partial class PlaytestRecorder : Node
     private ulong _lastFrameUsec;
     private double _windowStart, _windowLongestMs, _windowSumMs;
     private int _windowFrames;
+    // What the window's longest frame spent its time on (the engine's monitors, read while they still hold the frame that ended), and the
+    // garbage collections of the window (the first recorded play's frames could not be attributed: 35 to 41 ms every window, a second twice).
+    private double _longestProcessMs, _longestPhysicsMs, _windowPauseMs0;
+    private int _windowGc0, _windowGc1, _windowGc2;
     private string? _linkState;
     private float _lastFloorY = float.NaN;
 
@@ -225,7 +229,12 @@ public partial class PlaytestRecorder : Node
         _lastFrameUsec = now;
         _windowFrames++;
         _windowSumMs += frameMs;
-        if (frameMs > _windowLongestMs) _windowLongestMs = frameMs;
+        if (frameMs > _windowLongestMs)
+        {
+            _windowLongestMs = frameMs;
+            _longestProcessMs = Performance.GetMonitor(Performance.Monitor.TimeProcess) * 1000;
+            _longestPhysicsMs = Performance.GetMonitor(Performance.Monitor.TimePhysicsProcess) * 1000;
+        }
         var t = now / 1_000_000.0;
         WatchLink(t);
         if (t >= _nextFrame) WriteFrame(t);
@@ -518,6 +527,10 @@ public partial class PlaytestRecorder : Node
         json.WriteNumber("window_s", PlaytestLines.Number(Math.Clamp(window, 0.001, 60), 3, 60) ?? 5);
         json.WriteNumber("mean_ms", PlaytestLines.Number(_windowFrames > 0 ? _windowSumMs / _windowFrames : 0, 2, 100000) ?? 0);
         json.WriteNumber("longest_ms", PlaytestLines.Number(_windowLongestMs, 2, 100000) ?? 0);
+        json.WriteNumber("longest_process_ms", PlaytestLines.Number(_longestProcessMs, 2, 100000) is { } lp ? Math.Max(0, lp) : 0);
+        json.WriteNumber("longest_physics_ms", PlaytestLines.Number(_longestPhysicsMs, 2, 100000) is { } lq ? Math.Max(0, lq) : 0);
+        json.WriteNumber("gc_pause_ms", Math.Round(Math.Max(0, GC.GetTotalPauseDuration().TotalMilliseconds - _windowPauseMs0), 1));
+        json.WriteString("gc_collections", $"{GC.CollectionCount(0) - _windowGc0}/{GC.CollectionCount(1) - _windowGc1}/{GC.CollectionCount(2) - _windowGc2}");
         json.WriteNumber("physics_ms", PlaytestLines.Number(Performance.GetMonitor(Performance.Monitor.TimePhysicsProcess) * 1000, 2, 100000) is { } p ? Math.Max(0, p) : 0);
         json.WriteNumber("draw_calls", (long)Math.Max(0, Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame)));
         json.WriteNumber("video_mb", Math.Round(Math.Max(0, Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed)) / 1048576.0, 1));
@@ -531,6 +544,8 @@ public partial class PlaytestRecorder : Node
         _windowFrames = 0;
         _windowSumMs = 0;
         _windowLongestMs = 0;
+        _longestProcessMs = _longestPhysicsMs = 0;
+        (_windowPauseMs0, _windowGc0, _windowGc1, _windowGc2) = (GC.GetTotalPauseDuration().TotalMilliseconds, GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
     }
 
     // ---- the stills ----

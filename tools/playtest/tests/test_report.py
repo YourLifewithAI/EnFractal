@@ -430,6 +430,22 @@ class FramesAndCommands(unittest.TestCase):
         text = report.section_frames(play, [], [], [], report.frame_records(play), {})
         self.assertEqual(len(table_rows("\n".join(text))), 6)  # a header and five
 
+    def test_the_worst_windows_longest_frame_is_split_when_the_record_says(self):
+        """The recorder since the first recorded play's fix round: the engine's process and physics time at the window's longest frame,
+        and the window's collections and pauses; a record without them (every play before) prints no split."""
+        split = {"longest_process_ms": 71.5, "longest_physics_ms": 22.25, "gc_pause_ms": 9.4, "gc_collections": "3/1/0"}
+        frames = [ev(5.0 * i, "frame", window_s=5, mean_ms=8.0, longest_ms=100.0 if i == 2 else 10.0, position_m=[i, 0, 0], **(split if i == 2 else {}))
+                  for i in range(1, 5)]
+        play = load(self.dir, frames)
+        text = "\n".join(report.section_frames(play, [], [], [], report.frame_records(play), {}))
+        self.assertIn("The worst window's longest frame (0:05–0:10), as the record splits it: process 71.5 ms, physics 22.2 ms; "
+                      "the window's collections `3/1/0` (gen 0/1/2) paused 9.4 ms.", text)
+        self.assertNotIn("longest_process_ms", text)
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        plain = load(Path(other.name), [ev(5.0 * i, "frame", window_s=5, mean_ms=8.0, longest_ms=10.0, position_m=[i, 0, 0]) for i in range(1, 5)])
+        self.assertNotIn("as the record splits it", "\n".join(report.section_frames(plain, [], [], [], report.frame_records(plain), {})))
+
     def test_a_play_with_no_frames_says_so(self):
         play = load(self.dir, [ev(1.0, "ready", spawn_m=[0, 0, 0])])
         self.assertIn("No frame windows were recorded.", report.section_frames(play, [], [], [], [], {}))

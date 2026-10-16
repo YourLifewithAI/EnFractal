@@ -43,7 +43,8 @@ KIND_FIELDS = {
     "action": {"name", "detail"},
     "notice": {"channel", "text", "reason", "code", "action_id"},
     "body": {"position_m", "height_m", "level", "mode", "hearts", "bar_m", "pips", "holding", "state", "view", "gubble"},
-    "frame": {"window_s", "mean_ms", "longest_ms", "physics_ms", "draw_calls", "video_mb", "static_mb", "objects", "position_m"},
+    "frame": {"window_s", "mean_ms", "longest_ms", "physics_ms", "draw_calls", "video_mb", "static_mb", "objects", "position_m",
+              "longest_process_ms", "longest_physics_ms", "gc_pause_ms", "gc_collections"},
     "still": {"file", "why", "view", "position_m", "width", "height"},
     "mark": {"number", "flag", "still"},
     "stills_rate": {"beat_s", "was_s"},
@@ -1123,6 +1124,16 @@ def section_frames(play: Play, stills: list, marks: list, refusals: list, frames
                      code(state, 24) if state else "", ops or ""])
     out += table(["Window", "Longest ms", "Mean ms", "Physics ms", "Position", "Body", "Commands that changed things (not queries)"], body,
                  ["---", "---:", "---:", "---:", "---", "---", "---"])
+    # Where the record says what the worst window's longest frame spent its time on (the recorder since the first recorded play's
+    # fix round: the engine's process and physics monitors at that frame, the window's collections by generation and their pauses).
+    split = worst[0].ev.d
+    parts = []
+    if num(split.get("longest_process_ms")) is not None:
+        parts.append(f"process {num(split.get('longest_process_ms')):.1f} ms, physics {num(split.get('longest_physics_ms')) or 0:.1f} ms")
+    if num(split.get("gc_pause_ms")) is not None:
+        parts.append(f"the window's collections {code(split.get('gc_collections', ''), 16)} (gen 0/1/2) paused {num(split.get('gc_pause_ms')):.1f} ms")
+    if parts:
+        out += [f"The worst window's longest frame ({fmt_t(worst[0].ev.t - worst[0].window_s)}–{fmt_t(worst[0].ev.t)}), as the record splits it: " + "; ".join(parts) + ".", ""]
     slow = sorted(frames, key=lambda f: (-f.mean_ms, f.ev.t))[:3]
     out += ["Those are the biggest single stutters. The windows that were slow all the way through (the highest mean frame time): "
             + ", ".join(f"{fmt_t(f.ev.t - f.window_s)}–{fmt_t(f.ev.t)} at {f.mean_ms:.1f} ms (longest {f.longest_ms:.1f})" for f in slow) + ".", ""]
