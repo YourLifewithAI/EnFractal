@@ -4,13 +4,16 @@ the kernel's Kernel/CommandHostTrust.cs.
 - receipt.mark and trust.reset are the player's alone: the companion is refused permission_denied at $.op, never held, and no tool
   reaches them;
 - a mark names a receipt of the Gubble's from this session, each once: +2 for yes, -2 for not that, in Challenge and Live only;
-- clean initiative gains one, at most once in two minutes; Creative counts nothing; the player's reset goes back to base;
+- clean initiative gains one, at most once in two minutes, and only for a paid action (decision 69: what the guard would charge, so
+  a pack's prices decide; a lead only once its Lift is charged, a fetch never); Creative counts nothing; the player's reset goes back
+  to base;
 - the AI reads Trust as words in the journal (kind consequence, its lessons) and never writes it: no field of a request moves it,
   and a note claiming a mark is only words;
 - every result is contract-valid.
 """
 from __future__ import annotations
 
+import dataclasses
 import unittest
 
 from support import COMPANION, GUBBLE, IN_THE_OPEN, PLAYER, FakeClock, command, contract_problems, glow, new_host, query
@@ -41,7 +44,7 @@ class TrustOnTheMock(unittest.TestCase):
         self.assertTrue(self.send(PLAYER, "world.set_mode", {"mode": "challenge"})["ok"])
 
     def gubble_glows(self) -> str:
-        """A command of the Gubble's that changes the world: a Glow of its own in the open (the cheapest initiative on the mock)."""
+        """A paid command of the Gubble's (decision 69): a Glow of its own in the open, v5's own-idea price of one pip."""
         result = self.host.handle(COMPANION, glow(f"glow-{self.n}", at=IN_THE_OPEN))
         self.n += 1
         self.assertTrue(result["ok"], result)
@@ -132,12 +135,31 @@ class TrustOnTheMock(unittest.TestCase):
         self.assertEqual(self.host.trust_count, 1, "a Glow of the Gubble's own changes the world and gains")
         self.assertTrue(self.mark(moves[2], "yes")["ok"], "a directional command's receipt can still be marked")
         self.assertEqual(self.host.trust_count, 3)
-        self.assertTrue(mock_trust.changes_the_world("goal.set", "fetch") and mock_trust.changes_the_world("goal.set", "lead"))
-        self.assertFalse(any(mock_trust.changes_the_world("goal.set", g) for g in ("follow", "stay", "come", "go_to", "look_at", "point_at", "wander")))
+        self.assertEqual([mock_trust.paid(pips) for pips in (-1, 0, 1, 3)], [False, False, True, True], "the kernel's Trust.Paid")
 
-    def test_a_fetch_or_a_lead_earns_only_when_its_job_succeeds(self):
-        """The W2 review's minor 4, as the kernel's TrustLedger.JobEnded: a fetch or a lead changes the world only when its job
-        succeeds, so its window opens then; a job that fails or is stopped gains nothing."""
+    def test_free_commands_gain_nothing_and_a_packs_prices_decide(self):
+        """Decision 69: only what the guard charged earns. A grab moves a thing and a Glow the pack prices at nothing lights the
+        room, but neither cost pips, so neither gains; the same Glow at its price does."""
+        self.challenge()
+        grab = self.send(COMPANION, "entity.grab", {"actor": GUBBLE, "target": "obj:doorstop"})
+        released = self.send(COMPANION, "entity.release", {"actor": GUBBLE})
+        self.later(61)
+        self.assertEqual((grab["ok"], released["ok"], self.host.trust_count), (True, True, 0), "a grab and a release are free")
+        priced = self.host.rules
+        self.host.rules = dataclasses.replace(priced, prices=tuple((name, 0 if name == "glow" else ordered, factor) for name, ordered, factor in priced.prices))
+        self.gubble_glows()
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 0, "a Glow the pack prices at nothing is charged nothing, so gains nothing")
+        self.host.rules = priced
+        self.later(200)
+        self.gubble_glows()
+        self.later(61)
+        self.assertEqual(self.host.trust_count, mock_trust.CLEAN_INITIATIVE, "the same Glow at the pack's price is paid, and gains")
+
+    def test_only_a_paid_lift_that_arrives_earns_and_a_fetch_never(self):
+        """The W2 review's minor 4, narrowed by decision 69, as the kernel's TrustLedger: a goal's window opens only when its job
+        succeeds; goals cost nothing, so a fetch never earns and a lead earns only once its Lift is charged (on the mock, at its
+        arrival, since it has no drift); one that fails or is stopped gains nothing. A free goal's receipt can still be marked."""
         self.challenge()
         fetch = {"actor": GUBBLE, "goal": "fetch", "target": "obj:book"}
         stopped = self.send(COMPANION, "goal.set", fetch)
@@ -145,22 +167,37 @@ class TrustOnTheMock(unittest.TestCase):
         self.send(PLAYER, "goal.stop", {"actor": GUBBLE})
         self.later(61)
         self.assertEqual(self.host.trust_count, 0, "a fetch stopped at once fetched nothing")
+        self.assertTrue(self.send(COMPANION, "entity.grab", {"actor": GUBBLE, "target": "obj:doorstop"})["ok"])
+        fetched = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "fetch", "target": "obj:doorstop"})
+        self.assertEqual(self.host.goal_arrived(GUBBLE), "succeeded")
+        self.later(61)
+        self.assertEqual((fetched["ok"], self.host.trust_count), (True, 0), "a fetch that succeeds cost no pips: it earns nothing")
+
         def bubble() -> str:
             return self.send(PLAYER, "effect.start", {"capability": "bubbles", "params": {}, "area": {"center_m": IN_THE_OPEN, "radius_m": 0.5},
                                                       "duration_s": 60})["data"]["bubble"]
 
-        blocked = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble(), "position_m": [0.9, 0.0, 1.0]})
-        self.assertTrue(blocked["ok"], blocked)
+        blocked = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble(), "position_m": [0.9, 0.6, 1.0]})
+        self.assertTrue(blocked["ok"] and blocked["data"]["lift"], blocked)
         self.assertEqual(self.host.goal_blocked(GUBBLE, self.host.policy.unreachable_after_s), "failed")
         self.later(61)
-        self.assertEqual(self.host.trust_count, 0, "a lead that could not get there moved nothing")
-        arriving = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble(), "position_m": [0.9, 0.0, 1.0]})
+        self.assertEqual(self.host.trust_count, 0, "a lift that could not get there never rose, so was never charged")
+        level = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble(), "position_m": [0.9, 0.0, 1.0]})
+        self.assertEqual((level["data"]["lift"], self.host.goal_arrived(GUBBLE)), (False, "succeeded"))
+        self.later(61)
+        self.assertEqual(self.host.trust_count, 0, "a lead that arrives with no lift is a goal, free: it earns nothing")
+        lifting = self.send(COMPANION, "goal.set", {"actor": GUBBLE, "goal": "lead", "target": bubble(), "position_m": [0.9, 0.6, 1.0]})
+        self.assertEqual((lifting["data"]["lift"], lifting["data"]["lift_price"]), (True, 3), lifting)
         self.later(30)
         self.assertEqual(self.host.goal_arrived(GUBBLE), "succeeded")
         self.later(31)
         self.assertEqual(self.host.trust_count, 0, "its window opened on arrival, so is still open")
         self.later(30)
-        self.assertEqual((arriving["ok"], self.host.trust_count), (True, mock_trust.CLEAN_INITIATIVE), "a lead that arrives gains once its window closes clean")
+        self.assertEqual(self.host.trust_count, mock_trust.CLEAN_INITIATIVE, "a lift charged at its rise that arrives gains once its window closes clean")
+        # Item 3: the player's marks stay on any receipt of the Gubble's, a free one's too.
+        self.assertTrue(self.mark(fetched["action_id"], "yes")["ok"])
+        self.assertEqual(self.host.trust_count, mock_trust.CLEAN_INITIATIVE + mock_trust.MARK_YES)
+        self.assertIn("You marked the Gubble's fetch: yes, like that.", self.lessons())
 
     def test_creative_counts_nothing_and_a_mark_there_still_teaches(self):
         stay = self.gubble_glows()

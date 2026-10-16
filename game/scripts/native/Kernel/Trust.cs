@@ -10,13 +10,16 @@ namespace EnFractal.Native.Kernel;
 /// </summary>
 public static class TrustLaws
 {
-    /// <summary>A Gubble action on its own initiative whose next CleanWindowS produced no consequence fact gains this.</summary>
+    /// <summary>A paid Gubble action on its own initiative whose next CleanWindowS produced no consequence fact gains this (decision 69).</summary>
     public const int CleanInitiative = 1;
     /// <summary>The window after a Gubble action in which a consequence fact spoils its gain (seconds, real time).</summary>
     public const double CleanWindowS = 60;
     /// <summary>At most one gain from clean initiative in this long (seconds, real time).</summary>
     public const double GainSpacingS = 120;
-    /// <summary>Each consequence fact (the Gubble's fire hurt the player; the Gubble's fire burnt a build) moves Trust by this.</summary>
+    /// <summary>
+    /// Each consequence fact that follows directly from a paid Gubble action (its paid fire hurt the player or burnt a build; its paid
+    /// bubble or paid lift carried the player into fire) moves Trust by this. A consequence of a free action moves nothing (decision 69).
+    /// </summary>
     public const int PerConsequence = -3;
     /// <summary>The player's "yes, like that" on a receipt.</summary>
     public const int MarkYes = 2;
@@ -40,23 +43,14 @@ public static class TrustLaws
     /// <summary>The Gubble's commands the host remembers this session, for the windows and the marks; the oldest go first.</summary>
     public const int MaxRemembered = 1024;
     /// <summary>
-    /// The founder, 16 October: "Trust shouldn't be impacted by simple directional commands, only things that impact the world." The
-    /// Gubble's commands that change the world, and so open a window of clean initiative: its magic, its changes to things and builds,
-    /// nature's changes and an undo of them, a lock. goal.set opens one only for the goals in WorldGoals; the directional goals (follow,
-    /// stay, come, go_to, look_at, point_at, wander), stops, notes and checkpoints never do. The player-only ops (glow.configure,
-    /// the item ops, wish.submit) never reach here from the Gubble. Any receipt of the Gubble's can still be marked.
+    /// The Gubble's paid actions the host remembers this session, for tracing a consequence fact back to one (decision 69). Only a
+    /// command the guard charged pips for enters this list, and the pool limits how many there can be, so no run of free commands
+    /// pushes a paid fire or bubble out of it while its consequences can still follow.
     /// </summary>
-    public static readonly HashSet<string> WorldOps = new(StringComparer.Ordinal)
-    {
-        "nature.cast", "nature.trail", "nature.repair", "room.undo", "effect.start", "effect.adjust",
-        "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
-        "creation.place", "creation.revise", "creation.activate", "protect.lock",
-    };
-    /// <summary>
-    /// The goals that change the world: a fetch carries a thing, a lead moves a bubble (and the player in it). Each changes it only
-    /// when its job succeeds (fetched, arrived), so its window opens then; a job that fails or is stopped gains nothing.
-    /// </summary>
-    public static readonly HashSet<string> WorldGoals = new(StringComparer.Ordinal) { "fetch", "lead" };
+    public const int MaxPaidRemembered = 64;
+    // Decision 69 (the founder, 16 October, evening): "Only paid actions and consequences directly related to those actions earn
+    // trust." Which commands those are is read from what the guard charged (CommandHostEnergy.ChargeEnergy, and a lead's Lift at its
+    // rise), never from a list of ops: a pack's prices decide. It narrows decision 68, whose WorldOps and WorldGoals lists are gone.
 }
 
 /// <summary>Trust's pure rules: the band, the words (never a number on screen), the discounted own-idea price.</summary>
@@ -66,8 +60,12 @@ public static class Trust
 
     public static int Clamp(long count) => (int)Math.Clamp(count, -Bound, Bound);
 
-    /// <summary>Whether a command of the Gubble's changes the world (TrustLaws.WorldOps, and goal.set only for TrustLaws.WorldGoals).</summary>
-    public static bool ChangesTheWorld(string op, string? goal) => op == "goal.set" ? goal != null && TrustLaws.WorldGoals.Contains(goal) : TrustLaws.WorldOps.Contains(op);
+    /// <summary>
+    /// Decision 69's rule, the one both hosts keep: a command of the Gubble's is a paid action, and so can earn clean initiative and
+    /// carry its consequences into Trust, when the host charged it pips (the guard's price above zero at its commit, or a lead's Lift
+    /// at its rise). Free commands (grabs, pushes, releases, free builds, goals, stops, notes) never are.
+    /// </summary>
+    public static bool Paid(int chargedPips) => chargedPips > 0;
 
     /// <summary>The band, 0 to 3: what the bands at 5, 15 and 30 open (the discount, the early warning, the aura's mark).</summary>
     public static int Band(int count)
@@ -115,10 +113,14 @@ public static class Trust
 
 /// <summary>
 /// The Gubble's committed commands this session, as Trust needs them (host memory only; never saved, never in a receipt): each
-/// one's 60 s window, whether a consequence fact spoiled it, and the player's mark. A receipt is marked once.
+/// one's 60 s window, whether it was paid, whether a consequence fact spoiled it, and the player's mark. A receipt is marked once.
+/// Beside them, the paid actions (TrustLaws.MaxPaidRemembered), which a consequence fact is traced back to.
 /// </summary>
 public sealed class TrustLedger
 {
+    /// <summary>A paid action of the Gubble's: its action id, op, ability and the room revision it committed at (a fire's revision).</summary>
+    public readonly record struct PaidAction(string ActionId, string Op, string? Capability, int? Revision);
+
     public sealed class Entry
     {
         public required string ActionId { get; init; }
@@ -132,13 +134,18 @@ public sealed class TrustLedger
         public DateTime At { get; init; }
         /// <summary>Whether Trust counted when it committed (Challenge and Live): only those gain.</summary>
         public bool Counted { get; init; }
-        /// <summary>Whether it changed the world (Trust.ChangesTheWorld): only those open a window that can gain. Every one can be marked.</summary>
-        public bool Initiative { get; init; } = true;
+        /// <summary>
+        /// Whether the host charged it pips (Trust.Paid, decision 69): at its commit, or a lead's Lift at its rise (TrustLedger.Charged).
+        /// Only a paid action's window can gain. Every one, paid or free, can be marked.
+        /// </summary>
+        public bool Paid { get; internal set; }
+        /// <summary>The room revision its result named (a fire's nature.cast commits at the revision its fire is lit at), when it had one.</summary>
+        public int? Revision { get; init; }
         /// <summary>The player when the player's click committed it (an approved suggestion, decision 45), else null.</summary>
         public string? ApprovedBy { get; init; }
         /// <summary>
-        /// A goal that changes the world only by its job's success (a lead arriving, a fetch fetched): its job's id. Its window waits
-        /// for the job (Pending), opens when the job succeeds, and gains nothing when the job fails or is stopped.
+        /// A goal's job (a lead, a fetch, any goal that runs as a job): its id. Its window waits for the job (Pending), opens when the job
+        /// succeeds, and gains nothing when the job fails or is stopped. A lead becomes paid while it runs, when its Lift is charged.
         /// </summary>
         public string? JobId { get; init; }
         /// <summary>Its job is still running: the window has not opened, and a consequence fact meanwhile spoils it.</summary>
@@ -157,6 +164,7 @@ public sealed class TrustLedger
 
     private readonly List<Entry> _entries = new();
     private readonly Dictionary<string, Entry> _byId = new(StringComparer.Ordinal);
+    private readonly List<PaidAction> _paid = new();
 
     /// <summary>When clean initiative last gained (the window's close), or null since the session began or the last reset.</summary>
     public DateTime? LastGain { get; private set; }
@@ -164,7 +172,7 @@ public sealed class TrustLedger
 
     public Entry? Find(string actionId) => _byId.GetValueOrDefault(actionId);
 
-    /// <summary>A committed command of the Gubble's; the oldest is forgotten past TrustLaws.MaxRemembered.</summary>
+    /// <summary>A committed command of the Gubble's; the oldest is forgotten past TrustLaws.MaxRemembered. A paid one is remembered as paid.</summary>
     public void Note(Entry entry)
     {
         if (_byId.Remove(entry.ActionId, out var earlier)) _entries.Remove(earlier);
@@ -175,6 +183,31 @@ public sealed class TrustLedger
             _byId.Remove(_entries[0].ActionId);
             _entries.RemoveAt(0);
         }
+        if (entry.Paid) RememberPaid(new PaidAction(entry.ActionId, entry.Op, entry.Capability, entry.Revision));
+    }
+
+    /// <summary>
+    /// The host charged pips for a command after it committed (a lead's Lift at its rise): it is a paid action from now on, its window
+    /// able to gain once its job succeeds, and its consequences traced to it. A command no longer remembered is still remembered as paid.
+    /// </summary>
+    public void Charged(string actionId)
+    {
+        var entry = Find(actionId);
+        if (entry != null) entry.Paid = true;
+        RememberPaid(new PaidAction(actionId, entry?.Op ?? "goal.set", entry?.Capability, entry?.Revision));
+    }
+
+    /// <summary>Whether the host charged pips for this command of the Gubble's (a consequence's trace to its action).</summary>
+    public bool WasPaid(string actionId) => _paid.Exists(p => p.ActionId == actionId);
+
+    /// <summary>Whether the Gubble's Fire lit at this room revision was paid: a fire's NatureFire.Revision is the revision its cast committed at.</summary>
+    public bool PaidFireAt(int revision) => _paid.Exists(p => p is { Op: "nature.cast", Capability: "fire" } && p.Revision == revision);
+
+    private void RememberPaid(PaidAction paid)
+    {
+        if (WasPaid(paid.ActionId)) return;
+        _paid.Add(paid);
+        while (_paid.Count > TrustLaws.MaxPaidRemembered) _paid.RemoveAt(0);
     }
 
     /// <summary>A consequence fact at this moment: every window still open over it is spoiled, and every job still running.</summary>
@@ -201,7 +234,7 @@ public sealed class TrustLedger
 
     /// <summary>
     /// The windows closed by now, in the order they closed, each settled once: whether it was clean and whether it gained (a clean,
-    /// counted window gains when no gain came in the GainSpacingS before its close). A window still waiting for its job stays open.
+    /// counted, paid window gains when no gain came in the GainSpacingS before its close). A window still waiting for its job stays open.
     /// </summary>
     public List<(Entry Entry, bool Clean, bool Gained)> Settle(DateTime now)
     {
@@ -214,7 +247,7 @@ public sealed class TrustLedger
         {
             entry.Settled = true;
             var clean = !entry.Spoiled;
-            var gained = clean && entry.Counted && entry.Initiative && !entry.JobFailed && (LastGain is not { } last || (entry.Closes - last).TotalSeconds >= TrustLaws.GainSpacingS);
+            var gained = clean && entry.Counted && entry.Paid && !entry.JobFailed && (LastGain is not { } last || (entry.Closes - last).TotalSeconds >= TrustLaws.GainSpacingS);
             if (gained) LastGain = entry.Closes;
             outcome.Add((entry, clean, gained));
         }

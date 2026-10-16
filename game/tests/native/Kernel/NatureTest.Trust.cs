@@ -14,7 +14,8 @@ namespace EnFractal.Tests.Kernel;
 /// <summary>
 /// Trust (M8 of docs/runs/RUN-2-MECHANICS.md; docs/game/MECHANICS.md section 5 and decisions 1, 6, 16, 42 and 45), in the real
 /// test room with the real bodies, nature and v5's prices: the count from clean initiative, consequence facts and the player's
-/// marks (item 1); a consequence fact for a build the Gubble's fire burnt (item 2); the bands' discount and early warning, the fire
+/// marks (item 1), since decision 69 only for paid actions (what the guard charged) and the consequences traced to them, a free
+/// action's consequence written and moving no Trust; a consequence fact for a build the Gubble's fire burnt (item 2); the bands' discount and early warning, the fire
 /// guardrails untouched (item 3); receipt.mark and trust.reset the player's alone (item 4); "lesson applied" from the host's own
 /// observation, Trust readable and never writable (item 5); the journal's Trust words and the aura's band (item 6).
 /// </summary>
@@ -26,21 +27,39 @@ public partial class NatureTest
         await TestTrustFromInitiative();
         await TestTrustFromMarks();
         await TestBuildBurntIsAConsequence();
+        await TestAFreeActionsConsequenceMovesNoTrust();
         await TestTrustBands();
         await TestLessonApplied();
         await TestTrustIsNeverTheCompanions();
         await TestAPreviewOrAHoldIsNoInitiative();
-        await TestAFetchEarnsOnlyWhenItSucceeds();
+        await TestAFetchIsFreeAndEarnsNothing();
     }
 
     private JsonObject GubbleStays(string? actionId = null) =>
         Send(Command(actionId ?? NextId("gubble"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay" }), Companion);
 
+    /// <summary>A command of the Gubble's the guard charges pips for (decision 69): its own Glow on itself, v5's own-idea price of one pip.</summary>
+    private JsonObject GubbleGlows() => GlowSelf(Companion);
+
+    /// <summary>The pool full again (eight pips), for the checks that spend more than one pool.</summary>
+    private void FullPool() =>
+        _host.ConfigurePlayerVitals(new EnergyStore(PlayerModesProfile.Fresh.Select("challenge").WithCurrent(_host.BodyRules.Fresh().With(pips: 8))));
+
+    /// <summary>v5 as the host's rules, edited as JSON first (a price, a tier): the pack's prices decide what the guard charges.</summary>
+    private void UseEditedV5(Action<JsonObject> edit)
+    {
+        var pack = JsonNode.Parse(System.IO.File.ReadAllText(ProjectSettings.GlobalizePath(IslandRules.PathFor("storybook_wild", 5))))!.AsObject();
+        edit(pack);
+        _host.UseRules(IslandRules.Parse(System.Text.Encoding.UTF8.GetBytes(pack.ToJsonString())));
+    }
+
+    private static void Price(JsonObject pack, string capability, int ordered) => pack["cost"]!["prices"]![capability]!["ordered"] = ordered;
+
     private int _gubbleBuilds;
 
     /// <summary>
-    /// A command of the Gubble's that changes the world and costs no pips (the cheapest initiative): a small wooden build of its own on
-    /// the open floor north of the box, each at a spot of its own, far from where the tests light fires.
+    /// A command of the Gubble's that changes the world and costs no pips (a free action: decision 69 says it never gains): a small
+    /// wooden build of its own on the open floor north of the box, each at a spot of its own, far from where the tests light fires.
     /// </summary>
     private JsonObject GubbleBuilds()
     {
@@ -91,44 +110,59 @@ public partial class NatureTest
             "the bands widen the own-idea discount in whole pips, never below one for a priced ability: " + string.Join(" ", prices));
         var t0 = new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc);
         var ledger = new TrustLedger();
-        TrustLedger.Entry Act(string id, double at, bool counted = true, bool initiative = true) =>
-            new() { ActionId = id, Op = "creation.place", What = "build", At = t0.AddSeconds(at), Counted = counted, Initiative = initiative };
+        TrustLedger.Entry Act(string id, double at, bool counted = true, bool paid = true) =>
+            new() { ActionId = id, Op = "effect.start", Capability = "glow", What = "glow", At = t0.AddSeconds(at), Counted = counted, Paid = paid };
         ledger.Note(Act("a", 0));
         ledger.Note(Act("b", 10));
         ledger.Note(Act("c", 30));
         ledger.Note(Act("d", 130));
         ledger.Note(Act("e", 200, counted: false));
-        ledger.Note(Act("g", 260, initiative: false));
+        ledger.Note(Act("g", 260, paid: false));
         ledger.Consequence(t0.AddSeconds(85));
         var settled = ledger.Settle(t0.AddSeconds(400)).Select(s => $"{s.Entry.ActionId}:{(s.Clean ? "clean" : "spoiled")}:{(s.Gained ? "+1" : "0")}").ToList();
         Check(settled.SequenceEqual(new[] { "a:clean:+1", "b:clean:0", "c:spoiled:0", "d:clean:+1", "e:clean:0", "g:clean:0" }) && ledger.Settle(t0.AddSeconds(400)).Count == 0,
-            "a window closing clean gains, at most once in two minutes; a consequence inside a window spoils it; Creative's actions and directional commands never gain; each window settles once: " + string.Join(" ", settled));
-        var world = new[] { ("nature.cast", (string?)null), ("effect.start", null), ("creation.place", null), ("entity.push", null), ("goal.set", "fetch"), ("goal.set", "lead") };
-        var directional = new[] { ("goal.set", (string?)"follow"), ("goal.set", "stay"), ("goal.set", "come"), ("goal.set", "go_to"), ("goal.set", "look_at"), ("goal.set", "point_at"),
-            ("goal.set", "wander"), ("goal.stop", null), ("effect.stop", null), ("journal.note", null), ("room.checkpoint", null) };
-        Check(world.All(w => Trust.ChangesTheWorld(w.Item1, w.Item2)) && !directional.Any(d => Trust.ChangesTheWorld(d.Item1, d.Item2)),
-            "the founder's rule: only the Gubble's commands that change the world are initiative; directional goals, stops, notes and checkpoints are not");
+            "a paid window closing clean gains, at most once in two minutes; a consequence inside a window spoils it; Creative's actions and free ones never gain; each window settles once: " + string.Join(" ", settled));
+        // Decision 69's rule, from what the host charged: anything above zero pips is paid, nothing else.
+        Check(Trust.Paid(1) && Trust.Paid(3) && !Trust.Paid(0) && !Trust.Paid(-1) && ledger.WasPaid("a") && !ledger.WasPaid("g"),
+            "decision 69: a command is a paid action when the host charged it pips, and only then is it remembered as paid");
         ledger.Note(Act("f", 400));
         ledger.Reset();
         Check(ledger.Settle(t0.AddSeconds(900)).Count == 0 && ledger.LastGain == null && ledger.Find("f") != null, "the player's reset closes every open window with no gain; the receipts can still be marked");
-        // A fetch or a lead (the W2 review's minor 4): its window waits for its job, opens when the job succeeds, and a job that
-        // fails or is stopped gains nothing; a consequence while the job runs spoils it.
+        // A goal (the W2 review's minor 4, then decision 69): its window waits for its job, opens when the job succeeds, and a job that
+        // fails or is stopped gains nothing; a consequence while the job runs spoils it. A goal costs nothing at its commit: a lead gains
+        // only once its Lift is charged (Charged), a fetch never.
         var jobs = new TrustLedger();
-        TrustLedger.Entry Goal(string id, double at) =>
-            new() { ActionId = id, Op = "goal.set", Capability = "lead", What = "bubble lead", At = t0.AddSeconds(at), Counted = true, JobId = "job-" + id, Pending = true };
+        TrustLedger.Entry Goal(string id, double at, string goal = "lead") =>
+            new() { ActionId = id, Op = "goal.set", Capability = goal, What = goal, At = t0.AddSeconds(at), Counted = true, JobId = "job-" + id, Pending = true };
         jobs.Note(Goal("fails", 0));
         jobs.Note(Goal("spoiled", 0));
+        jobs.Charged("fails");
+        jobs.Charged("spoiled");
         var waiting = jobs.Settle(t0.AddSeconds(100)).Count;
         jobs.JobEnded("job-fails", false, t0.AddSeconds(5));
         jobs.Consequence(t0.AddSeconds(10));
         jobs.JobEnded("job-spoiled", true, t0.AddSeconds(20));
         jobs.Note(Goal("arrives", 30));
+        jobs.Note(Goal("no-lift", 30));
+        jobs.Note(Goal("fetched", 30, "fetch"));
+        jobs.Charged("arrives");
         jobs.JobEnded("job-arrives", true, t0.AddSeconds(100));
+        jobs.JobEnded("job-no-lift", true, t0.AddSeconds(100));
+        jobs.JobEnded("job-fetched", true, t0.AddSeconds(100));
         var early = jobs.Settle(t0.AddSeconds(150)).Select(s => s.Entry.ActionId).ToList();
         var late = jobs.Settle(t0.AddSeconds(161)).Select(s => $"{s.Entry.ActionId}:{(s.Gained ? "+1" : "0")}").ToList();
-        Check(waiting == 0 && early.SequenceEqual(new[] { "fails", "spoiled" }) && late.SequenceEqual(new[] { "arrives:+1" }),
-            $"a goal's window waits for its job: a failed job gains nothing, a consequence while it ran spoils it, a success opens the window then " +
-            $"({waiting} settled while running; {string.Join(" ", early)} settled by 150 s; {string.Join(" ", late)})");
+        Check(waiting == 0 && early.SequenceEqual(new[] { "fails", "spoiled" }) && late.SequenceEqual(new[] { "arrives:+1", "no-lift:0", "fetched:0" }),
+            $"a goal's window waits for its job: a failed job gains nothing, a consequence while it ran spoils it, a success opens the window then, and only a " +
+            $"charged lead gains ({waiting} settled while running; {string.Join(" ", early)} settled by 150 s; {string.Join(" ", late)})");
+        // The trace (decision 69): a fire by the revision its paid cast committed at; a paid action stays traceable past the commands the
+        // ledger forgets, since only paid ones enter its list of paid actions.
+        var trace = new TrustLedger();
+        trace.Note(new TrustLedger.Entry { ActionId = "fire-1", Op = "nature.cast", Capability = "fire", What = "fire", At = t0, Counted = true, Paid = true, Revision = 7 });
+        trace.Note(new TrustLedger.Entry { ActionId = "fire-2", Op = "nature.cast", Capability = "fire", What = "fire", At = t0, Counted = true, Paid = false, Revision = 9 });
+        for (var i = 0; i < TrustLaws.MaxRemembered + 10; i++)
+            trace.Note(new TrustLedger.Entry { ActionId = $"stay-{i}", Op = "goal.set", Capability = "stay", What = "move", At = t0, Counted = true });
+        Check(trace.Find("fire-1") == null && trace.PaidFireAt(7) && !trace.PaidFireAt(9) && !trace.PaidFireAt(8) && trace.WasPaid("fire-1") && !trace.WasPaid("fire-2"),
+            "a paid fire is traced by its revision even after a thousand free commands pushed it out of the remembered ones; a free fire never is");
     }
 
     // ---- item 1: clean initiative, spaced; consequences ----
@@ -136,22 +170,28 @@ public partial class NatureTest
     private async Task TestTrustFromInitiative()
     {
         await EnergyWorld("trust-initiative");
-        var first = GubbleBuilds();
+        // Decision 69: "Only paid actions and consequences directly related to those actions earn trust." A build changes the world
+        // and costs nothing, so it opens no window.
+        var builds = new[] { GubbleBuilds(), GubbleBuilds() };
+        Later(61);
+        Check(builds.All(Ok) && Pips == 8 && _host.TrustCount == 0,
+            $"the Gubble's builds change the world but cost no pips: free actions gain nothing (decision 69; {Pips} pips, Trust {_host.TrustCount})");
+        var first = GubbleGlows();
         Later(30);
-        Check(Ok(first) && _host.TrustCount == 0, "a Gubble action's window is still open at 30 s: nothing yet");
+        Check(Ok(first) && Pips == 7 && _host.TrustCount == 0, $"a paid action of the Gubble's (its Glow, one pip): its window is still open at 30 s, nothing yet ({Code(first) ?? "ok"})");
         Later(31);
         Check(_host.TrustCount == 1, $"its next 60 s produced no consequence fact: +1 ({_host.TrustCount})");
-        GubbleBuilds();
+        GubbleGlows();
         Later(61);
         Check(_host.TrustCount == 1, "a second clean window within two minutes of the last gain gains nothing");
-        GubbleBuilds();
+        GubbleGlows();
         Later(61);
         Check(_host.TrustCount == 2, $"once two minutes have passed since the last gain, a clean window gains again ({_host.TrustCount})");
-        GubbleBuilds(); // still the Gubble's: a stop, a note or a checkpoint is no action, and opens no window
+        GubbleGlows(); // still the Gubble's: a stop, a note or a checkpoint is no action, and opens no window
         Send(Command(NextId("note"), "journal.note", new JsonObject { ["text"] = "Staying put." }), Companion);
         Send(Command(NextId("stop"), "goal.stop", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }), Companion);
         var player = Send(Command(NextId("order"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay" }), Player);
-        Check(Ok(player) && _host.TrustRemembered == 4, $"the player's own orders, the Gubble's stops and notes are not its initiative ({_host.TrustRemembered} remembered)");
+        Check(Ok(player) && _host.TrustRemembered == 6, $"the player's own orders, the Gubble's stops and notes are not its initiative ({_host.TrustRemembered} remembered)");
         // The founder, 16 October: "Trust shouldn't be impacted by simple directional commands, only things that impact the world."
         _now += TimeSpan.FromSeconds(200);
         var moves = new[]
@@ -161,37 +201,53 @@ public partial class NatureTest
             Send(Command(NextId("go-to"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "go_to", ["position_m"] = new JsonArray(0.6, 0, 1.0) }), Companion),
         };
         Later(61);
-        Check(moves.All(Ok) && _host.TrustCount == 2 && _host.TrustRemembered == 7,
+        Check(moves.All(Ok) && _host.TrustCount == 2 && _host.TrustRemembered == 9,
             $"a stay, a follow and a go_to of the Gubble's gain nothing, two minutes clear of the last gain ({_host.TrustCount}); they are remembered for a mark");
-        GubbleBuilds();
+        GubbleGlows();
         Later(61);
-        Check(_host.TrustCount == 3, $"a build of its own at the same point gains: the directional ones gained nothing for their own sake ({_host.TrustCount})");
+        Check(_host.TrustCount == 3, $"a Glow of its own at the same point gains: the directional ones gained nothing for their own sake ({_host.TrustCount})");
 
-        // The Gubble's fire hurts the player: the consequence fact costs 3 and spoils every window open over it, its own included.
+        // The Gubble's paid fire hurts the player: the consequence fact costs 3 and spoils every window open over it, its own included.
         _now += TimeSpan.FromSeconds(200);
+        FullPool();
         var before = _host.TrustCount;
-        var built = GubbleBuilds();
+        var glowed = GubbleGlows();
         var lit = Fire(Companion, PlayerSpot(), 0.25, 6, out _);
         Steps(2);
-        Check(Ok(lit) && _host.TrustCount == before - 3, $"a consequence fact costs 3 ({before} to {_host.TrustCount})");
+        Check(Ok(lit) && Pips == 4 && _host.TrustCount == before - 3, $"a consequence fact of the Gubble's paid fire costs 3 ({before} to {_host.TrustCount}, {Pips} pips left)");
         Later(61);
-        Check(Ok(built) && _host.TrustCount == before - 3, "the windows the consequence fell in (the fire's and the build before it) gain nothing");
+        Check(Ok(glowed) && _host.TrustCount == before - 3, "the windows the consequence fell in (the fire's and the Glow before it) gain nothing");
         Check(Lessons().Any(l => l.StartsWith("The Gubble's fire burned you", StringComparison.Ordinal)), "the consequence fact is the journal's, as before M8");
 
-        // Decision 45: a suggestion of the Gubble's the player approves is still its own idea, and earns initiative if nothing follows.
+        // Decision 45 under 69: a suggestion of the Gubble's the player approves is still its own idea; it earns initiative only when
+        // the click's commit charged pips. An approved removal is free and gains nothing.
         await EnergyWorld("trust-approved");
         var shed = Build("Approved shed", 1.5, 1.2);
         var asked = Send(Command(NextId("remove"), "entity.remove", new JsonObject { ["target"] = shed }, expectedRevision: _host.Revision), Companion);
         var approved = asked["approval_needed"]?["request_id"]?.GetValue<string>() is { } request ? _host.Approve(request) : new JsonObject();
         Later(61);
-        Check(Code(asked) == "approval_required" && Ok(approved) && approved["approved_by"]?.GetValue<string>() == Player && _host.TrustCount == 1,
-            $"the player's click commits the Gubble's suggestion as its own idea; nothing followed in 60 s, so +1 ({_host.TrustCount})");
+        Check(Code(asked) == "approval_required" && Ok(approved) && approved["approved_by"]?.GetValue<string>() == Player && _host.TrustCount == 0,
+            $"the player's click commits the Gubble's suggestion as its own idea; a removal costs no pips, so it gains nothing ({_host.TrustCount})");
+        // A Glow held for the click (a keyed_yes pack) is paid when the click commits it: that one gains if nothing follows.
+        UseEditedV5(pack => pack["abilities"]!.AsArray().OfType<JsonObject>().First(a => a["capability"]!.GetValue<string>() == "glow")["tier"] = "keyed_yes");
+        var held = GubbleGlows();
+        var paid = _host.PendingApprovals.FirstOrDefault()?.RequestId is { } glowRequest ? _host.Approve(glowRequest) : new JsonObject();
+        Later(61);
+        Check(Code(held) == "approval_required" && Ok(paid) && paid["approved_by"]?.GetValue<string>() == Player && Pips == 7 && _host.TrustCount == TrustLaws.CleanInitiative,
+            $"a held Glow of the Gubble's, charged its pip at the player's click, is a paid action of its own idea: +1 once its window closes clean ({Pips} pips, Trust {_host.TrustCount})");
+
+        // From what the host charged, never a list: a pack that prices Glow at nothing makes the same Glow free, and it gains nothing.
+        await EnergyWorld("trust-unpriced");
+        UseEditedV5(pack => Price(pack, "glow", 0));
+        var unpriced = GubbleGlows();
+        Later(61);
+        Check(Ok(unpriced) && Pips == 8 && _host.TrustCount == 0, $"a Glow the pack prices at nothing is charged nothing, so it gains nothing ({Code(unpriced) ?? "ok"}, {Pips} pips, Trust {_host.TrustCount})");
 
         // Creative counts nothing: a clean window gains nothing there.
         await NewWorld(SavePath("trust-creative"));
-        GubbleBuilds();
+        var creative = GubbleGlows();
         Later(61);
-        Check(_host.Mode == "creative" && _host.TrustCount == 0, "in Creative Trust is not counted");
+        Check(Ok(creative) && _host.Mode == "creative" && _host.TrustCount == 0, $"in Creative Trust is not counted ({Code(creative) ?? "ok"})");
     }
 
     // ---- item 4 (and 1): the player's marks and reset ----
@@ -230,10 +286,10 @@ public partial class NatureTest
         var reset = ResetTrust();
         Check(Ok(reset) && reset["transient"]?.GetValue<bool>() == true && reset["data"] == null && _host.TrustCount == 0 && _host.TrustBand == 0 &&
             Lessons().First() == "You reset the Gubble's Trust: the Gubble is earning your trust.", "the player's reset: back to base, and the journal says so");
-        GubbleBuilds();
+        var glowed = GubbleGlows();
         ResetTrust();
         Later(61);
-        Check(_host.TrustCount == 0, "a reset closes the windows open at it: no gain from before the reset");
+        Check(Ok(glowed) && _host.TrustCount == 0, "a reset closes the windows open at it, a paid action's too: no gain from before the reset");
 
         // In Creative a mark still teaches (the journal keeps it) but Trust does not move.
         await NewWorld(SavePath("trust-marks-creative"));
@@ -275,6 +331,34 @@ public partial class NatureTest
         Steps(6);
         Check(_host.Nature.Objects.TryGetValue(cabin, out var scorched) && scorched.Burn > 0 && !Lessons().Any(l => l.StartsWith("The Gubble's fire burned your", StringComparison.Ordinal)),
             "in Creative a build the player let burn is no consequence");
+    }
+
+    // ---- decision 69: a consequence of a free action writes the journal's line and moves no Trust ----
+
+    private async Task TestAFreeActionsConsequenceMovesNoTrust()
+    {
+        // A pack that prices Fire at nothing: the Gubble's fire is a free action. Its harm to the player is written as ever; it costs
+        // no Trust, and it spoils no paid window open over it (a Glow of the Gubble's just before).
+        await EnergyWorld("trust-free-fire");
+        UseEditedV5(pack => Price(pack, "fire", 0));
+        var glowed = GubbleGlows();
+        var lit = Fire(Companion, PlayerSpot(), 0.25, 6, out _);
+        Steps(2);
+        var hurt = Lessons().Any(l => l.StartsWith("The Gubble's fire burned you", StringComparison.Ordinal));
+        var afterHarm = _host.TrustCount;
+        Later(61);
+        Check(Ok(glowed) && Ok(lit) && Pips == 7 && hurt && afterHarm == 0 && _host.TrustCount == TrustLaws.CleanInitiative,
+            $"the Gubble's free fire burns the player: the journal's line as ever, no Trust moved ({afterHarm}), and the paid Glow's window open over it still gains " +
+            $"({_host.TrustCount}; {Pips} pips: the fire cost none)");
+        // What the same free fire burns is free too: the burnt build's line, and no Trust.
+        await EnergyWorld("trust-free-fire-build");
+        UseEditedV5(pack => Price(pack, "fire", 0));
+        var barn = Build("Free fire's barn", 1.5, 1.2);
+        var burning = Fire(Companion, new Vector3(1.35f, 0.01f, 1.2f), 0.3, 6, out _);
+        Steps(6);
+        Check(Ok(burning) && _host.Nature.Objects.TryGetValue(barn, out var burnt) && burnt.Burn > 0 &&
+              Lessons().Any(l => l.StartsWith("The Gubble's fire burned your", StringComparison.Ordinal)) && _host.TrustCount == 0 && Pips == 8,
+            $"a build the Gubble's free fire burnt is written as ever and costs no Trust ({_host.TrustCount})");
     }
 
     // ---- item 3: the bands' discount and early warning; the guardrails untouched ----
@@ -412,9 +496,9 @@ public partial class NatureTest
             $"Trust {_host.TrustCount}, marks {Code(markPreview)} and {Code(markHeld)})");
     }
 
-    // ---- the W2 review's minor 4: a fetch earns Trust only when its job succeeds ----
+    // ---- decision 69: a fetch is a goal, free, and earns nothing even when it succeeds; its receipt is still the player's to mark ----
 
-    private async Task TestAFetchEarnsOnlyWhenItSucceeds()
+    private async Task TestAFetchIsFreeAndEarnsNothing()
     {
         await EnergyWorld("trust-fetch");
         JsonObject Fetch() => Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Companion);
@@ -426,10 +510,12 @@ public partial class NatureTest
         var fetched = Fetch();
         Later(30);
         var arrived = _host.ReportArrival(CommandHost.CompanionAvatarId);
-        Later(31);
-        var midWindow = _host.TrustCount;
-        Later(30);
-        Check(Ok(fetched) && arrived == "succeeded" && midWindow == 0 && _host.TrustCount == TrustLaws.CleanInitiative,
-            $"a fetch's window opens when its job succeeds and gains when it closes clean ({arrived}; {midWindow} at 31 s after, {_host.TrustCount} at 61 s)");
+        Later(61);
+        Check(Ok(fetched) && arrived == "succeeded" && Pips == 8 && _host.TrustCount == 0,
+            $"a fetch that succeeds moved a thing but cost no pips: it earns nothing (decision 69; {arrived}, Trust {_host.TrustCount})");
+        // Item 3: the player's marks stay on any receipt of the Gubble's, a free one's too.
+        var marked = Mark(fetched["action_id"]!.GetValue<string>(), "yes");
+        Check(Ok(marked) && _host.TrustCount == TrustLaws.MarkYes && Lessons().Contains("You marked the Gubble's fetch: yes, like that."),
+            $"the player's \"yes, like that\" on the free fetch's receipt still counts: +2 ({_host.TrustCount})");
     }
 }

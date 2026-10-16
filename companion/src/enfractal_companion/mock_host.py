@@ -2283,6 +2283,7 @@ class MockHost(JournalMixin, TrustMixin):
             group = nearby + [self.effects[effect_id]]
             for effect in group:
                 effect.connections.update(other.id for other in group if effect is not other)
+        self._trust_charge(plan["ability"].capability, principal)  # decision 69: where the kernel's ChargeEnergy charges (mock_trust.py)
         return {"created": [effect_id], "affected": [effect_id], "data": self._effect_data(plan, effect_id, expires_at)}
 
     def _op_effect_stop(self, principal, message, apply, new_revision):
@@ -2486,6 +2487,8 @@ class MockHost(JournalMixin, TrustMixin):
         if preview_id is not None:
             self.bubble_ghosts.pop(preview_id, None)
         bubble = self._form_bubble(capability, principal, message["action_id"], target, centre, radius, now + duration)
+        # Decision 69: the kernel's guard charges by what the place made (BubblePriceKey); the mock notes it for Trust (mock_trust.py).
+        self._trust_charge(capability if capability == "bubble_boat" or target is not None else ability.capability, principal)
         bubble_id = bubble.id
         receipt = {"capability": capability, "bubble": bubble_id, "center_m": centre, "radius_m": radius, "duration_s": duration,
                    "expires_utc": utc(bubble.expires_at), "requires_approval": keyed, "carried": bubble.carried}
@@ -2542,6 +2545,8 @@ class MockHost(JournalMixin, TrustMixin):
         if ghost is not None:
             self.bubble_ghosts.pop(ghost, None)
         bubble = self._form_bubble("bubble_carry", principal, message["action_id"], target, spot, radius, now + duration)
+        # Decision 69: the kernel's guard charges by what the place made (BubblePriceKey); the mock notes it for Trust (mock_trust.py).
+        self._trust_charge("bubble_carry" if target is not None else plan["ability"].capability, principal)
         data.update(effect=bubble.id, bubble=bubble.id, expires_utc=utc(bubble.expires_at), carried=bubble.carried)
         return {"created": [bubble.id], "affected": [bubble.id] + ([target] if target is not None else []), "data": data}
 
@@ -2605,6 +2610,8 @@ class MockHost(JournalMixin, TrustMixin):
         if bubble is None:
             return self._finish_job(actor_id, goal, job, HostError("target_not_found", LEAD_POPPED, field_path="$.args.target"))
         bubble.centre = list(goal["position_m"])
+        if bubble.lead is not None and bubble.lead["lift"]:
+            self._trust_lift_charged(bubble.lead)  # decision 69: the Lift's charge at the rise (here, the arrival) pays the lead
         self._end_lead(bubble, "arrived", None)
         return job["state"]
 

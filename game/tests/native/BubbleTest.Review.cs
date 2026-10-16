@@ -12,8 +12,9 @@ namespace EnFractal.Tests;
 /// <summary>
 /// What the Wave 2 review of the Bubble and Trust found (its probes, kept as tests): a bubble judged where it forms, so it never
 /// forms round the player without the ghost (the blocker); a held bubble climbing rising ground only as a paid lift; a lift under a
-/// ceiling ending blocked; a lead earning Trust only when it arrives, and a lead carrying the player into fire being the Gubble's
-/// consequence whoever lit it; the companion's lead naming only a bubble the team sees; and one rule for the island's bounds, with
+/// ceiling ending blocked; a lead earning Trust only as a paid lift that arrives (decision 69), and a lead carrying the player into
+/// fire being the Gubble's consequence whoever lit it, moving Trust only when a paid action of its own led there; the companion's
+/// lead naming only a bubble the team sees; and one rule for the island's bounds, with
 /// a sea and without.
 /// </summary>
 public partial class BubbleTest
@@ -23,7 +24,7 @@ public partial class BubbleTest
         await TestABubbleIsJudgedWhereItForms();
         await TestNoFreeRideUpASlope();
         await TestALiftUnderACeilingEndsBlocked();
-        await TestALeadEarnsTrustOnlyWhenItArrives();
+        await TestALeadEarnsTrustOnlyAsAPaidLiftThatArrives();
         await TestALeadIntoFireIsTheGubblesConsequence();
         await TestTheCompanionLeadsOnlyABubbleTheTeamSees();
         await TestOneRuleForTheIslandsBounds();
@@ -147,9 +148,9 @@ public partial class BubbleTest
         await UntilDown();
     }
 
-    // ---- MINOR 4: a lead earns Trust only when its job succeeds ----
+    // ---- MINOR 4, narrowed by decision 69: a lead earns Trust only as a paid lift (its Lift charged at the rise) that arrives ----
 
-    private async Task TestALeadEarnsTrustOnlyWhenItArrives()
+    private async Task TestALeadEarnsTrustOnlyAsAPaidLiftThatArrives()
     {
         await NewWorld("review-lead-trust", mode: "challenge", pips: 8);
         var feet = _player.GlobalPosition;
@@ -165,17 +166,32 @@ public partial class BubbleTest
         _host.SettleTrust();
         Check(Ok(failing) && failed == "failed" && _host.TrustCount == 0,
             $"the Gubble's lead whose bubble popped at once earns nothing: it changed nothing in the world ({failed}, Trust {_host.TrustCount})");
-        // A lead that gets there: its window opens on arrival, and gains when it closes clean.
+        // A level lead that gets there moved the bubble, but a lead is a goal and costs nothing: decision 69, it earns nothing.
         var second = CastTheBubble(Player, feet + new Vector3(0.3f, 0, 0.1f));
+        var pips = Pips;
         var arriving = Lead(Companion, BubbleOf(second), spot);
         var state = await UntilLeadEnds(Companion, arriving);
+        Wait(61);
+        _host.SettleTrust();
+        Check(Ok(arriving) && arriving["data"]?["lift"]?.GetValue<bool>() == false && state == "succeeded" && Pips == pips && _host.TrustCount == 0,
+            $"a lead that arrives with no lift cost no pips, so earns nothing (decision 69; {state}, Trust {_host.TrustCount})");
+        // The Gubble's lift of the player's own carry: charged at the rise, then it arrives; its window opens on arrival and gains when it
+        // closes clean. The carry is the player's, so the only paid action of the Gubble's here is the lead's Lift.
+        await NewWorld("review-lift-trust", mode: "challenge", pips: 8);
+        var carry = TheBubbleOnThePlayer(Player, duration: 60);
+        await Frames(30);
+        var atSet = Pips;
+        var lifting = Lead(Companion, BubbleOf(carry), BoxTop);
+        var lifted = await UntilLeadEnds(Companion, lifting);
         Wait(30);
         _host.SettleTrust();
         var midWindow = _host.TrustCount;
         Wait(31);
         _host.SettleTrust();
-        Check(Ok(arriving) && state == "succeeded" && midWindow == 0 && _host.TrustCount == TrustLaws.CleanInitiative,
-            $"a lead that arrives opens its window on arrival and gains when it closes clean ({state}; {midWindow} at 30 s, {_host.TrustCount} at 61 s)");
+        Check(Ok(carry) && Ok(lifting) && lifting["data"]?["lift"]?.GetValue<bool>() == true && lifted == "succeeded" && Pips == atSet - 3 && midWindow == 0 &&
+              _host.TrustCount == TrustLaws.CleanInitiative,
+            $"the Gubble's lift, charged 3 at the rise, that arrives opens its window on arrival and gains when it closes clean ({lifted}; {atSet - Pips} pips; " +
+            $"{midWindow} at 30 s, {_host.TrustCount} at 61 s)");
     }
 
     // ---- MINOR 5: a Gubble lead carrying the player into fire that hurts them, whoever lit it ----
@@ -184,7 +200,24 @@ public partial class BubbleTest
 
     private async Task TestALeadIntoFireIsTheGubblesConsequence()
     {
-        await NewWorld("review-lead-fire", mode: "challenge", pips: 8);
+        // The Gubble's own carry (paid: 2 pips) and its lead: the harm follows directly from a paid action of its own (decision 69).
+        await LeadIntoFire("review-lead-fire", null, paid: true);
+        // The same harm when the Gubble's carry is free (a pack pricing the carry at nothing) and its lead no lift: a consequence of free
+        // actions, written in the journal as ever, moving no Trust.
+        await LeadIntoFire("review-lead-fire-free", pack => pack["cost"]!["prices"]!["bubble_carry"]!["ordered"] = 0, paid: false);
+    }
+
+    /// <summary>The Gubble's carry led by the Gubble into the player's fire: one consequence fact, and -3 only when paid traces it to a paid action.</summary>
+    private async Task LeadIntoFire(string world, Action<JsonObject>? editPack, bool paid)
+    {
+        await NewWorld(world, mode: "challenge", pips: 8);
+        if (editPack != null)
+        {
+            var pack = JsonNode.Parse(System.IO.File.ReadAllText(ProjectSettings.GlobalizePath(IslandRules.PathFor("storybook_wild", 5))))!.AsObject();
+            editPack(pack);
+            _host.UseRules(IslandRules.Parse(System.Text.Encoding.UTF8.GetBytes(pack.ToJsonString())));
+        }
+        var cost = TrustLaws.PerConsequence * (paid ? 1 : 0);
         _host.ConfigureNature();
         _host.NatureSampleForTests = Soil;
         _host.SetGubbleFire(true);
@@ -220,9 +253,10 @@ public partial class BubbleTest
         Wait(61);
         _host.SettleTrust();
         Check(Ok(carry) && Ok(lit) && Ok(led) && hurt && facts.Count == 1 && facts[0]["actor"]?.GetValue<string>() == Companion && facts[0]["pin_m"] != null &&
-              afterHarm == TrustLaws.PerConsequence && _host.TrustCount == TrustLaws.PerConsequence,
-            $"the Gubble's lead carrying the player into the player's own fire writes one consequence fact and earns nothing (hurt {hurt}, {facts.Count} fact, " +
-            $"Trust {afterHarm} then {_host.TrustCount}): " + Canonical(facts.FirstOrDefault()));
+              afterHarm == cost && _host.TrustCount == cost && Pips == (paid ? 0 : 2),
+            (paid ? "the Gubble's lead carrying the player, in the carry it paid for, into the player's own fire writes one consequence fact, costs 3 and earns nothing"
+                  : "the Gubble's free carry, led (no lift) into the player's own fire, writes the same consequence fact and moves no Trust (decision 69)") +
+            $" (hurt {hurt}, {facts.Count} fact, Trust {afterHarm} then {_host.TrustCount}, {Pips} pips): " + Canonical(facts.FirstOrDefault()));
     }
 
     // ---- MINOR 6: the companion's lead names only a bubble the team sees (CommandHostBubbleLead's sight check) ----
