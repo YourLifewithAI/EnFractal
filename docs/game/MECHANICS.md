@@ -279,6 +279,10 @@ Multiplayer is a later phase and out of scope for the engine work now.
 
 68. **Trust counts only what changes the world.** A Gubble action on its own initiative gains Trust only when it does something in the world: a cast, an effect, a build, moving or placing a thing, a fetch, leading a bubble. Directional commands (follow, stay, come, go to, look at, point at, wander), stops and notes never gain Trust: "Trust shouldn't be impacted by simple directional commands, only things that impact the world." The player's marks still count on any receipt of the Gubble's.
 
+**Decided by the founder after the Wave 2 review (16 October, evening)**:
+
+69. **Trust counts only paid actions and their direct consequences.** A Gubble action gains Trust only when it cost pips (a cast or an effect the guard charged, a Lift charged at its rise); free actions (grabs, pushes, releases, builds that cost nothing, goals, stops, notes) never gain it. A consequence fact moves Trust only when it follows directly from such a paid action (the fire it cast, a bubble it cast). "Only paid actions and consequences directly related to those actions earn trust." This narrows decision 68.
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
