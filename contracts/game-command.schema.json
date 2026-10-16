@@ -1034,7 +1034,7 @@
           "$ref": "common.schema.json#/$defs/principal_id"
         },
         "transient": {
-          "description": "True for commands that change no saved state: goals, stops (wish.stop among them), effects and their adjustments, grabs, activations, the world's physics and the player's own settings (the game mode, Glow's touch and sound, a knack, a receipt's mark and a Trust reset), which the player's profile and the team file keep, never the room. Their receipts live for the session only. Nature changes and their room.undo, and a Fractal's pickup, are durable.",
+          "description": "True for commands that change no saved state: goals, stops (wish.stop among them), effects and their adjustments, a Bubble's cast (bubble_carry, bubble_boat, bubble_lift), grabs, activations, the world's physics and the player's own settings (the game mode, Glow's touch and sound, a knack, a receipt's mark and a Trust reset), which the player's profile and the team file keep, never the room. Their receipts live for the session only. Nature changes (Bloom, Fire, the trail, repairs) and their room.undo, and a Fractal's pickup, are durable.",
           "type": "boolean"
         }
       },
@@ -3561,7 +3561,7 @@
         ]
       },
       "nature.cast": {
-        "description": "Cast a nature ability at center_m. The intensity is the pack's; the bounds are the island's. Fire is previewed first (preview: true answers a preview_id) and the cast names that preview. Locks never burn; what a fire does to creations and avatars is the host's fire rule by game mode (contracts/README.md, \"Nature\"), and a fire may wait for the player's yes. Durable: one room revision, which room.undo takes back. The Gubble's fire is refused permission_denied when the player has turned off \"Let the Gubble use fire\", target_busy while its own fire burns and rate_limited for 20 s after its last went out. The price (the mechanics round): outside Creative a cast costs connection energy from the rules pack's cost block, and the price follows the principal alone, never a field, a tag or a wish's words: the player's keys, wheel and HUD pay the ordered price, every command on the Gubble's connection pays the own-idea price. It is charged once, at commit, never on a preview; stops and refused commands cost nothing; an empty pool refuses with energy_exhausted, carrying the balance and the price; in Creative a shadow pool shows the price and never refuses. The Bubbles expertise (bubble_carry, bubble_boat, bubble_lift) are cast here too, never by a new op: a bubble the player can leave, never a move of a body. The targets rule: only bubble_carry and bubble_lift may name a target, an avatar the bubble envelops; the companion may name the player's avatar, the one exception to \"companion effects target only its own avatar\". Such a cast is previewed first and names its preview_id (the ghost preview the player sees is the consent); a bubble cast at a point without a target carries the player only when the player steps in (the step-in is the consent); the dive key or X pops it at any moment, and a pop in the air deflates into a slow drift down. Until the Bubble's packet (M9) the hosts refuse the Bubbles expertise with unsupported_capability at $.op.",
+        "description": "Cast a nature ability at center_m. The intensity is the pack's; the bounds are the island's. Fire is previewed first (preview: true answers a preview_id) and the cast names that preview. Locks never burn; what a fire does to creations and avatars is the host's fire rule by game mode (contracts/README.md, \"Nature\"), and a fire may wait for the player's yes. Bloom and Fire are durable: one room revision, which room.undo takes back. The Gubble's fire is refused permission_denied when the player has turned off \"Let the Gubble use fire\", target_busy while its own fire burns and rate_limited for 20 s after its last went out. The price (the mechanics round): outside Creative a cast costs connection energy from the rules pack's cost block, and the price follows the principal alone, never a field, a tag or a wish's words: the player's keys, wheel and HUD pay the ordered price, every command on the Gubble's connection pays the own-idea price. It is charged once, at commit, never on a preview; stops and refused commands cost nothing; an empty pool refuses with energy_exhausted, carrying the balance and the price; in Creative a shadow pool shows the price and never refuses. The Bubbles expertise (bubble_carry, bubble_boat, bubble_lift) are cast here too, never by a new op: a bubble the player can leave, never a move of a body. The targets rule: only bubble_carry and bubble_lift may name a target, an avatar the bubble envelops; the companion may name the player's avatar, the one exception to \"companion effects target only its own avatar\". Such a cast is previewed first and names its preview_id (the ghost preview the player sees is the consent); a bubble cast at a point without a target carries the player only when the player steps in (the step-in is the consent); the dive key or X pops it at any moment, and a pop in the air deflates into a slow drift down. A committed bubble is transient (it lives for the session like an effect, and nothing about it is saved): the result's created and data.bubble name its effect: id, which effect.stop names (the player any, a companion its own) and goal.stop of the Gubble pops; its receipt says carried once it holds the player and ended (popped_by_player, timed_out or popped) once it is gone, so the player can mark it. The Gubble leads every bubble, so a companion steers one by moving its own avatar; the bubble moves the player only while it holds them. A Gubble's cast on the player commits a moment after its preview (not_ready before it) and not straight after the player popped a bubble (not_ready).",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -4719,52 +4719,146 @@
         }
       },
       "nature.cast": {
-        "description": "A committed cast, as its durable receipt keeps it.",
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "center_m",
-          "radius_m",
-          "duration_s",
-          "cell_count",
-          "requires_approval",
-          "started_cells"
-        ],
-        "properties": {
-          "center_m": {
-            "$ref": "common.schema.json#/$defs/vec3"
+        "description": "A committed cast: Bloom's and Fire's durable receipt, or a Bubble's transient one (it names its capability).",
+        "if": {
+          "required": [
+            "capability"
+          ]
+        },
+        "then": {
+          "description": "A Bubble's committed cast, as its transient receipt keeps it: the host writes carried and ended into it as the bubble lives (receipt.lookup and a replay answer it so), the receipt the player marks (receipt.mark, M8).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "capability",
+            "bubble",
+            "center_m",
+            "radius_m",
+            "duration_s",
+            "expires_utc",
+            "requires_approval",
+            "carried"
+          ],
+          "properties": {
+            "capability": {
+              "enum": [
+                "bubble_carry",
+                "bubble_boat",
+                "bubble_lift"
+              ]
+            },
+            "bubble": {
+              "description": "The bubble's id, also in created: effect.stop names it (the player any bubble, a companion its own), and goal.stop of the Gubble pops it.",
+              "type": "string",
+              "pattern": "^effect:[A-Za-z0-9_-]{1,64}$"
+            },
+            "center_m": {
+              "description": "Where it was cast (the cast's center_m).",
+              "$ref": "common.schema.json#/$defs/vec3"
+            },
+            "radius_m": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1.5
+            },
+            "duration_s": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 600
+            },
+            "expires_utc": {
+              "description": "When its time runs out (it pops, timed_out).",
+              "$ref": "common.schema.json#/$defs/utc_timestamp"
+            },
+            "requires_approval": {
+              "description": "Whether it waits (or waited) for the player's yes.",
+              "type": "boolean"
+            },
+            "target": {
+              "description": "bubble_carry and bubble_lift cast on an avatar: the avatar it envelops.",
+              "$ref": "#/$defs/avatar_id"
+            },
+            "carried": {
+              "description": "Whether it holds or has held the player: from the cast for one on the player, from the step-in for one at a point, from the first step aboard for the boat.",
+              "type": "boolean"
+            },
+            "ended": {
+              "description": "How it ended, once it is gone: popped_by_player (the dive key, X or the player's stop), timed_out (its duration ran out) or popped (anything else: the Gubble's own stop, the rules changing, the room closing, the body leaving it). Absent while it lasts.",
+              "enum": [
+                "popped_by_player",
+                "timed_out",
+                "popped"
+              ]
+            }
           },
-          "radius_m": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 1.5
-          },
-          "duration_s": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 600
-          },
-          "cell_count": {
-            "description": "The ground cells (5 cm) the cast covers that could take flowers or catch, as the requester's team has perceived them.",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 16000
-          },
-          "requires_approval": {
-            "description": "Whether it waits (or waited) for the player's yes.",
-            "type": "boolean"
-          },
-          "started_cells": {
-            "description": "The cells that took (flowers rooted, fire caught), as the requester's team has perceived them.",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 16000
-          },
-          "max_burning_cells": {
-            "description": "Fire: the most cells that may burn at once (the engine's cap).",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 16000
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "capability": {
+                    "const": "bubble_boat"
+                  }
+                },
+                "required": [
+                  "capability"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "target": false
+                }
+              }
+            }
+          ]
+        },
+        "else": {
+          "description": "Bloom's and Fire's committed cast, as its durable receipt keeps it (no capability).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "center_m",
+            "radius_m",
+            "duration_s",
+            "cell_count",
+            "requires_approval",
+            "started_cells"
+          ],
+          "properties": {
+            "center_m": {
+              "$ref": "common.schema.json#/$defs/vec3"
+            },
+            "radius_m": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1.5
+            },
+            "duration_s": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 600
+            },
+            "cell_count": {
+              "description": "The ground cells (5 cm) the cast covers that could take flowers or catch, as the requester's team has perceived them.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16000
+            },
+            "requires_approval": {
+              "description": "Whether it waits (or waited) for the player's yes.",
+              "type": "boolean"
+            },
+            "started_cells": {
+              "description": "The cells that took (flowers rooted, fire caught), as the requester's team has perceived them.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16000
+            },
+            "max_burning_cells": {
+              "description": "Fire: the most cells that may burn at once (the engine's cap).",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16000
+            }
           }
         }
       },

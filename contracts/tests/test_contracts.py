@@ -169,6 +169,11 @@ EXPECTED_FAILURES = {
     "result_half_a_pip": "2.5 is not of type 'integer'",
     "result_bubble_preview_with_fires_fields": "False schema does not allow ['avatar:player']",
     "result_fire_preview_with_a_target": "False schema does not allow 'avatar:player'",
+    # The Bubble (M9): a committed bubble's transient receipt, closed, naming its id, ending one of three ways, a boat on no one.
+    "result_bubble_carry_keeping_its_preview_cells": "('cells' was unexpected)",
+    "result_bubble_that_melted": "'melted' is not one of ['popped_by_player', 'timed_out', 'popped']",
+    "result_bubble_without_its_id": "'bubble' is a required property",
+    "result_boat_on_the_player": "False schema does not allow 'avatar:player'",
 }
 # Each invalid island (examples/rooms_invalid) and the reason it must fail. The game's loader (S6) refuses the same rooms.
 ISLAND_FAILURES = {
@@ -526,7 +531,9 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
             with self.subTest(op=op):
                 self.assertIn(op, results)
                 for document in results[op]:
-                    self.assertEqual(document.get("transient"), None if op in ROUND_QUERIES else op in ROUND_TRANSIENT)
+                    # A committed bubble (M9) is the one transient nature.cast: it lives for the session, as an effect.
+                    bubble = op == "nature.cast" and document.get("data", {}).get("capability") in ("bubble_carry", "bubble_boat", "bubble_lift")
+                    self.assertEqual(document.get("transient"), None if op in ROUND_QUERIES else op in ROUND_TRANSIENT or bubble)
 
     def test_every_new_op_has_an_example_it_refuses(self):
         refused = {validate.load_strict(path).get("op") for path in (EXAMPLES / "messages" / "invalid").glob("*.json")
@@ -557,7 +564,9 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
         self.assertEqual(sorted(fields), ["nature.cast", "nature.repair", "nature.trail", "room.undo"])
         for op, names in fields.items():
             with self.subTest(op=op):
-                self.assertEqual(set(self.defs["data"][op]["properties"]), names)
+                # nature.cast's data is Bloom's and Fire's durable receipt or a Bubble's transient one (M9); room state keeps only the first.
+                data = self.defs["data"][op]
+                self.assertEqual(set((data["else"] if "else" in data else data)["properties"]), names)
 
     def test_a_saved_nature_change_is_durable_with_its_data(self):
         state = validate.load_strict(RUN2_STATE)
@@ -1939,6 +1948,34 @@ class MechanicsRoundTests(unittest.TestCase):
         at_a_point = {**no_preview, "args": {k: v for k, v in no_preview["args"].items() if k != "target"}}
         self.assertEqual(validate.schema_errors(at_a_point), [])
 
+    def test_a_committed_bubble_keeps_a_transient_receipt_the_player_can_mark(self):
+        """M9: a committed bubble is transient, its effect: id created and in its data; the receipt says whether it carried the
+        player and, once it is gone, how it ended (what M8's receipt.mark needs); Bloom's and Fire's durable data are unchanged."""
+        carry = valid_example("result_bubble_carry")
+        self.assertEqual(validate.schema_errors(carry), [])
+        self.assertTrue(carry["transient"])
+        self.assertEqual(carry["created"], [carry["data"]["bubble"]])
+        self.assertTrue(carry["data"]["bubble"].startswith("effect:"))
+        popped = valid_example("result_bubble_carry_popped_by_the_player")
+        self.assertEqual((validate.schema_errors(popped), popped["data"]["ended"]), ([], "popped_by_player"))
+        for ended in ("popped_by_player", "timed_out", "popped"):
+            with self.subTest(ended=ended):
+                self.assertEqual(validate.schema_errors({**carry, "data": {**carry["data"], "ended": ended}}), [])
+        boat = valid_example("result_bubble_boat_on_the_shallows")
+        self.assertEqual(validate.schema_errors(boat), [])
+        self.assertFalse(boat["data"]["carried"])
+        self.assertNotIn("target", boat["data"])
+        # A bubble's data is its own: none of Bloom's or Fire's fields, and the stop that names it is effect.stop's.
+        for field, value in (("cell_count", 0), ("started_cells", 0), ("max_burning_cells", 0)):
+            with self.subTest(field=field):
+                self.assertTrue(validate.schema_errors({**carry, "data": {**carry["data"], field: value}}))
+        self.assertTrue(validate.schema_errors({**carry, "data": {**carry["data"], "bubble": "bubble:1"}}))
+        # Bloom's committed cast still names no capability, as before the mechanics round.
+        bloom = valid_example("result_bloom_patch")
+        self.assertEqual(validate.schema_errors(bloom), [])
+        self.assertTrue(validate.schema_errors({**bloom, "data": {**bloom["data"], "capability": "bloom"}}))
+        self.assertEqual(valid_example("result_bubble_carry_before_its_ghost")["error"]["code"], "not_ready")
+
     def test_energy_exhausted_carries_the_balance_and_the_price_and_nothing_else_does(self):
         exhausted = valid_example("result_energy_exhausted")
         self.assertEqual((exhausted["error"]["balance"], exhausted["error"]["price"]), (1, 2))
@@ -1947,7 +1984,7 @@ class MechanicsRoundTests(unittest.TestCase):
             with self.subTest(missing=missing):
                 self.assertTrue(validate.schema_errors({**exhausted, "error": {k: v for k, v in exhausted["error"].items() if k != missing}}))
         for field in ("balance", "price"):
-            other = valid_example("result_bubbles_not_yet")
+            other = valid_example("result_bubble_carry_before_its_ghost")
             with self.subTest(field=field):
                 self.assertTrue(validate.schema_errors({**other, "error": {**other["error"], field: 1}}))
 

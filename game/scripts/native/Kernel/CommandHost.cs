@@ -149,7 +149,6 @@ public partial class CommandHost : Node
     /// <summary>The mechanics round's stubs' words (unsupported_capability at $.op), the mock host's too.</summary>
     public const string MechanicsNotYet = "This operation is not available yet.";
     public const string DifficultyNotYet = "Difficulties are chosen at the opening menu, which is not built yet.";
-    public const string BubblesNotYet = "The Bubble's carry, boat and lift are not available yet.";
     /// <summary>world.set_mode once a team's boot fixed the mode (M3, CheckModeChange): unsupported_capability at $.op.</summary>
     public const string ModeAtMenu = "The mode is chosen at the menu; this save keeps its mode.";
     /// <summary>world.set_mode to Live on a team's room (M3): unsupported_capability at $.args.mode, allowed creative and challenge.</summary>
@@ -325,8 +324,9 @@ public partial class CommandHost : Node
         // Nature first: its write carries the team block too when that waits.
         SaveNatureOnExit();
         if (_teamDirty) SaveTeam();
-        // The room unloads: its effects end, and the look's glows with them.
+        // The room unloads: its effects end, and the look's glows with them; its bubbles pop and the body is handed back.
         EndAllEffects();
+        EndAllBubbles();
         // A host freed while another is attached (a test's second host) hands the key back.
         if (Player != null && IsInstanceValid(Player) && Player.WorldPhysicsRequest == _physicsSink) Player.WorldPhysicsRequest = _previousPhysicsSink;
         // The room is leaving (the game quits, or a room changes): every Godot value still waiting for the .NET finalizer is freed
@@ -904,6 +904,13 @@ public partial class CommandHost : Node
                 affected.Add(ended);
                 stopped++;
             }
+        // Its bubbles pop too, the player's X whoever cast them (Kernel/Bubble): a body in one deflates.
+        if (whose != PlayerPrincipal)
+            foreach (var popped in PopBubbles(principal, "all"))
+            {
+                affected.Add(popped);
+                stopped++;
+            }
         var data = new JsonObject { ["effects_stopped"] = stopped };
         // And every fire the Gubble lit goes out at once, whatever any budget says (the player's X; the Gubble's own stop too).
         if (whose != PlayerPrincipal && PutOutCompanionFire()) data["fires_put_out"] = 1;
@@ -919,6 +926,8 @@ public partial class CommandHost : Node
         // way, by id or all. An unknown id, or one the companion may not stop, stops nothing and still applies.
         var stopped = effect == "all" ? Runtime.Call(KernelNames.StopEffects, principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
         var ended = StopEffects(principal, effect);
+        // A bubble is stopped by its effect: id as well (Kernel/Bubble): the player any, a companion its own.
+        ended.AddRange(PopBubbles(principal, effect));
         return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(ended.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
             new JsonObject { ["effects_stopped"] = stopped + ended.Count });
     }
@@ -2148,6 +2157,7 @@ public partial class CommandHost : Node
     {
         SightSweep(delta);
         AdvanceNature(delta);
+        AdvanceBubbles(delta);
         // A scorched creation's assembly the runtime rebuilt gets its scorch back (nothing is touched while nothing changed).
         if (Nature.Objects.Count > 0) ApplyNatureObjects();
         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
@@ -2688,11 +2698,10 @@ public partial class CommandHost : Node
     {
         // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
         // pickup of a Fractal and spending them (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1,
-        // knack.set since M3. A difficulty in a request waits for the menu (M7): the boot sets it from the island save
-        // (BootMode, UseDifficulty).
+        // knack.set since M3, the Bubbles expertise since M9 (Kernel/Bubble). A difficulty in a request waits for the menu
+        // (M7): the boot sets it from the island save (BootMode, UseDifficulty).
         "receipt.mark" or "trust.reset" => MechanicsNotYet,
         "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
-        "nature.cast" when Str(args, "capability") is "bubble_carry" or "bubble_boat" or "bubble_lift" => BubblesNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",

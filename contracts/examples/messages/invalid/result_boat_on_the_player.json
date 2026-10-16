@@ -1,0 +1,35 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "nature.cast",
+  "action_id": "boat-0001",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "transient": true,
+  "affected": [
+    "effect:dfbu4nso2ruc3kg5ghxqzde7dm"
+  ],
+  "created": [
+    "effect:dfbu4nso2ruc3kg5ghxqzde7dm"
+  ],
+  "data": {
+    "capability": "bubble_boat",
+    "bubble": "effect:dfbu4nso2ruc3kg5ghxqzde7dm",
+    "center_m": [
+      0.4,
+      0.0,
+      0.6
+    ],
+    "radius_m": 0.1,
+    "duration_s": 60,
+    "expires_utc": "2026-10-06T00:06:00Z",
+    "requires_approval": false,
+    "carried": false,
+    "target": "avatar:player"
+  }
+}

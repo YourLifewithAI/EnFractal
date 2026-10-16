@@ -317,12 +317,13 @@ class NatureMatchesTheKernel(unittest.TestCase):
 @unittest.skipUnless(COMMAND_HOST.is_file(), "the kernel host is not in this checkout")
 class MechanicsMatchTheKernel(unittest.TestCase):
     """The mechanics round's contract (M0): the stubs both hosts answer until their packets land, in the kernel's words, and
-    the Fractal the companion may never gather, refused by its id's namespace in both."""
+    the Fractal the companion may never gather, refused by its id's namespace in both; the Bubble (M9) with the kernel's
+    numbers and words."""
 
     def test_the_stubs_and_the_fractal_refusal_are_the_kernels_word_for_word(self):
         from enfractal_companion import mock_host
         for mock, kernel in (("MECHANICS_NOT_YET", "MechanicsNotYet"), ("DIFFICULTY_NOT_YET", "DifficultyNotYet"),
-                             ("BUBBLES_NOT_YET", "BubblesNotYet"), ("FRACTAL_REFUSAL", "FractalRefusal")):
+                             ("FRACTAL_REFUSAL", "FractalRefusal")):
             with self.subTest(words=mock):
                 self.assertEqual(getattr(mock_host, mock), _cs_string(COMMAND_HOST, kernel))
         self.assertEqual(mock_host.MECHANICS_PLAYER_OPS, set(re.findall(r'"([a-z_.]+)"', _match(COMMAND_HOST, r"MechanicsPlayerOps = new\(\) \{([^}]*)\};"))))
@@ -333,6 +334,40 @@ class MechanicsMatchTheKernel(unittest.TestCase):
         # The Fractal refusal comes after the player-only check and before anything looks the target up.
         self.assertLess(execute.index("PlayerOnlyOps.Contains(op)"), execute.index("NamesAFractal(op, args)"))
         self.assertLess(execute.index("NamesAFractal(op, args)"), execute.index("CheckPerceived(op, args, principal)"))
+
+    def test_the_bubble_is_hosted_with_the_kernels_numbers_and_words(self):
+        """M9: the Bubbles casts past the stub on both hosts (no stub words left), the mock's numbers the kernel's BubbleLaws, its
+        refusals the kernel's words, a bubble transient on both, and the kernel's Bubbles route ahead of nature's own checks."""
+        from enfractal_companion import mock_host
+        self.assertFalse(hasattr(mock_host, "BUBBLES_NOT_YET"))
+        self.assertNotIn("BubblesNotYet", _text(COMMAND_HOST))
+        laws = KERNEL / "Kernel" / "Bubble" / "BubbleLaws.cs"
+
+        def law(name: str) -> float:
+            return float(_match(laws, rf"\bconst (?:float|double|int) {name} = ([0-9.]+)f?;"))
+
+        for mock, kernel in ((mock_host.BUBBLE_CARRY_RADIUS_M, ("CarryRadiusMinM", "CarryRadiusMaxM")),
+                             (mock_host.BUBBLE_BOAT_RADIUS_M, ("BoatRadiusMinM", "BoatRadiusMaxM"))):
+            with self.subTest(numbers=kernel):
+                self.assertEqual(mock, tuple(law(name) for name in kernel))
+        for mock, kernel in (("BUBBLE_GHOST_LEAD_S", "GhostLeadS"), ("BUBBLE_GHOST_LIFETIME_S", "GhostLifetimeS"),
+                             ("BUBBLE_POP_RESPECT_S", "PopRespectS"), ("BUBBLE_ENVELOP_REACH_M", "EnvelopReachM"),
+                             ("BUBBLE_STEP_IN_CLEARANCE_M", "StepInClearanceM"), ("BUBBLE_MAX", "MaxBubbles"),
+                             ("BUBBLE_MAX_GHOSTS", "MaxGhosts")):
+            with self.subTest(number=kernel):
+                self.assertEqual(getattr(mock_host, mock), law(kernel))
+        bubble = _text(KERNEL / "Kernel" / "Bubble" / "CommandHostBubble.cs")
+        for words in ("BUBBLE_GHOST_LEAD", "BUBBLE_POP_RESPECT", "BUBBLE_PREVIEW_AGAIN", "BUBBLE_ON_THE_PLAYER", "BUBBLE_NO_WATER"):
+            with self.subTest(words=words):
+                self.assertIn('"' + getattr(mock_host, words) + '"', bubble.replace('" +\n            "', ""))
+        # Both hosts: a committed bubble is transient (the kernel's own receipt, never the durable nature path), its cast routed
+        # before nature's RequireNature, and its pops in goal.stop and effect.stop.
+        nature = _method(_text(KERNEL / "Kernel" / "CommandHostNature.cs"), "private JsonObject NatureCommand(")
+        self.assertLess(nature.index("BubbleCast(root, principal, fingerprint, approvedBy)"), nature.index("RequireNature();"))
+        self.assertIn('result["transient"] = true;', _method(bubble, "private JsonObject BubbleReceipt("))
+        host = _text(COMMAND_HOST)
+        self.assertIn('PopBubbles(principal, "all")', _method(host, "private JsonObject GoalStop("))
+        self.assertIn("PopBubbles(principal, effect)", _method(host, "private JsonObject EffectStop("))
 
     def test_the_mock_reads_its_prices_from_the_pack_the_kernel_will_read(self):
         """The cost block is one JSON both hosts read (the kernel from M1): the mock prices from it and nothing else."""
