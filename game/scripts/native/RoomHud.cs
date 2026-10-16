@@ -307,6 +307,8 @@ public partial class RoomHud : CanvasLayer
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
         AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps · {K(Act.BounceStep)} your character's bounce (x0.5, x1, x1.5) · {K(Act.BouncePrint)} print its motion profile", "TestingKeys");
+        // The playtest record's keys and its beat (RoomHud.Playtest.cs).
+        AddKeyLine(_keyHelp, PlaytestKeysLine, "PlaytestKeys");
         _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
         help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
@@ -334,6 +336,7 @@ public partial class RoomHud : CanvasLayer
         BuildMinimap();
         BuildJournal();
         BuildGubbleView(compactTheme);
+        WatchForPlaytest();
         ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
@@ -375,10 +378,10 @@ public partial class RoomHud : CanvasLayer
         if (KeyTextInputs() != _keyTextsAsOf) RefreshKeyText();
     }
 
-    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool) KeyTextInputs() =>
-        (PlayerControls.MapVersion, _keyHelp.Visible, Companion.CompanionName, Player.HomeName, Host?.Rules, PoolHint());
+    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool, int Beat) KeyTextInputs() =>
+        (PlayerControls.MapVersion, _keyHelp.Visible, Companion.CompanionName, Player.HomeName, Host?.Rules, PoolHint(), PlaytestBeat());
 
-    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool)? _keyTextsAsOf;
+    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool, int Beat)? _keyTextsAsOf;
 
     private static void AddButton(Node parent, string text, System.Action action, int minimumHeight = 38)
     {
@@ -611,7 +614,11 @@ public partial class RoomHud : CanvasLayer
         }
         // An island held because its mode could not be set (M3's fix round) says why, once, without waiting for a refused change.
         if (Host is { IslandHeld: true, TeamNotice: { Length: > 0 } heldWords } && !ReferenceEquals(heldWords, _teamNoticeShown)) _noticeText = _teamNoticeShown = heldWords;
-        if (!ReferenceEquals(_noticeShown, _noticeText)) _notice.Text = _noticeShown = _noticeText;
+        if (!ReferenceEquals(_noticeShown, _noticeText))
+        {
+            _notice.Text = _noticeShown = _noticeText;
+            NoticeLineShown(_noticeText);
+        }
         UpdateFocus(delta);
         UpdateAskTag(delta);
         UpdateChains();
@@ -714,6 +721,9 @@ public partial class RoomHud : CanvasLayer
         // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
         var press = PlayerControls.Normalise(input);
         var fresh = PlayerControls.Fresh(press);
+        // The playtest record sees every key first, and its own four keys work in every context (RoomHud.Playtest.cs).
+        if (fresh) RecordActions(press);
+        if (fresh && HandlePlaytestKeys(press)) { GetViewport().SetInputAsHandled(); return; }
         if (HandleMagicSpotInput(press, fresh)) { GetViewport().SetInputAsHandled(); return; }
         // The look drag (the cursor is free): once the pointer has moved LookDrag.StartPx with the button down, the cursor hides
         // and the motion turns the view as the captured mouse did; the release brings the cursor back where it was pressed.
