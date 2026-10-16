@@ -59,6 +59,16 @@ public sealed class VitalsRules
     /// <summary>... once this many seconds have passed without harm, on safe ground.</summary>
     public double HealAfterUnharmedS => Hearts?.HealAfterUnharmedS ?? 10;
     public double RefillMPerS => Stamina?.RefillMPerS ?? PlayerVitals.GroundRecoveryPerSecond;
+    /// <summary>
+    /// The metres a climber rises for each metre of bar, before Steady climber: the pack's climb_m_per_bar_m (1.5 in v5, decision 65);
+    /// 1 without it, today's.
+    /// </summary>
+    public double ClimbMPerBarM => Stamina?.ClimbMPerBarM ?? 1;
+    /// <summary>
+    /// What hanging still on a face costs a second, before Steady climber: the pack's holding_m_per_s (0 in v5, decision 64); today's
+    /// 0.01 m without it.
+    /// </summary>
+    public double HoldingMPerS => Stamina?.HoldingMPerS ?? PlayerVitals.HoldingCostPerSecond;
 
     private VitalsRules(IslandRules? rules, string mode, string difficulty, IReadOnlyDictionary<string, int>? knacks, int expertise)
     {
@@ -197,12 +207,19 @@ public sealed class VitalsRules
 
     // ---- the bar ----
 
-    /// <summary>Climbing as today: the rise or the holding cost, whichever is more, divided by Steady climber's factor.</summary>
+    /// <summary>
+    /// A climb's price for a tick: the rise at the pack's metres per metre of bar (climb_m_per_bar_m) or the seconds at its holding
+    /// cost (holding_m_per_s), whichever is more, divided by Steady climber's factor. Under v5 a 0.4 m bar buys 0.6 m of rise and a
+    /// climber hanging still pays nothing (decisions 64 and 65); a pack without the two values, and the legacy rules, charge as
+    /// before them: a metre of bar a metre risen, 0.01 m a second hanging, to the same float.
+    /// </summary>
     public PlayerVitals SpendClimb(PlayerVitals v, float seconds, float rise, out bool enough)
     {
         if (!float.IsFinite(seconds) || !float.IsFinite(rise) || seconds < 0 || rise < 0)
             throw new PlayerVitalsException("Climbing needs a finite duration and rise.");
-        var cost = (float)(Math.Max(rise, PlayerVitals.HoldingCostPerSecond * seconds) / ClimbFactor);
+        double risen = Stamina?.ClimbMPerBarM is { } perBar ? rise / perBar : rise;
+        double held = Stamina?.HoldingMPerS is { } holding ? holding * seconds : PlayerVitals.HoldingCostPerSecond * seconds;
+        var cost = (float)(Math.Max(risen, held) / ClimbFactor);
         enough = v.Stamina + 0.000001f >= cost && v.Stamina > 0;
         return v.With(stamina: Math.Max(0, v.Stamina - cost));
     }
