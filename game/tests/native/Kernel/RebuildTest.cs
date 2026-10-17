@@ -413,6 +413,8 @@ public partial class RebuildTest : Node3D
         var args = new JsonObject { ["capability"] = "fire", ["center_m"] = new JsonArray(center.X, center.Y, center.Z), ["radius_m"] = radius, ["duration_s"] = duration };
         // A pack with connection energy charges each Fire: the player rests first, so the pool is full (nothing else here moves).
         _player.VitalsTick?.Invoke(120f, true);
+        // Decision 72: the team knows Fire, as after the first rest (the one helper every suite that lights fires uses).
+        _host.LearnFireForTests();
         var preview = Command(NextId("fire-preview"), "nature.cast", (JsonObject)args.DeepClone());
         preview["preview"] = true;
         var previewed = Send(preview, Player);

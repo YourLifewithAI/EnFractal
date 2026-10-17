@@ -18,6 +18,12 @@ public partial class RoomHud
     private Button _undoNature = null!;
     private CheckButton? _gubbleFire;
     private Label _firePreviewWords = null!;
+    private Label _fireLocked = null!;
+    private Button _firePreview = null!;
+    /// <summary>The Magic panel's words while Fire is locked (decision 72); the host's refusal says the same if it is asked anyway.</summary>
+    public const string FireLockedWords = "Locked: the Gubble learns Fire when you first rest by the starting campfire (Z beside it).";
+    /// <summary>Whether the Magic panel shows Fire locked now (its preview button off, the locked line shown).</summary>
+    public bool FireShownLocked => _fireLocked is { Visible: true } && _firePreview is { Disabled: true };
     private Button _fireConfirm = null!;
     private ProgressBar _fireHoldBar = null!;
     private readonly List<string> _repairIds = new();
@@ -44,7 +50,11 @@ public partial class RoomHud
         page.AddChild(WrapMagicLabel("Fire can spread inside the previewed area. Creations become scorched and repairable; other things can burn away."));
         // "Let the Gubble use fire" is one of the player's settings (RoomHud.Settings.cs): the switch moved there from this page.
         page.AddChild(WrapMagicLabel("Whether the Gubble may light fires is one of your settings."));
-        AddButton(page, "Preview Fire at this spot", PreviewFire, 32);
+        // Decision 72: Fire is locked until the first rest by the starting campfire; the section says so and its button waits.
+        _fireLocked = WrapMagicLabel(FireLockedWords); _fireLocked.Name = "FireLocked"; page.AddChild(_fireLocked);
+        _firePreview = new Button { Name = "PreviewFireButton", Text = "Preview Fire at this spot", CustomMinimumSize = new Vector2(0, 32), FocusMode = Control.FocusModeEnum.All };
+        _firePreview.Pressed += PreviewFire;
+        page.AddChild(_firePreview);
         _firePreviewWords = WrapMagicLabel("Choose a spot and preview it before lighting a fire.");
         _firePreviewWords.Name = "FirePreviewWords"; page.AddChild(_firePreviewWords);
         _fireConfirm = new Button { Name = "ConfirmFireButton", Text = "Hold to light this fire", Disabled = true };
@@ -170,6 +180,8 @@ public partial class RoomHud
         _undoNature.Visible = host.Mode == "creative";
         _undoNature.Disabled = !host.NatureCanUndo;
         _gubbleFire?.SetPressedNoSignal(host.GubbleFireAllowed);
+        _fireLocked.Visible = !host.FireLearned;
+        _firePreview.Disabled = !host.FireLearned;
         RefreshRepairCost();
     }
 

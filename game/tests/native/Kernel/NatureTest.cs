@@ -57,12 +57,13 @@ public partial class NatureTest : Node3D
             await TestTrust();
             await TestCamps();
             await TestGrow();
+            await TestGrowExpertise();
             await FreeWorld();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine error while the suite ran ({_errors.Count}; first: {_errors.First})");
             GD.Print($"NATIVE_KERNEL_NATURE: {_checks - _failures}/{_checks} checks passed; the ground field's laws and bounds, time away, nature as room state (saved block, " +
                 "throttle, rebuild, migration), receipts and undo by room revision (Creative only), the authority's checks, what a companion learns, the fire rule and its one ask, " +
-                $"Grow (plants grown, saved, climbed and burnt), carried and burnt things, the Gubble's fire: consequences, guardrails and feedback, Trust (initiative, marks, burnt builds, bands, lessons), Fire's camp (start spots, resting, firepits){(_dump != null ? $"; {_dumped} messages dumped" : "")}");
+                $"Grow (plants grown, saved, climbed and burnt), carried and burnt things, the Gubble's fire: consequences, guardrails and feedback, Trust (initiative, marks, burnt builds, bands, lessons), Fire's camp (start spots, resting, firepits; no Fire until the first rest, rain putting campfires out, firepits spread evenly), Grow's five expertise and the waterpad{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveAll();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
@@ -92,7 +93,8 @@ public partial class NatureTest : Node3D
     /// </summary>
     /// <param name="beforeRules">Runs as the host exists, before its rules load (a launch's vitals store: RoomWorld's order).</param>
     /// <param name="afterRules">Runs once the rules loaded, before nature and before any frame (a launch's knacks and set-mode).</param>
-    private async Task NewWorld(string savePath, bool challenge = false, RoomData? roomOverride = null, Action? beforeRules = null, Action? afterRules = null)
+    /// <param name="learnFire">The team knows Fire, as after the first rest (decision 72), through the one helper every suite that lights fires uses.</param>
+    private async Task NewWorld(string savePath, bool challenge = false, RoomData? roomOverride = null, Action? beforeRules = null, Action? afterRules = null, bool learnFire = true)
     {
         await FreeWorld();
         var room = roomOverride ?? _room;
@@ -116,6 +118,7 @@ public partial class NatureTest : Node3D
         _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         afterRules?.Invoke();
         _host.ConfigureNature();
+        if (learnFire) _host.LearnFireForTests();
         _host.NatureSampleForTests = Soil;
         // The player's own "Let the Gubble use fire" (on by default), whatever a profile on this machine says.
         _host.SetGubbleFire(true);

@@ -99,6 +99,17 @@ public sealed class GlowProgress
         return ReferenceEquals(after, before) ? this : WithRecord(after);
     }
 
+    /// <summary>
+    /// A committed cast of another ability the host verified (Grow's): its record counts the cast, learns what it showed once each and
+    /// delivers its hints as Glow's do (ExpertiseRecord.AfterCast). A candidate to save, like any change.
+    /// </summary>
+    public GlowProgress AfterAbilityCast(string ability, IEnumerable<string> learned)
+    {
+        var list = ExpertiseLists.Find(ability);
+        if (list == null || ability == ExpertiseLists.Glow) throw new GlowProgressException("Expertise has an unknown ability.");
+        return WithRecord(Of(ability)!.AfterCast(learned));
+    }
+
     private GlowProgress WithRecord(ExpertiseRecord record)
     {
         var others = Others.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);

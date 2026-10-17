@@ -37,6 +37,20 @@ public static class PlantLaws
     /// <summary>The ash a plant that burned down leaves on the ground it was rooted in.</summary>
     public const float AshLeft = 0.6f;
 
+    // Grow's five expertise (decision 75), every number provisional.
+    /// <summary>Rain garden: while it rains (the weather's rain, NatureLaws.WeatherRain01 and up) a cast grows each plant this many steps (still capped).</summary>
+    public const float RainGardenFactor = 2f;
+    /// <summary>Thicket: three plants at full size, each within this of the other two (on the ground plane).</summary>
+    public const float ThicketSpanM = 1f;
+    /// <summary>Thicket looks at most this many full-size plants round the cast (the nearest), so the check stays small.</summary>
+    public const int ThicketLooksAt = 48;
+    /// <summary>Green ash: the fuel the greened ground has at once (the most moist ash regrows to over minutes, NatureLaws.FlowerFuel).</summary>
+    public const float GreenAshFuel = NatureLaws.FlowerFuel;
+    /// <summary>Waterpad: a Grow cast whose point is on water (its surface at most this far above the point, or WaterpadBelowM under it)...</summary>
+    public const float WaterpadAboveM = 0.5f, WaterpadBelowM = 0.05f;
+    /// <summary>...at least this deep grows a waterpad there; two leaves' centres stay a leaf's diameter apart (WaterpadView.DiameterM).</summary>
+    public const float WaterpadMinDepthM = 0.03f;
+
     public static float Fuel(string fuelClass) => fuelClass switch
     {
         "grass" => GrassFuel, "herb" => HerbFuel, "shrub" => ShrubFuel, "broadleaf" or "conifer" => TreeFuel, _ => 0,
@@ -118,18 +132,24 @@ public partial class CommandHost
 
     /// <summary>
     /// A Grow cast: every plant rooted in the circle that is not at its cap grows the pack's share of its natural size (a quarter in
-    /// storybook_wild v5), up to its cap. A cast where nothing can grow (no plant, all full size, the island's grown plants at their
-    /// most) is refused before the price, with the reason. It takes no ground cell, so its cell counts are 0; grown_plants says how
-    /// many grew. One room revision, which room.undo takes back in Creative.
+    /// storybook_wild v5), up to its cap; while it rains, twice that (Rain garden); and the ash in the circle greens at once (Green
+    /// ash: burnt plants stay gone). Cast on water, it grows a waterpad instead (CastWaterpad). A cast where nothing can grow and no
+    /// ash can green (no plant, all full size, the island's grown plants at their most) is refused before the price, with the reason.
+    /// It takes no ground cell, so its cell counts are 0; grown_plants says how many grew. One room revision, which room.undo takes
+    /// back in Creative. What it showed teaches Grow's expertise, once per team (RecordGrowCast).
     /// </summary>
     private JsonObject CastGrow(JsonElement root, IslandAbility ability, Cast cast, string principal, string action, string fingerprint, bool preview, string? approvedBy)
     {
+        if (WaterForPad(cast.Center) is { } surface) return CastWaterpad(root, ability, cast, surface, principal, action, fingerprint, preview, approvedBy);
         var share = ability.Primitive == "growth.grow" ? cast.Intensity : PlantLaws.LegacyGrowShare;
+        var raining = Nature.Weather.Rain01 > NatureLaws.WeatherRain01;
+        if (raining) share *= PlantLaws.RainGardenFactor;
         var rooted = PlantsRootedIn(cast.Center, cast.Radius).Where(p => PlantLaws.Grows(p.Set) && !(Nature.Plants.TryGetValue(p.Id, out var plant) && plant.Burnt)).ToList();
-        if (rooted.Count == 0)
+        var ash = AshIn(cast.Center, cast.Radius);
+        if (rooted.Count == 0 && ash.Count == 0)
             throw new Refusal("invalid_args", "There is no plant to grow there: Grow makes the island's own plants bigger (grass, flowers, ferns, shrubs and trees).", "$.args.center_m");
         var growing = rooted.Where(p => FactorOf(p.Id) < PlantLaws.Cap(p.Set, p.Row) - 1e-4f).ToList();
-        if (growing.Count == 0) throw new Refusal("invalid_args", "Every plant there is already full size.", "$.args.center_m");
+        if (growing.Count == 0 && ash.Count == 0) throw new Refusal("invalid_args", "Every plant there is already full size.", "$.args.center_m");
         // The island keeps at most MaxGrownPlants grown: a plant already grown grows on, a natural one only while there is room.
         var room = NatureState.MaxGrownPlants - Nature.GrownPlants;
         var kept = new List<PlantRef>();
@@ -138,7 +158,7 @@ public partial class CommandHost
             if (Nature.Plants.TryGetValue(plant.Id, out var record) && record.Grown) kept.Add(plant);
             else if (room > 0) { kept.Add(plant); room--; }
         }
-        if (kept.Count == 0) throw new Refusal("invalid_args", $"The island already keeps {NatureState.MaxGrownPlants} grown plants, the most it can: none more can grow.", "$.args.center_m");
+        if (kept.Count == 0 && ash.Count == 0) throw new Refusal("invalid_args", $"The island already keeps {NatureState.MaxGrownPlants} grown plants, the most it can: none more can grow.", "$.args.center_m");
         var keyed = principal != PlayerPrincipal && ability.Tier == "keyed_yes";
         var data = new JsonObject
         {
@@ -149,11 +169,22 @@ public partial class CommandHost
         if (keyed && approvedBy == null) return Hold(root, principal, action, fingerprint, "nature.cast", "The Gubble asks to grow the plants in this area.", new(), bindRevision: true);
         var candidate = Nature.Copy();
         var step = candidate.BeginUndo("Grow", Revision + 1, principal, Mode);
+        var tall = false;
         foreach (var plant in kept)
         {
             candidate.RememberPlant(step, plant.Id);
             var record = candidate.Plant(plant.Id);
-            record.Factor = Math.Min(PlantLaws.Cap(plant.Set, plant.Row), record.Factor + share);
+            var cap = PlantLaws.Cap(plant.Set, plant.Row);
+            record.Factor = Math.Min(cap, record.Factor + share);
+            tall |= record.Factor >= cap - 1e-4f;
+        }
+        // Green ash (decision 75): the ash in the circle greens at once; the burnt plants stay gone (replanting is a later unlock).
+        foreach (var key in ash)
+        {
+            NatureState.RememberCell(step, candidate.Cells, key);
+            var cell = candidate.Cells[key];
+            cell.Ash = 0;
+            cell.Fuel = Math.Max(cell.Fuel, PlantLaws.GreenAshFuel);
         }
         data.Remove("cells");
         data.Remove("cells_truncated");
@@ -162,7 +193,146 @@ public partial class CommandHost
         var price = GuardEnergy(ability.Capability, principal);
         var result = CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, Array.Empty<string>(), data, undo: false);
         ChargeEnergy(price);
+        // What this cast showed, from nature as it is now (decision 75): each the first time teaches it, once per team.
+        var learned = new List<string>();
+        if (tall) learned.Add(ExpertiseLists.TallPlant);
+        if (kept.Count > 0 && ThicketAround(cast.Center, cast.Radius, kept)) learned.Add(ExpertiseLists.Thicket);
+        if (ash.Count > 0) learned.Add(ExpertiseLists.GreenAsh);
+        if (raining && kept.Count > 0) learned.Add(ExpertiseLists.RainGarden);
+        RecordGrowCast(learned);
         return result;
+    }
+
+    /// <summary>The ground cells in a cast's circle (and RootHeightToleranceM of its height) that hold ash: burnt ground for Green ash.</summary>
+    private List<string> AshIn(Vector3 center, float radius)
+    {
+        var found = new List<string>();
+        foreach (var (x, z) in NatureState.Disk(center, radius))
+        {
+            var key = NatureState.Key(x, z);
+            if (Nature.Cells.TryGetValue(key, out var cell) && cell.Ash > 0 && cell.BurningS <= 0 && Math.Abs(cell.Y - center.Y) <= PlantLaws.RootHeightToleranceM) found.Add(key);
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// Thicket (decision 75): after a cast, three plants at full size each within PlantLaws.ThicketSpanM of the other two, one of them
+    /// grown by this cast. The full-size plants rooted round the circle (the nearest ThicketLooksAt) are read from nature as it is now.
+    /// </summary>
+    private bool ThicketAround(Vector3 center, float radius, List<PlantRef> grown)
+    {
+        var full = PlantsRootedIn(center, radius + PlantLaws.ThicketSpanM)
+            .Where(p => !(Nature.Plants.TryGetValue(p.Id, out var plant) && plant.Burnt) && FactorOf(p.Id) >= PlantLaws.Cap(p.Set, p.Row) - 1e-4f)
+            .OrderBy(p => CampLaws.Flat(p.Set.Position(p.Row), center)).Take(PlantLaws.ThicketLooksAt).ToList();
+        var mine = grown.Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        bool Near(PlantRef a, PlantRef b) => CampLaws.Flat(a.Set.Position(a.Row), b.Set.Position(b.Row)) <= PlantLaws.ThicketSpanM;
+        for (var i = 0; i < full.Count; i++)
+            for (var j = i + 1; j < full.Count; j++)
+            {
+                if (!Near(full[i], full[j])) continue;
+                for (var k = j + 1; k < full.Count; k++)
+                    if (Near(full[i], full[k]) && Near(full[j], full[k]) && (mine.Contains(full[i].Id) || mine.Contains(full[j].Id) || mine.Contains(full[k].Id))) return true;
+            }
+        return false;
+    }
+
+    /// <summary>
+    /// The team's Grow casts as its store counts them (decision 75, the shared rules): a committed cast the host verified, the expertise
+    /// it showed learned once each, a hint at the 10th to 50th cast. A reward, never a precondition: a store that cannot be saved leaves
+    /// the cast standing (TrySaveExpertise), and each newly learned one is announced by Fire's camp's hook (PublishProgress).
+    /// </summary>
+    private void RecordGrowCast(IEnumerable<string> learned)
+    {
+        GlowProgress candidate;
+        try { candidate = GlowProgress.AfterAbilityCast(ExpertiseLists.Grow, learned); }
+        catch (GlowProgressException) { return; }
+        TrySaveExpertise(candidate);
+    }
+
+    // ---- the waterpad (decision 75): a Grow cast on water ----
+
+    /// <summary>The water under a Grow cast's point, if it is on water (its surface near and deep enough): the surface's height, or null.</summary>
+    private float? WaterForPad(Vector3 point)
+    {
+        var water = WaterColumn(point, PlantLaws.WaterpadAboveM, PlantLaws.WaterpadBelowM);
+        return water.Wet && water.DepthM >= PlantLaws.WaterpadMinDepthM && water.SurfaceY >= point.Y - PlantLaws.WaterpadBelowM ? water.SurfaceY : null;
+    }
+
+    /// <summary>
+    /// A Grow cast on water (the sea, a lagoon or a pond, inside the island, within reach and sight: CheckCast) grows one large water lily
+    /// leaf at the point, floating at the surface (WaterpadView: solid from above, WaterpadView.DiameterM across). The island keeps at most
+    /// NatureState.MaxWaterpads, two never closer than a leaf's diameter. One room revision, which Creative's undo takes back; the price
+    /// as for any Grow; the first one teaches Waterpad. grown_plants is 1: the leaf is the plant that grew.
+    /// </summary>
+    private JsonObject CastWaterpad(JsonElement root, IslandAbility ability, Cast cast, float surface, string principal, string action, string fingerprint, bool preview, string? approvedBy)
+    {
+        var at = new Vector3(cast.Center.X, surface + WaterpadView.FloatM, cast.Center.Z);
+        if (Nature.Waterpads.Count >= NatureState.MaxWaterpads)
+            throw new Refusal("invalid_args", $"The island already keeps {NatureState.MaxWaterpads} water lily leaves, the most it can.", "$.args.center_m");
+        if (Nature.Waterpads.Any(p => CampLaws.Flat(p.PositionM, at) < WaterpadView.DiameterM))
+            throw new Refusal("invalid_args", "A water lily leaf already floats here: grow the next one a little further on.", "$.args.center_m");
+        var keyed = principal != PlayerPrincipal && ability.Tier == "keyed_yes";
+        var data = new JsonObject
+        {
+            ["center_m"] = KernelJson.Vector(cast.Center), ["radius_m"] = KernelJson.Num(cast.Radius), ["duration_s"] = KernelJson.Num(cast.Duration),
+            ["cell_count"] = 0, ["cells"] = new JsonArray(), ["cells_truncated"] = false, ["grown_plants"] = 1, ["requires_approval"] = keyed,
+        };
+        if (preview) return NaturePreviewed("nature.cast", principal, action, data, Array.Empty<string>());
+        if (keyed && approvedBy == null) return Hold(root, principal, action, fingerprint, "nature.cast", "The Gubble asks to grow a water lily leaf here.", new(), bindRevision: true);
+        var candidate = Nature.Copy();
+        var step = candidate.BeginUndo("Grow", Revision + 1, principal, Mode);
+        candidate.RememberWaterpads(step);
+        candidate.Waterpads.Add(new NatureWaterpad { Id = candidate.NextWaterpadId(), PositionM = at });
+        data.Remove("cells");
+        data.Remove("cells_truncated");
+        data["started_cells"] = 0;
+        var price = GuardEnergy(ability.Capability, principal);
+        var result = CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, Array.Empty<string>(), data, undo: false);
+        ChargeEnergy(price);
+        RecordGrowCast(new[] { ExpertiseLists.Waterpad });
+        return result;
+    }
+
+    /// <summary>The room's waterpads follow nature's (the view under the room node, made when the first one grows); rebuilt only when they change.</summary>
+    private void ApplyWaterpads()
+    {
+        var room = GetParent()?.GetNodeOrNull<Node3D>(RoomNodePath);
+        if (room == null || !IsInstanceValid(room)) return;
+        var view = room.GetNodeOrNull<WaterpadView>(WaterpadView.ViewName);
+        if (view == null)
+        {
+            if (Nature.Waterpads.Count == 0) return;
+            view = WaterpadView.Create();
+            room.AddChild(view);
+        }
+        view.SetWaterpads(Nature.Waterpads.Select(p => (p.Id, p.PositionM, p.Burn)).ToList());
+    }
+
+    private static readonly NodePath RoomNodePath = "Room";
+
+    /// <summary>A waterpad's bounds for catching fire: its leaf, from a little under the water to a burning cell's height over its top.</summary>
+    private static Aabb WaterpadBounds(NatureWaterpad pad)
+    {
+        var radius = WaterpadView.DiameterM * 0.5f;
+        return new Aabb(pad.PositionM - new Vector3(radius, 0.02f, radius), new Vector3(radius * 2, 0.08f, radius * 2));
+    }
+
+    /// <summary>
+    /// Waterpads near burning ground burn as plants do (decision 75: "it can burn like any plant"), slowed by rain; one at 1 is gone, its
+    /// collision with it, and the fire's undo step remembers them. A fire cast on a leaf finds leaf under it (its collision names it).
+    /// </summary>
+    private bool BurnWaterpads(float rate, Dictionary<(int, int), NatureCell> burning, NatureUndoStep? step)
+    {
+        var changed = false;
+        foreach (var pad in Nature.Waterpads.ToList())
+        {
+            if (!Catches(WaterpadBounds(pad).Grow(PlantLaws.CatchM), burning)) continue;
+            Nature.RememberWaterpads(step);
+            pad.Burn = Math.Min(1, pad.Burn + rate);
+            if (pad.Burn >= 1) Nature.Waterpads.Remove(pad);
+            changed = true;
+        }
+        return changed;
     }
 
     // ---- the copies' view follows the plants ----
@@ -173,6 +343,8 @@ public partial class CommandHost
     /// </summary>
     private void ApplyPlants()
     {
+        // The waterpads with them: Grow's leaves on the water (decision 75), drawn and collided by their own view.
+        ApplyWaterpads();
         var view = GetParent()?.GetNodeOrNull<PlantCopiesView>(CopiesPath);
         if (view == null || !IsInstanceValid(view))
         {
@@ -269,12 +441,13 @@ public partial class CommandHost
     private bool BurnPlants(float seconds)
     {
         var fire = Nature.Fire;
-        if (fire == null || Room?.Copies == null) return false;
+        if (fire == null) return false;
         var ruling = FireRule.TryGetValue(("plant", Mode), out var row) ? row : FireRule[("plant", "creative")];
         if (ruling.Outcome == FireOutcome.Fireproof) return false;
-        EnsurePlantFuel(fire.Center, fire.RadiusM);
+        var copies = Room?.Copies != null;
+        if (copies) EnsurePlantFuel(fire.Center, fire.RadiusM);
         var rate = seconds * PlantLaws.BurnPerIntensityS * fire.Intensity * (1 - Nature.Weather.Rain01);
-        if (_firePlants.Count == 0 || rate <= 0) return false;
+        if (((!copies || _firePlants.Count == 0) && Nature.Waterpads.Count == 0) || rate <= 0) return false;
         var burning = new Dictionary<(int, int), NatureCell>();
         foreach (var cell in Nature.Cells.Values)
             if (cell.BurningS > 0) burning[(cell.X, cell.Z)] = cell;
@@ -282,7 +455,7 @@ public partial class CommandHost
         var step = Nature.Undo.LastOrDefault(s => s.Revision == fire.Revision);
         var room = NatureState.MaxBurntPlants - Nature.Plants.Values.Count(p => p.Burn > 0);
         var changed = false;
-        foreach (var plant in _firePlants)
+        foreach (var plant in copies ? _firePlants : new List<PlantRef>())
         {
             Nature.Plants.TryGetValue(plant.Id, out var record);
             if (record is { Burnt: true }) continue;
@@ -295,6 +468,7 @@ public partial class CommandHost
             changed = true;
             if (burned.Burnt) LeaveAsh(plant, step);
         }
+        changed |= BurnWaterpads(rate, burning, step);
         if (changed) ApplyPlants();
         return changed;
     }

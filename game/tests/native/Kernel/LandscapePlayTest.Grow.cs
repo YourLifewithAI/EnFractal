@@ -107,6 +107,8 @@ public partial class LandscapePlayTest
         PlaceGubbleNear(target, toward);
         await Frames(10);
         var grown = _host.PlayerNatureCast("grow", target + Vector3.Up * 0.01f);
+        // Decision 72: the team knows Fire, as after the first rest (the one helper every suite that lights fires uses).
+        _host.LearnFireForTests();
         var preview = _host.PlayerNaturePreview("fire", target + Vector3.Up * 0.01f, 0.35f, 20);
         var lit = Ok(preview) ? _host.PlayerNatureCast("fire", target + Vector3.Up * 0.01f, 0.35f, 20, preview["data"]?["preview_id"]?.GetValue<string>()) : preview;
         var frame = 0;

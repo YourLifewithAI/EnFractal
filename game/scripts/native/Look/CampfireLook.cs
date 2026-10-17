@@ -6,7 +6,8 @@ namespace EnFractal.Native.Look;
 
 /// <summary>
 /// The island's campfires drawn (Fire's camp): a ring of stones round two crossed logs at every campfire spot the host knows, and on a
-/// lit one the fire's own flames (NatureLook's flame and heart meshes and colours, flickering the same way) with a warm light. A view
+/// lit one the fire's own flames (NatureLook's flame and heart meshes and colours, flickering the same way) with a warm light, on one
+/// that is out charred logs. A view
 /// of the host's state only: it reads CommandHost.CampSites and IsCampfireLit, redraws when CampsChanged says so, and changes nothing.
 /// </summary>
 public partial class CampfireLook : Node3D
@@ -24,12 +25,15 @@ public partial class CampfireLook : Node3D
     private static readonly SphereMesh HeartMesh = new() { Radius = .006f, Height = .031f, RadialSegments = 6, Rings = 3 };
     private static readonly StandardMaterial3D StoneMaterial = new() { AlbedoColor = new Color("8d8a83"), Roughness = .95f };
     private static readonly StandardMaterial3D LogMaterial = new() { AlbedoColor = new Color("5b3d27"), Roughness = .9f };
+    /// <summary>A campfire that is out (decision 73: rain, later Snuff): its logs charred until the Gubble's Fire relights it.</summary>
+    private static readonly StandardMaterial3D CharredMaterial = new() { AlbedoColor = new Color("2b2622"), Roughness = 1f };
     private static readonly StandardMaterial3D FlameMaterial = Glowing(new Color("ed733d"));
     private static readonly StandardMaterial3D HeartMaterial = Glowing(new Color("ffe0a0"));
 
-    /// <summary>How many campfire spots are drawn, and how many of them burn (the tests read these).</summary>
+    /// <summary>How many campfire spots are drawn, how many of them burn, and how many are out (the tests read these).</summary>
     public int Drawn { get; private set; }
     public int Burning { get; private set; }
+    public int Out { get; private set; }
 
     public static CampfireLook Create(CommandHost host)
     {
@@ -81,7 +85,7 @@ public partial class CampfireLook : Node3D
         _dirty = false;
         foreach (var child in GetChildren()) child.QueueFree();
         _fires.Clear();
-        Drawn = Burning = 0;
+        Drawn = Burning = Out = 0;
         if (_host == null || !IsInstanceValid(_host)) return;
         foreach (var camp in _host.CampSites)
         {
@@ -93,8 +97,11 @@ public partial class CampfireLook : Node3D
                 var angle = Mathf.Tau * i / Stones;
                 root.AddChild(new MeshInstance3D { Mesh = StoneMesh, MaterialOverride = StoneMaterial, Position = new Vector3(Mathf.Cos(angle) * RingRadiusM, .005f, Mathf.Sin(angle) * RingRadiusM) });
             }
-            root.AddChild(new MeshInstance3D { Mesh = LogMesh, MaterialOverride = LogMaterial, Position = Vector3.Up * .006f, Rotation = new Vector3(Mathf.Pi / 2, .6f, 0) });
-            root.AddChild(new MeshInstance3D { Mesh = LogMesh, MaterialOverride = LogMaterial, Position = Vector3.Up * .009f, Rotation = new Vector3(Mathf.Pi / 2, -.6f, 0) });
+            var charred = _host.IsCampfireOut(camp.Id);
+            if (charred) Out++;
+            var logs = charred ? CharredMaterial : LogMaterial;
+            root.AddChild(new MeshInstance3D { Mesh = LogMesh, MaterialOverride = logs, Position = Vector3.Up * .006f, Rotation = new Vector3(Mathf.Pi / 2, .6f, 0) });
+            root.AddChild(new MeshInstance3D { Mesh = LogMesh, MaterialOverride = logs, Position = Vector3.Up * .009f, Rotation = new Vector3(Mathf.Pi / 2, -.6f, 0) });
             if (!_host.IsCampfireLit(camp.Id)) continue;
             Burning++;
             var flames = new MeshInstance3D[4];

@@ -68,17 +68,25 @@ public static class ExpertiseLists
     /// <summary>The ids the store accepts for Fire, in order: one constant, for the later Fire packet to change as its design settles.</summary>
     public static readonly string[] FireOrder = { FirstFire, Campfire, Fireline, Snuff, WillOWisp };
 
-    /// <summary>
-    /// The ids the store accepts for Grow: none yet. Grow's list (tall_plant, thicket, green_ash, rain_garden, waterside in
-    /// docs/magic/README.md) waits for the founder, so the store holds Grow's record with nothing learned.
-    /// </summary>
-    public static readonly string[] GrowOrder = Array.Empty<string>();
+    // Grow (the founder's list of 16 October, night, MECHANICS.md decision 75), in hint order: each a committed Grow cast the host
+    // verifies (CommandHostGrow.RecordGrowCast), each behaviour working from the start and the first time it works teaching it.
+    public const string TallPlant = "tall_plant";
+    public const string Thicket = "thicket";
+    public const string GreenAsh = "green_ash";
+    public const string RainGarden = "rain_garden";
+    public const string Waterpad = "waterpad";
+
+    /// <summary>The ids the store accepts for Grow, in the list's order (decision 75; Waterpad replaced Waterside).</summary>
+    public static readonly string[] GrowOrder = { TallPlant, Thicket, GreenAsh, RainGarden, Waterpad };
+
+    /// <summary>Grow's hints, one for each expertise in the same order, delivered at the team's 10th to 50th Grow cast as Glow's are.</summary>
+    public static readonly string[] GrowHintOrder = { "tall_plant_one", "thicket_together", "green_ash_burnt", "rain_garden_rain", "waterpad_water" };
 
     public static readonly ExpertiseList GlowList = new(Glow, GlowProgress.DiscoveryOrder, GlowProgress.HintOrder);
     // No hints for Bubbles or Fire until their lists are final: nothing is delivered, and the store refuses any hint under them.
     public static readonly ExpertiseList BubblesList = new(Bubbles, BubblesOrder);
     public static readonly ExpertiseList FireList = new(Fire, FireOrder);
-    public static readonly ExpertiseList GrowList = new(Grow, GrowOrder);
+    public static readonly ExpertiseList GrowList = new(Grow, GrowOrder, GrowHintOrder);
 
     /// <summary>Every ability the store holds, Glow first: the order the store writes them.</summary>
     public static readonly IReadOnlyList<ExpertiseList> All = new ReadOnlyCollection<ExpertiseList>(new[] { GlowList, BubblesList, FireList, GrowList });
@@ -125,6 +133,28 @@ public sealed class ExpertiseRecord
         if (!List.Knows(id)) throw new GlowProgressException("Expertise has an invalid discovery.");
         if (Has(id)) return this;
         return Restore(List, SuccessfulCasts, Discoveries.Append(id), DeliveredHints);
+    }
+
+    /// <summary>
+    /// A committed cast of this ability the host verified (Grow's, CommandHostGrow.RecordGrowCast): one more successful cast, the
+    /// expertise it showed learned once each, and, as Glow's (GlowProgress.AfterObservedCast), at the 10th, 20th, ... 50th cast the
+    /// hint of the first expertise in the list's order neither learned nor hinted yet. A list without hints counts the cast only.
+    /// </summary>
+    public ExpertiseRecord AfterCast(IEnumerable<string> learned)
+    {
+        var found = Discoveries.ToList();
+        foreach (var id in learned)
+        {
+            if (!List.Knows(id)) throw new GlowProgressException("Expertise has an invalid discovery.");
+            if (!found.Contains(id, StringComparer.Ordinal)) found.Add(id);
+        }
+        var casts = Math.Min(SuccessfulCasts + 1, GlowProgress.MaxSuccessfulCasts);
+        var hints = DeliveredHints.ToList();
+        if (List.HintOrder.Count > 0 && casts >= GlowProgress.HintAfterCasts * (hints.Count + 1))
+            for (var index = 0; index < List.Order.Count; index++)
+                if (!found.Contains(List.Order[index], StringComparer.Ordinal) && !hints.Contains(List.HintOrder[index], StringComparer.Ordinal))
+                { hints.Add(List.HintOrder[index]); break; }
+        return Restore(List, casts, found, hints);
     }
 
     /// <summary>Validated restoration (a saved store, never a command or the companion): known ids, each once, counts that agree.</summary>

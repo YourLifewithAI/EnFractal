@@ -46,8 +46,8 @@ public partial class PlayHudTest
               text.Contains("Your Glow expertise will appear here.", StringComparison.Ordinal) &&
               !text.Contains("Lantern", StringComparison.Ordinal) && NoGlowSpoilers(text),
             "the Discoveries page shows the current light allowance without naming undiscovered abilities or their unlock conditions");
-        Check(_hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge && line.Text == JournalPages.Smudge) == 5,
-            "each Glow discovery still to come is the same unreadable smudge, so there is more to find but nothing says what");
+        Check(GlowSmudges() == 5 && _hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge && line.Text == JournalPages.Smudge) == 10,
+            "each Glow discovery still to come is the same unreadable smudge (and each of Grow's), so there is more to find but nothing says what");
         var receipts = host.TransientReceiptCount(CommandHost.PlayerPrincipal);
         _hud._UnhandledInput(Press(Key.Key1));
         Check(host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.ActiveEffectIds.Count == 0,
@@ -104,7 +104,7 @@ public partial class PlayHudTest
               _hud.JournalText.Contains("Lantern\nA light that travels with the Gubble.", StringComparison.Ordinal),
             "a successful host cast records Lantern and the open journal shows its verified discovery");
         Check(!_hud.JournalText.Contains("Try asking me", StringComparison.Ordinal) && NoGlowSpoilers(_hud.JournalText) &&
-              _hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge) == 4,
+              GlowSmudges() == 4,
             "the learned page retires the now-completed hint and one smudge, without revealing future discoveries");
         _hud._UnhandledInput(Press(Key.Escape));
         await Frames(60);
@@ -156,4 +156,7 @@ public partial class PlayHudTest
         public GlowProgress Load() => state;
         public void Save(GlowProgress next) => state = next;
     }
+
+    /// <summary>The journal page's smudges in Glow's part (before Grow's list, decision 75, whose own smudges follow).</summary>
+    private int GlowSmudges() => _hud.Journal.Lines.TakeWhile(line => !(line.Ink == JournalInk.Title && line.Text == "Grow")).Count(line => line.Ink == JournalInk.Smudge);
 }

@@ -61,6 +61,8 @@ public partial class PlayHudTest
         Check(!host.Nature.Cells.Values.Any(cell => cell.BurningS > 0) && host.Authority.Call("receipt_count").AsInt32() == natureReceipts && host.ActiveEffectIds.Count == effects,
             "holding Fire without a successful preview cannot start a fire or manufacture a cast receipt");
         var previousSample = host.NatureSampleForTests;
+        // Decision 72: the team knows Fire, as after the first rest (the one helper every suite that lights fires uses).
+        host.LearnFireForTests();
         var point = FloorNearGubble(.3f);
         host.NatureSampleForTests = (x, z) => new NatureCell { X = x, Z = z, Y = point.Y, Material = "soil", Fertile = true, Fuel = 1, Moisture = .2f, Light = .6f };
         try

@@ -27,6 +27,9 @@ namespace EnFractal.Native.Kernel;
 /// - The plants Grow grew or fire burned ("plants", absent while none is): by id, each its factor (above 1, at most PlantLaws.CapFactor)
 ///   and or its burn (above 0, at most 1; a plant burnt down has no factor), at most MaxGrownPlants grown and MaxBurntPlants burnt or
 ///   burning, each a copy of this room's plant sets (never a stone). Undo steps remember them the same way, null for none.
+/// - The waterpads Grow grew on water ("waterpads", absent while none is; decision 75): in the order grown, each its id (waterpad:n),
+///   its leaf's spot and, while it burns, its burn (above 0, below 1: at 1 it is gone), at most NatureState.MaxWaterpads. An undo step
+///   that grew or burnt one remembers them all as they were before it (an empty list for none).
 /// - Cells resting far from both avatars keep the time they have not been simulated yet ("rest": 16-byte records of x, z
 ///   and the seconds as a float64, sorted by (x, z)), so a reload catches them up as the running game would have.
 /// </summary>
@@ -81,6 +84,7 @@ public static class NatureBlock
                 ["mode"] = step.Mode,
             });
             if (step.Plants.Count > 0) undo[^1]!["plants"] = Plants(step.Plants);
+            if (step.Waterpads != null) undo[^1]!["waterpads"] = Waterpads(step.Waterpads);
         }
         var block = new JsonObject
         {
@@ -100,6 +104,7 @@ public static class NatureBlock
             };
         }
         if (state.Plants.Count > 0) block["plants"] = Plants(state.Plants.ToDictionary(p => p.Key, p => (NaturePlant?)p.Value, StringComparer.Ordinal));
+        if (state.Waterpads.Count > 0) block["waterpads"] = Waterpads(state.Waterpads);
         if (state.UndoneAt >= 0) block["undone"] = new JsonObject { ["at"] = state.UndoneAt, ["state_of"] = state.UndoneTo };
         // The Fractals picked up on this island (item.pickup), sorted; absent while none is (every earlier block reads as none).
         if (state.FractalsPicked.Count > 0)
@@ -138,6 +143,20 @@ public static class NatureBlock
     private static Dictionary<string, NaturePlant?> ReadPlants(JsonObject map) => map.ToDictionary(p => p.Key, p => p.Value is JsonObject saved
         ? new NaturePlant { Id = p.Key, Factor = saved["factor"] is { } factor ? Float(factor) : 1, Burn = saved["burn"] is { } burn ? Float(burn) : 0 }
         : null, StringComparer.Ordinal);
+
+    /// <summary>Waterpads in the order grown: each its id, its leaf's spot and, while it burns, its burn.</summary>
+    private static JsonArray Waterpads(IEnumerable<NatureWaterpad> pads) => new(pads.Select(pad =>
+    {
+        var saved = new JsonObject { ["id"] = pad.Id, ["position_m"] = KernelJson.Vector(pad.PositionM) };
+        if (pad.Burn > 0) saved["burn"] = KernelJson.Num(Math.Min(1, pad.Burn));
+        return (JsonNode?)saved;
+    }).ToArray());
+
+    private static List<NatureWaterpad> ReadWaterpads(JsonArray pads) => pads.Select(node => node!.AsObject()).Select(saved => new NatureWaterpad
+    {
+        Id = saved["id"]!.GetValue<string>(), PositionM = new Vector3(Float(saved["position_m"]![0]), Float(saved["position_m"]![1]), Float(saved["position_m"]![2])),
+        Burn = saved["burn"] is { } burn ? Float(burn) : 0,
+    }).ToList();
 
     private static JsonObject Trail(bool enabled, string principal, string rules) => new() { ["enabled"] = enabled, ["by"] = principal, ["rules_sha256"] = rules };
 
@@ -250,6 +269,7 @@ public static class NatureBlock
             foreach (var (id, item) in ReadObjects(saved["objects"]!.AsObject())) step.Objects[id] = item;
             foreach (var id in saved["created"]!.AsArray()) step.Objects[id!.GetValue<string>()] = null;
             if (saved["plants"] is JsonObject remembered) step.Plants = ReadPlants(remembered);
+            if (saved["waterpads"] is JsonArray rememberedPads) step.Waterpads = ReadWaterpads(rememberedPads);
             state.Undo.Add(step);
         }
         if (block["undone"] is JsonObject undone)
@@ -261,6 +281,7 @@ public static class NatureBlock
             foreach (var id in picked) state.FractalsPicked.Add(id!.GetValue<string>());
         if (block["plants"] is JsonObject plants)
             foreach (var (id, plant) in ReadPlants(plants)) state.Plants[id] = plant!;
+        if (block["waterpads"] is JsonArray pads) state.Waterpads = ReadWaterpads(pads);
         if (block["rest"]?.GetValue<string>() is { } rest)
         {
             var bytes = Convert.FromBase64String(rest);
@@ -353,9 +374,10 @@ public static class NatureBlock
     {
         if (Normalized(node) is not { } block) return "not an object";
         var required = new[] { "format", "cell_m", "weather_s", "changed_at", "trail", "names", "cells", "objects", "wallet", "undo" };
-        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest" or "fractals" or "plants")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest" or "fractals" or "plants" or "waterpads")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
         if (block["fractals"] is { } fractals && FractalsProblem(fractals)) return "its Fractals picked up";
         if (block["plants"] is { } plants && PlantsProblem(plants, room, absentAllowed: false) is { } plantsWhy) return "its plants: " + plantsWhy;
+        if (block["waterpads"] is { } pads && WaterpadsProblem(pads, room, emptyAllowed: false) is { } padsWhy) return "its waterpads: " + padsWhy;
         if (!Whole(block["format"], Format) || block["format"]!.GetValue<double>() != Format) return "its format";
         if (!Number(block["cell_m"], 1) || (float)block["cell_m"]!.GetValue<double>() != NatureState.CellM) return "its cell size";
         if (!Number(block["weather_s"], MaxWeatherS) || block["weather_s"]!.GetValue<double>() < 0) return "its weather clock";
@@ -385,7 +407,7 @@ public static class NatureBlock
         foreach (var stepNode in undo)
         {
             // A step saved before 13 October has no mode (and cannot be undone); a newer one says which mode recorded it.
-            if (stepNode is not JsonObject step || step.Count != 9 + (step.ContainsKey("mode") ? 1 : 0) + (step.ContainsKey("plants") ? 1 : 0) ||
+            if (stepNode is not JsonObject step || step.Count != 9 + (step.ContainsKey("mode") ? 1 : 0) + (step.ContainsKey("plants") ? 1 : 0) + (step.ContainsKey("waterpads") ? 1 : 0) ||
                 new[] { "principal", "revision", "base", "label", "cells", "objects", "created", "wallet", "trail" }.Any(k => !step.ContainsKey(k)))
                 return "an undo step's fields";
             if (step["mode"] is { } mode && (mode.GetValueKind() != JsonValueKind.String || !PlayerModesProfile.ValidMode(mode.GetValue<string>()))) return "an undo step's mode";
@@ -406,6 +428,7 @@ public static class NatureBlock
                 created.Select(c => c!.GetValue<string>()).Distinct(StringComparer.Ordinal).Count() != created.Count) return "an undo step's created objects";
             if (WalletProblem(step["wallet"]) || TrailProblem(step["trail"])) return "an undo step's wallet or trail";
             if (step["plants"] is { } stepPlants && PlantsProblem(stepPlants, room, absentAllowed: true) is { } stepPlantsWhy) return "an undo step's plants: " + stepPlantsWhy;
+            if (step["waterpads"] is { } stepPads && WaterpadsProblem(stepPads, room, emptyAllowed: true) is { } stepPadsWhy) return "an undo step's waterpads: " + stepPadsWhy;
         }
         if (remembered > NatureState.MaxUndoCells + NatureState.MaxCells) return "undo steps that remember too many cells";
         if (block["undone"] is { } undone && (undone is not JsonObject u || u.Count != 2 || !Whole(u["at"], storeRevision) || !Whole(u["state_of"], storeRevision) ||
@@ -554,6 +577,28 @@ public static class NatureBlock
             else grown++;
         }
         return grown > NatureState.MaxGrownPlants || burning > NatureState.MaxBurntPlants ? "more plants than the island keeps" : null;
+    }
+
+    private static readonly Regex WaterpadIdPattern = new(@"\Awaterpad:[1-9][0-9]{0,2}\z", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The waterpads (decision 75): 1 to NatureState.MaxWaterpads (an undo step's may be none: it remembers the island had none), each
+    /// once by id, its spot in this room's bounds (with a room), and only while it burns a burn above 0 and below 1 (at 1 it is gone).
+    /// </summary>
+    private static string? WaterpadsProblem(JsonNode node, RoomData? room, bool emptyAllowed)
+    {
+        if (node is not JsonArray pads || pads.Count > NatureState.MaxWaterpads || (pads.Count == 0 && !emptyAllowed)) return "not 1 to the most the island keeps";
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var value in pads)
+        {
+            if (value is not JsonObject pad || pad.Any(p => p.Key is not ("id" or "position_m" or "burn")) || !pad.ContainsKey("id") || !pad.ContainsKey("position_m")) return "a waterpad's fields";
+            if (pad["id"]?.GetValueKind() != JsonValueKind.String || !WaterpadIdPattern.IsMatch(pad["id"]!.GetValue<string>()) || !ids.Add(pad["id"]!.GetValue<string>())) return "a waterpad's id";
+            if (!Vec3(pad["position_m"])) return "a waterpad's spot";
+            var at = new Vector3((float)pad["position_m"]![0]!.GetValue<double>(), (float)pad["position_m"]![1]!.GetValue<double>(), (float)pad["position_m"]![2]!.GetValue<double>());
+            if (room != null && !room.Bounds.Grow(0.05f).HasPoint(at)) return "a waterpad outside the island";
+            if (pad["burn"] is { } burn && (!Number(burn, 1) || burn.GetValue<double>() <= 0 || burn.GetValue<double>() >= 1)) return "a waterpad's burn";
+        }
+        return null;
     }
 
     private static readonly Regex FractalIdPattern = new(@"\Afractal:[a-z0-9]{1,32}\z", RegexOptions.Compiled);

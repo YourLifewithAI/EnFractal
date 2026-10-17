@@ -285,6 +285,8 @@ public partial class CommandHost
         {
             var capability = Str(args, "capability")!;
             var ability = Rules?.Ability(capability) ?? throw new Refusal("unsupported_capability", "This island does not grant that nature ability.", "$.args.capability");
+            // Decision 72: no Fire until the first rest, whoever asks, before every other check of it (CommandHostCamps.RequireFireLearned).
+            if (capability == "fire") RequireFireLearned();
             // The Gubble's fire guardrails (the player's setting, one fire of its own, the wait after the last), before anything else.
             if (capability == "fire" && principal != PlayerPrincipal) CheckCompanionFire();
             var cast = CheckCast(ability, args, principal);
@@ -764,6 +766,8 @@ public partial class CommandHost
             if (BurnPlayer(NatureLaws.StepS) is { } harm && source != null) NoteFireHarm(source, harm, at);
         }
         SeeCompanionFire();
+        // Decision 73: rain puts the campfires out (CommandHostCamps.StepCampfireRain).
+        StepCampfireRain(NatureLaws.StepS);
         if (LookHook != null) LookHook.Wind = new Vector2(NatureWeather.WindMps.X, NatureWeather.WindMps.Z);
         _natureClockMoved = true;
         var fireEnded = hadFire && Nature.Fire == null;
