@@ -114,12 +114,12 @@ public partial class NatureTest
         Check(Ok(ordered) && Pips == 5, $"the player's order of the same Glow pays the ordered price, two pips ({Pips} left)");
         var stop = Send(Command(NextId("stop"), "effect.stop", new JsonObject { ["effect"] = "all" }), Player);
         Check(Ok(stop) && Pips == 5, "a stop costs nothing");
-        var bloom = Send(Command(NextId("bloom"), "nature.cast", Cast("bloom", NearGubble, 0.15, 60)), Companion);
-        Check(Ok(bloom) && Pips == 3 && bloom["transient"]?.GetValue<bool>() == false, $"the Gubble's own Bloom costs two pips at commit, a durable change ({Pips} left)");
+        var bloom = Send(Command(NextId("bloom"), "nature.cast", Cast("grow", NearGubble, 0.15, 1)), Companion);
+        Check(Ok(bloom) && Pips == 3 && bloom["transient"]?.GetValue<bool>() == false, $"the Gubble's own Grow costs two pips at commit, a durable change ({Pips} left)");
         var revision = _host.Revision;
-        var blocked = Send(Command(NextId("bloom-player"), "nature.cast", Cast("bloom", NearGubble + new Vector3(0.2f, 0, 0), 0.15, 60)), Player);
+        var blocked = Send(Command(NextId("bloom-player"), "nature.cast", Cast("grow", NearGubble + new Vector3(0.2f, 0, 0), 0.15, 1)), Player);
         Check(Exhausted(blocked, 3, 4) && _host.Revision == revision && Pips == 3,
-            "the player's Bloom at four pips with three in the pool is refused energy_exhausted, carrying the balance and the price, and nothing changes: " + Canonical(blocked["error"]));
+            "the player's Grow at four pips with three in the pool is refused energy_exhausted, carrying the balance and the price, and nothing changes: " + Canonical(blocked["error"]));
         var lit = Fire(Companion, new Vector3(0.9f, 0.01f, 1.2f), 0.15, 6, out var firePreview);
         Check(Ok(firePreview) && Ok(lit) && Pips == 0, $"the Gubble's Fire is previewed free and costs three pips when it is lit ({Pips} left)");
         var effects = _host.ActiveEffectIds.Count;

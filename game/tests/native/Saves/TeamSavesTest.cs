@@ -256,9 +256,22 @@ public partial class TeamSavesTest : Node3D
             "the store writes version 3, keyed by ability, naming its team: " + text.Trim());
         Check(LocalGlowProgressStore.ParseDocument(Encoding.UTF8.GetBytes(CreativeGlowV2)) is { Version: 2, TeamId: null } v2 && v2.Progress.Same(CreativeGlow),
             "version 2 (one file per mode) is still read, for the migration");
-        var bloom = text.Replace("\"abilities\":{", "\"abilities\":{\"bloom\":{\"successful_casts\":1,\"discoveries\":[],\"delivered_hints\":[]},", StringComparison.Ordinal);
+        var bloom = text.Replace("\"abilities\":{", "\"abilities\":{\"thunder\":{\"successful_casts\":1,\"discoveries\":[],\"delivered_hints\":[]},", StringComparison.Ordinal);
         Check(Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(bloom))) && Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(text.Replace("\"team_id\":\"mira\"", "\"team_id\":\"Mira\"", StringComparison.Ordinal)))),
             "an ability this game does not learn yet (a newer save's) and a malformed team are refused whole, so a write never drops them");
+        // Decision 52: Bloom became Grow, and Grow takes Bloom's place in the store. A store that holds "bloom" is read as Grow's
+        // record and written as "grow" from then on; one holding both is ambiguous and refused whole.
+        var older = JsonNode.Parse(text)!.AsObject();
+        older["abilities"]!["bloom"] = new JsonObject { ["successful_casts"] = 3, ["discoveries"] = new JsonArray(), ["delivered_hints"] = new JsonArray() };
+        var migrated = LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(older.ToJsonString()));
+        var rewritten = Encoding.UTF8.GetString(LocalGlowProgressStore.Serialize(migrated, "mira"));
+        var both = JsonNode.Parse(older.ToJsonString())!.AsObject();
+        both["abilities"]!["grow"] = new JsonObject { ["successful_casts"] = 1, ["discoveries"] = new JsonArray(), ["delivered_hints"] = new JsonArray() };
+        Check(migrated.Others.TryGetValue(ExpertiseLists.Grow, out var grow) && grow.SuccessfulCasts == 3 && rewritten.Contains("\"grow\":{\"successful_casts\":3", StringComparison.Ordinal) &&
+              !rewritten.Contains("bloom", StringComparison.Ordinal) && Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(both.ToJsonString()))),
+            "a store holding Bloom's record is read as Grow's and written as \"grow\"; one holding both is refused: " + rewritten.Trim());
+        Check(Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(older.ToJsonString().Replace("\"discoveries\":[],\"delivered_hints\":[]}}", "\"discoveries\":[\"tall_plant\"],\"delivered_hints\":[]}}", StringComparison.Ordinal)))),
+            "Grow's list is not in yet (the founder has not seen it): no Grow expertise is accepted");
     }
 
     // ---- the migration ----

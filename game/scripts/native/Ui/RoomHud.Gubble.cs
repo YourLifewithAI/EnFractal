@@ -383,8 +383,8 @@ public partial class RoomHud
         var host = Host;
         if (host == null) return;
         _cue.Think(GubbleMagic.SlotIcons[slot]);
-        if (ability.Capability == "bloom" && point == null) { _cue.Shrug(GubbleMagic.SlotIcons[slot], "choose a spot for flowers"); return; }
-        var result = ability.Capability == "bloom" ? host.PlayerNatureCast("bloom", point!.Value) : host.PlayerEffect(ability.Capability, point);
+        if (ability.Capability == "grow" && point == null) { _cue.Shrug(GubbleMagic.SlotIcons[slot], "choose a spot to grow"); return; }
+        var result = ability.Capability == "grow" ? host.PlayerNatureCast("grow", point!.Value) : host.PlayerEffect(ability.Capability, point);
         if (!Answer(result, wiggle: false)) return;
         // The look's spark leaves the Gubble now (StartGlow, inside the cast): the gesture starts with it.
         Companion.CastGesture(point, ability.Category);

@@ -24,6 +24,9 @@ namespace EnFractal.Native.Kernel;
 /// - The undo steps keep their remembered cells the same way, a record flagged absent for a cell that did not exist, and
 ///   the mode each was recorded in (only Creative's can be undone; a step saved before 13 October has none and cannot).
 /// - The fire names who lit it and at whose direction (a fire saved before 13 October has neither: it counts as the player's).
+/// - The plants Grow grew or fire burned ("plants", absent while none is): by id, each its factor (above 1, at most PlantLaws.CapFactor)
+///   and or its burn (above 0, at most 1; a plant burnt down has no factor), at most MaxGrownPlants grown and MaxBurntPlants burnt or
+///   burning, each a copy of this room's plant sets (never a stone). Undo steps remember them the same way, null for none.
 /// - Cells resting far from both avatars keep the time they have not been simulated yet ("rest": 16-byte records of x, z
 ///   and the seconds as a float64, sorted by (x, z)), so a reload catches them up as the running game would have.
 /// </summary>
@@ -77,6 +80,7 @@ public static class NatureBlock
                 ["trail"] = Trail(step.TrailEnabled, step.TrailPrincipal, step.TrailRulesSha256),
                 ["mode"] = step.Mode,
             });
+            if (step.Plants.Count > 0) undo[^1]!["plants"] = Plants(step.Plants);
         }
         var block = new JsonObject
         {
@@ -95,6 +99,7 @@ public static class NatureBlock
                 ["authorized"] = new JsonObject(fire.AuthorizedCreations.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))),
             };
         }
+        if (state.Plants.Count > 0) block["plants"] = Plants(state.Plants.ToDictionary(p => p.Key, p => (NaturePlant?)p.Value, StringComparer.Ordinal));
         if (state.UndoneAt >= 0) block["undone"] = new JsonObject { ["at"] = state.UndoneAt, ["state_of"] = state.UndoneTo };
         // The Fractals picked up on this island (item.pickup), sorted; absent while none is (every earlier block reads as none).
         if (state.FractalsPicked.Count > 0)
@@ -114,6 +119,25 @@ public static class NatureBlock
         }
         return block;
     }
+
+    /// <summary>Plants by id, sorted: each its factor and or burn (null: an undo step's "had no record").</summary>
+    private static JsonObject Plants(Dictionary<string, NaturePlant?> plants)
+    {
+        var map = new JsonObject();
+        foreach (var (id, plant) in plants.OrderBy(p => p.Key, StringComparer.Ordinal))
+        {
+            if (plant == null) { map[id] = null; continue; }
+            var saved = new JsonObject();
+            if (!plant.Burnt && plant.Factor > 1) saved["factor"] = KernelJson.Num(plant.Factor);
+            if (plant.Burn > 0) saved["burn"] = KernelJson.Num(Math.Min(1, plant.Burn));
+            map[id] = saved;
+        }
+        return map;
+    }
+
+    private static Dictionary<string, NaturePlant?> ReadPlants(JsonObject map) => map.ToDictionary(p => p.Key, p => p.Value is JsonObject saved
+        ? new NaturePlant { Id = p.Key, Factor = saved["factor"] is { } factor ? Float(factor) : 1, Burn = saved["burn"] is { } burn ? Float(burn) : 0 }
+        : null, StringComparer.Ordinal);
 
     private static JsonObject Trail(bool enabled, string principal, string rules) => new() { ["enabled"] = enabled, ["by"] = principal, ["rules_sha256"] = rules };
 
@@ -225,6 +249,7 @@ public static class NatureBlock
             };
             foreach (var (id, item) in ReadObjects(saved["objects"]!.AsObject())) step.Objects[id] = item;
             foreach (var id in saved["created"]!.AsArray()) step.Objects[id!.GetValue<string>()] = null;
+            if (saved["plants"] is JsonObject remembered) step.Plants = ReadPlants(remembered);
             state.Undo.Add(step);
         }
         if (block["undone"] is JsonObject undone)
@@ -234,6 +259,8 @@ public static class NatureBlock
         }
         if (block["fractals"] is JsonArray picked)
             foreach (var id in picked) state.FractalsPicked.Add(id!.GetValue<string>());
+        if (block["plants"] is JsonObject plants)
+            foreach (var (id, plant) in ReadPlants(plants)) state.Plants[id] = plant!;
         if (block["rest"]?.GetValue<string>() is { } rest)
         {
             var bytes = Convert.FromBase64String(rest);
@@ -326,8 +353,9 @@ public static class NatureBlock
     {
         if (Normalized(node) is not { } block) return "not an object";
         var required = new[] { "format", "cell_m", "weather_s", "changed_at", "trail", "names", "cells", "objects", "wallet", "undo" };
-        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest" or "fractals")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest" or "fractals" or "plants")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
         if (block["fractals"] is { } fractals && FractalsProblem(fractals)) return "its Fractals picked up";
+        if (block["plants"] is { } plants && PlantsProblem(plants, room, absentAllowed: false) is { } plantsWhy) return "its plants: " + plantsWhy;
         if (!Whole(block["format"], Format) || block["format"]!.GetValue<double>() != Format) return "its format";
         if (!Number(block["cell_m"], 1) || (float)block["cell_m"]!.GetValue<double>() != NatureState.CellM) return "its cell size";
         if (!Number(block["weather_s"], MaxWeatherS) || block["weather_s"]!.GetValue<double>() < 0) return "its weather clock";
@@ -357,7 +385,7 @@ public static class NatureBlock
         foreach (var stepNode in undo)
         {
             // A step saved before 13 October has no mode (and cannot be undone); a newer one says which mode recorded it.
-            if (stepNode is not JsonObject step || step.Count != (step.ContainsKey("mode") ? 10 : 9) ||
+            if (stepNode is not JsonObject step || step.Count != 9 + (step.ContainsKey("mode") ? 1 : 0) + (step.ContainsKey("plants") ? 1 : 0) ||
                 new[] { "principal", "revision", "base", "label", "cells", "objects", "created", "wallet", "trail" }.Any(k => !step.ContainsKey(k)))
                 return "an undo step's fields";
             if (step["mode"] is { } mode && (mode.GetValueKind() != JsonValueKind.String || !PlayerModesProfile.ValidMode(mode.GetValue<string>()))) return "an undo step's mode";
@@ -377,6 +405,7 @@ public static class NatureBlock
                 created.Any(c => c?.GetValueKind() != JsonValueKind.String || !(ObjectId.IsMatch(c.GetValue<string>()) || CreationId.IsMatch(c.GetValue<string>())) || stepObjects.ContainsKey(c.GetValue<string>())) ||
                 created.Select(c => c!.GetValue<string>()).Distinct(StringComparer.Ordinal).Count() != created.Count) return "an undo step's created objects";
             if (WalletProblem(step["wallet"]) || TrailProblem(step["trail"])) return "an undo step's wallet or trail";
+            if (step["plants"] is { } stepPlants && PlantsProblem(stepPlants, room, absentAllowed: true) is { } stepPlantsWhy) return "an undo step's plants: " + stepPlantsWhy;
         }
         if (remembered > NatureState.MaxUndoCells + NatureState.MaxCells) return "undo steps that remember too many cells";
         if (block["undone"] is { } undone && (undone is not JsonObject u || u.Count != 2 || !Whole(u["at"], storeRevision) || !Whole(u["state_of"], storeRevision) ||
@@ -496,6 +525,36 @@ public static class NatureBlock
         node is not JsonObject trail || trail.Count != 3 || trail["enabled"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False) ||
         trail["by"]?.GetValueKind() != JsonValueKind.String || trail["by"]!.GetValue<string>() is not ("player" or "companion") ||
         trail["rules_sha256"]?.GetValueKind() != JsonValueKind.String || trail["rules_sha256"]!.GetValue<string>() is var rules && rules.Length != 0 && !Hex64.IsMatch(rules);
+
+    private static readonly Regex PlantIdPattern = new(@"\Aplant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7})\z", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The plants: 1 or more ids of one spelling, each a plant or tree of this room's copies (with a room), each holding only a factor
+    /// (above 1, at most PlantLaws.CapFactor) and or a burn (above 0, at most 1; none at 1 holds a factor), at most MaxGrownPlants
+    /// grown and MaxBurntPlants burnt or burning. An undo step's may name a plant with null (it had no record).
+    /// </summary>
+    private static string? PlantsProblem(JsonNode node, RoomData? room, bool absentAllowed)
+    {
+        if (node is not JsonObject plants || plants.Count is < 1 or > NatureState.MaxGrownPlants + NatureState.MaxBurntPlants) return "not 1 to the most the island keeps";
+        int grown = 0, burning = 0;
+        foreach (var (id, value) in plants)
+        {
+            if (!PlantIdPattern.IsMatch(id)) return "an id";
+            if (room != null && (room.Copies is not { } copies || !copies.TryResolve(id, out var set, out _) || set.Kind == PlantKind.Stone)) return "a plant not in this room";
+            if (value == null)
+            {
+                if (!absentAllowed) return "a plant with no record";
+                continue;
+            }
+            if (value is not JsonObject plant || plant.Count is < 1 or > 2 || plant.Any(p => p.Key is not ("factor" or "burn"))) return "a plant's fields";
+            if (plant["factor"] is { } factor && (!Number(factor, PlantLaws.CapFactor) || factor.GetValue<double>() <= 1)) return "a plant's size";
+            if (plant["burn"] is { } burn && (!Number(burn, 1) || burn.GetValue<double>() <= 0)) return "a plant's burn";
+            if (plant["burn"] is { } whole && whole.GetValue<double>() >= 1 && plant.ContainsKey("factor")) return "a burnt plant's size";
+            if (plant.ContainsKey("burn")) burning++;
+            else grown++;
+        }
+        return grown > NatureState.MaxGrownPlants || burning > NatureState.MaxBurntPlants ? "more plants than the island keeps" : null;
+    }
 
     private static readonly Regex FractalIdPattern = new(@"\Afractal:[a-z0-9]{1,32}\z", RegexOptions.Compiled);
 

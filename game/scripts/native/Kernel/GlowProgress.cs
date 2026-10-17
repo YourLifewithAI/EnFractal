@@ -390,9 +390,14 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
                 if (abilities.ValueKind != JsonValueKind.Object || abilities.EnumerateObject().Count() == 0 ||
                     abilities.EnumerateObject().Any(property => ExpertiseLists.Find(property.Name) == null))
                     throw new GlowProgressException("Glow progress has unsupported abilities.");
+                // Bloom became Grow (decision 52): an older store's "bloom" is Grow's record, written as "grow" with the next save;
+                // a store holding both is refused whole, as anything ambiguous is.
+                if (abilities.TryGetProperty(ExpertiseLists.LegacyBloom, out _) && abilities.TryGetProperty(ExpertiseLists.Grow, out _))
+                    throw new GlowProgressException("Glow progress holds both Bloom's and Grow's records.");
                 foreach (var list in ExpertiseLists.All.Where(list => list.Ability != GlowAbility))
                 {
-                    if (!abilities.TryGetProperty(list.Ability, out var other)) continue;
+                    if (!abilities.TryGetProperty(list.Ability, out var other) &&
+                        !(list.Ability == ExpertiseLists.Grow && abilities.TryGetProperty(ExpertiseLists.LegacyBloom, out other))) continue;
                     ExactFields(other, AbilityFields);
                     others.Add(ExpertiseRecord.Restore(list, UseCount(other), Ids(other.GetProperty("discoveries"), 5), Ids(other.GetProperty("delivered_hints"), 5)));
                 }

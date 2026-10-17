@@ -40,6 +40,10 @@ public static class ExpertiseLists
     public const string Glow = "glow";
     public const string Bubbles = "bubbles";
     public const string Fire = "fire";
+    /// <summary>Grow (decision 52): Bloom's successor takes its place in the store; a store that holds "bloom" is read as Grow (LegacyBloom).</summary>
+    public const string Grow = "grow";
+    /// <summary>The id an older store may hold for Grow's record: Bloom's, read as Grow and written as Grow from then on.</summary>
+    public const string LegacyBloom = "bloom";
 
     // Bubbles: the Bubble's own (packet M9), learned by the first carry that set the player down safely, the first step into a boat
     // and the first lift that rose the player.
@@ -64,15 +68,22 @@ public static class ExpertiseLists
     /// <summary>The ids the store accepts for Fire, in order: one constant, for the later Fire packet to change as its design settles.</summary>
     public static readonly string[] FireOrder = { FirstFire, Campfire, Fireline, Snuff, WillOWisp };
 
+    /// <summary>
+    /// The ids the store accepts for Grow: none yet. Grow's list (tall_plant, thicket, green_ash, rain_garden, waterside in
+    /// docs/magic/README.md) waits for the founder, so the store holds Grow's record with nothing learned.
+    /// </summary>
+    public static readonly string[] GrowOrder = Array.Empty<string>();
+
     public static readonly ExpertiseList GlowList = new(Glow, GlowProgress.DiscoveryOrder, GlowProgress.HintOrder);
     // No hints for Bubbles or Fire until their lists are final: nothing is delivered, and the store refuses any hint under them.
     public static readonly ExpertiseList BubblesList = new(Bubbles, BubblesOrder);
     public static readonly ExpertiseList FireList = new(Fire, FireOrder);
+    public static readonly ExpertiseList GrowList = new(Grow, GrowOrder);
 
     /// <summary>Every ability the store holds, Glow first: the order the store writes them.</summary>
-    public static readonly IReadOnlyList<ExpertiseList> All = new ReadOnlyCollection<ExpertiseList>(new[] { GlowList, BubblesList, FireList });
+    public static readonly IReadOnlyList<ExpertiseList> All = new ReadOnlyCollection<ExpertiseList>(new[] { GlowList, BubblesList, FireList, GrowList });
 
-    public static ExpertiseList? Find(string? ability) => ability == null ? null : All.FirstOrDefault(list => list.Ability == ability);
+    public static ExpertiseList? Find(string? ability) => ability == null ? null : All.FirstOrDefault(list => list.Ability == (ability == LegacyBloom ? Grow : ability));
 }
 
 /// <summary>

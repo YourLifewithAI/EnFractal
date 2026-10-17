@@ -63,18 +63,13 @@ public static class NatureLaws
     /// <summary>Flowers add at least this much fuel to their cell.</summary>
     public const float FlowerFuel = 0.35f;
 
-    // ---- Bloom and the flower trail ----
+    // ---- flowers (Bloom's, retired by decision 52: an older save's are dropped on load, NatureState.DropFlowers) ----
 
-    /// <summary>A Bloom's flowers start at this much growth per unit of the pack's intensity (0.6 starts them at 0.2).</summary>
-    public const float BloomStartGrowthPerIntensity = 1f / 3f;
     public const float GrowthPerS = 0.035f;
     public const float GrowthMinMoisture = 0.12f;
     public const float GrowthMinLight = 0.12f;
     public const float FadeWhileAlivePerS = 0.006f;
     public const float FadeAfterLifePerS = 0.025f;
-    public const float TrailRadiusM = 0.07f;
-    public const float TrailSpacingM = 0.07f;
-    public const float TrailLifeS = 120f;
 
     // ---- Fire ----
 
@@ -181,6 +176,25 @@ public sealed class NatureObject
     };
 }
 
+/// <summary>
+/// What Grow and fire did to one of the island's plant copies (plant:&lt;set&gt;-&lt;row&gt;, contracts/README.md "Plant copies"): its size
+/// as a factor of its natural size (1 natural, up to its cap: PlantLaws.CapFactor), and how far it has burned. A plant at 1 burn
+/// has burned down: gone with its drawing and its collision, for good unless it is replanted (decision 67); the simulation never
+/// regrows it. Room state, never the manifest, which is pinned.
+/// </summary>
+public sealed class NaturePlant
+{
+    public string Id { get; set; } = "";
+    public float Factor { get; set; } = 1;
+    /// <summary>0 to 1; at 1 it has burned down.</summary>
+    public float Burn { get; set; }
+    public bool Burnt => Burn >= 1;
+    public bool Grown => !Burnt && Factor > 1;
+    /// <summary>The factor the island draws and collides it at: 0 when it burned down.</summary>
+    public float Shown => Burnt ? 0 : Factor;
+    public NaturePlant Copy() => (NaturePlant)MemberwiseClone();
+}
+
 /// <summary>The one fire that may burn at a time: who lit it, at whose direction, and what it was allowed to touch.</summary>
 public sealed class NatureFire
 {
@@ -223,6 +237,8 @@ public sealed class NatureUndoStep
     public bool Undoable => Mode == "creative";
     public Dictionary<string, NatureCell?> Cells { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, NatureObject?> Objects { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>Each plant as it was before the change touched it (null: it had nothing recorded, natural and unburnt).</summary>
+    public Dictionary<string, NaturePlant?> Plants { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> Wallet { get; set; } = new(StringComparer.Ordinal);
     public bool TrailEnabled { get; set; }
     public string TrailPrincipal { get; set; } = "player";
@@ -233,6 +249,7 @@ public sealed class NatureUndoStep
         Principal = Principal, Revision = Revision, Base = Base, Label = Label, Mode = Mode,
         Cells = Cells.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
         Objects = Objects.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
+        Plants = Plants.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
         Wallet = new(Wallet, StringComparer.Ordinal), TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
     };
 }
@@ -251,6 +268,9 @@ public sealed class NatureState
     public const int MaxCells = 16000;
     public const int MaxBurning = 200;
     public const int MaxObjects = 1024;
+    /// <summary>Grown plants the island keeps (the brief's 4,096), and burnt ones (provisional): each is one record in the save.</summary>
+    public const int MaxGrownPlants = 4096;
+    public const int MaxBurntPlants = 8192;
     /// <summary>Durable nature changes room.undo can still take back, and the cells they remember together; the oldest go first.</summary>
     public const int MaxUndoSteps = 8;
     public const int MaxUndoCells = 8192;
@@ -267,6 +287,8 @@ public sealed class NatureState
     public string TrailRulesSha256 { get; set; } = "";
     public Dictionary<string, NatureCell> Cells { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, NatureObject> Objects { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>The plant copies Grow grew or fire burned (only those: a plant with no record is as the manifest has it).</summary>
+    public Dictionary<string, NaturePlant> Plants { get; set; } = new(StringComparer.Ordinal);
     /// <summary>Prototype material accounting: one unit per original authored part; no prior economy exists.</summary>
     public Dictionary<string, int> Wallet { get; set; } = FreshWallet();
     public NatureFire? Fire { get; set; }
@@ -296,7 +318,7 @@ public sealed class NatureState
     /// Gubble walks, with no command.
     /// </summary>
     public bool Untouched(bool trailAllowed, IReadOnlyDictionary<string, int> startWallet) =>
-        Objects.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" && FractalsPicked.Count == 0 &&
+        Objects.Count == 0 && Plants.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" && FractalsPicked.Count == 0 &&
         TrailRulesSha256.Length == 0 && Wallet.Count == startWallet.Count && startWallet.All(p => Wallet.GetValueOrDefault(p.Key, -1) == p.Value) &&
         (trailAllowed || Cells.Count == 0);
 
@@ -305,6 +327,7 @@ public sealed class NatureState
         WeatherS = WeatherS, ChangedAt = ChangedAt, TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
         Cells = Cells.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
         Objects = Objects.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
+        Plants = Plants.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
         Wallet = new(Wallet, StringComparer.Ordinal), Fire = Fire?.Copy(), Undo = Undo.Select(s => s.Copy()).ToList(),
         UndoneAt = UndoneAt, UndoneTo = UndoneTo, FractalsPicked = new(FractalsPicked, StringComparer.Ordinal),
     };
@@ -407,6 +430,40 @@ public sealed class NatureState
         if (step != null && !step.Objects.ContainsKey(id)) step.Objects[id] = Objects.TryGetValue(id, out var value) ? value.Copy() : null;
     }
 
+    public void RememberPlant(NatureUndoStep? step, string id)
+    {
+        if (step != null && !step.Plants.ContainsKey(id)) step.Plants[id] = Plants.TryGetValue(id, out var value) ? value.Copy() : null;
+    }
+
+    /// <summary>The plant's record, made when it has none (natural size, unburnt).</summary>
+    public NaturePlant Plant(string id)
+    {
+        if (!Plants.TryGetValue(id, out var plant)) Plants[id] = plant = new NaturePlant { Id = id };
+        return plant;
+    }
+
+    public int GrownPlants => Plants.Values.Count(p => p.Grown);
+    public int BurntPlants => Plants.Values.Count(p => p.Burnt);
+
+    /// <summary>
+    /// Bloom's flowers go (decision 52: Bloom became Grow and its flower trail was removed): every cell's flowers, and every undo
+    /// step's remembered ones, are dropped; a cell left with nothing (no flowers, ash or fire) goes. An older island's save loads
+    /// cleanly without them. Returns whether anything was dropped.
+    /// </summary>
+    public bool DropFlowers()
+    {
+        var dropped = false;
+        foreach (var cell in Cells.Values.Concat(Undo.SelectMany(s => s.Cells.Values).Where(c => c != null).Select(c => c!)))
+        {
+            if (cell.Growth <= 0 && cell.LifeS <= 0) continue;
+            cell.Growth = 0;
+            cell.LifeS = 0;
+            dropped = true;
+        }
+        foreach (var key in Cells.Where(p => Expired(p.Value)).Select(p => p.Key).ToList()) Cells.Remove(key);
+        return dropped;
+    }
+
     /// <summary>
     /// Takes the given steps back (newest first, as StepsBackTo lists them): every cell, object, wallet and trail setting
     /// as it was before them. Any fire goes out. The undo itself is a room revision (at) standing for target's state.
@@ -425,6 +482,11 @@ public sealed class NatureState
                 if (item == null) Objects.Remove(id);
                 else Objects[id] = item.Copy();
             }
+            foreach (var (id, plant) in step.Plants)
+            {
+                if (plant == null) Plants.Remove(id);
+                else Plants[id] = plant.Copy();
+            }
             Wallet = new(step.Wallet, StringComparer.Ordinal);
             TrailEnabled = step.TrailEnabled;
             TrailPrincipal = step.TrailPrincipal;
@@ -439,32 +501,6 @@ public sealed class NatureState
     }
 
     // ---- the casts ----
-
-    /// <summary>Plants only on verified fertile ground the sampler found, never on an assumed rectangle; returns the cells planted.</summary>
-    public int Bloom(Vector3 center, float radius, float lifeS, float intensity, Func<int, int, NatureCell?> sample, NatureUndoStep? step)
-    {
-        var planted = 0;
-        var start = Math.Clamp(intensity * NatureLaws.BloomStartGrowthPerIntensity, 0.05f, 1);
-        foreach (var (x, z) in Disk(center, radius))
-        {
-            var key = Key(x, z);
-            var ground = sample(x, z);
-            if (ground is not { Fertile: true } || ground.BurningS > 0) continue;
-            if (!Cells.ContainsKey(key) && Cells.Count >= MaxCells) break;
-            CatchUpCell(key);
-            RememberCell(step, Cells, key);
-            var cell = Cells.GetValueOrDefault(key) ?? ground;
-            cell.Y = ground.Y;
-            cell.Surface = ground.Surface;
-            cell.Exposed = ground.Exposed;
-            cell.Growth = Math.Max(start, cell.Growth);
-            cell.LifeS = Math.Max(cell.LifeS, lifeS);
-            cell.Fuel = Math.Max(cell.Fuel, NatureLaws.FlowerFuel);
-            Cells[key] = cell;
-            planted++;
-        }
-        return planted;
-    }
 
     /// <summary>
     /// Lights the one fire: dry fuel near the centre catches, and the fire may spread within radius for durationS. It

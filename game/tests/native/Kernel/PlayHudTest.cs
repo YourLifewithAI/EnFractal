@@ -370,7 +370,7 @@ public partial class PlayHudTest : Node
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm · E gather a log or stone you hold into your wallet · Z sit down by a lit campfire to rest (moving stands you up)",
                 "The Gubble, your companion:",
                 "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look; on a bubble, choose it, then a spot to lead it there, a higher one to lift it); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
-                $"1 Glow{PriceWords("glow")}, 2 Bloom{PriceWords("bloom")}, 3 Bubbles{PriceWords("bubbles")}, 4 Fireworks{PriceWords("fireworks")} where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
+                $"1 Glow{PriceWords("glow")}, 2 Grow{PriceWords("grow")}, 3 Bubbles{PriceWords("bubbles")}, 4 Fireworks{PriceWords("fireworks")} where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps · P your character's bounce (x0.5, x1, x1.5) · Shift+P print its motion profile",
                 "Playtest record: F9 something's off here · F8 keep this · F7 stills faster · F6 slower (the record is off for this run)",
@@ -917,8 +917,8 @@ public partial class PlayHudTest : Node
             "Glow is up (the pack's light ability, its display_name), Stay right, Fetch lower left, Come left: " + string.Join(" | ", labels).Replace("\n", " "));
         Check(labels[1] == "✸\n4 Fireworks" && labels[7] == "○\n3 Bubbles" && _hud.Wheel.WedgeLabels[1].Modulate.A == 1f && _hud.Wheel.WedgeLabels[7].Modulate.A == 1f,
             "Fireworks (upper right) and Bubbles (upper left) are the island's now, bright in their fixed places: " + labels[1].Replace("\n", " ") + " | " + labels[7].Replace("\n", " "));
-        Check(labels[3] == "✿\n2 Bloom" && _hud.Wheel.WedgeLabels[3].Modulate.A == 1f,
-            "Bloom is now available in its fixed growth wedge");
+        Check(labels[3] == "✿\n2 Grow" && _hud.Wheel.WedgeLabels[3].Modulate.A == 1f,
+            "Grow is now available in its fixed growth wedge");
         Check(new[] { 4 }.All(i => labels[i] == $"{GubbleMagic.Wedges[i].Icon}\n{GubbleMagic.Wedges[i].Slot + 1} {GubbleMagic.Wedges[i].Name}\n{GubbleWheel.LackingWords}" &&
               _hud.Wheel.WedgeLabels[i].Modulate.A < 0.5f && !labels[i].Contains(GubbleMagic.UnknownIcon, StringComparison.Ordinal)),
             "Build, which this island lacks, stays dim in its fixed place with its name and \"not yet\": " + labels[4].Replace("\n", " "));

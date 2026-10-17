@@ -246,6 +246,57 @@ public static class IslandFixture
         return target;
     }
 
+    /// <summary>
+    /// A copy of a room (its manifest and every file it lists, its room id kept, at target, a user:// folder named as the room) with
+    /// plant copies added: the island example's plant meshes, the sets as given, and the manifest's files listed again with their hashes
+    /// and sizes. For Grow's tests (decision 52), which need the test room's objects and plants beside them.
+    /// </summary>
+    public static string WithPlants(string sourceDirectory, string target, IReadOnlyList<SetSpec> sets)
+    {
+        var source = ProjectSettings.GlobalizePath(sourceDirectory);
+        var absolute = ProjectSettings.GlobalizePath(target);
+        if (System.IO.Directory.Exists(absolute)) System.IO.Directory.Delete(absolute, recursive: true);
+        var manifest = JsonNode.Parse(File.ReadAllText(source + "/room.json"))!.AsObject();
+        var files = new Dictionary<string, byte[]>();
+        foreach (var entry in manifest["files"]!.AsArray())
+        {
+            var path = entry!["path"]!.GetValue<string>();
+            files[path] = File.ReadAllBytes(source + "/" + path);
+        }
+        var records = new JsonArray();
+        foreach (var spec in sets)
+        {
+            var kind = spec.Kind switch { "tree" => PlantKind.Tree, "stone" => PlantKind.Stone, _ => PlantKind.Plant };
+            var (bytes, tiles, _) = Table(kind, spec.CapSlots, spec.Rows);
+            var table = $"plants/{spec.Name}.bin";
+            files[table] = bytes;
+            foreach (var mesh in new[] { spec.Mesh }.Concat(spec.Lods.Select(l => l.Mesh))) files[mesh] = File.ReadAllBytes(ExampleDirectory + "/" + mesh);
+            var record = new JsonObject
+            {
+                ["set"] = spec.Name, ["prototype"] = spec.Prototype, ["kind"] = spec.Kind, ["species"] = spec.Species, ["collides"] = spec.Collides,
+                ["fuel_class"] = spec.FuelClass, ["seeds"] = spec.Seeds, ["mesh"] = spec.Mesh, ["triangle_count"] = spec.Triangles,
+            };
+            if (spec.Lods.Length > 0) record["lods"] = new JsonArray(spec.Lods.Select(l => (JsonNode)new JsonObject { ["mesh"] = l.Mesh, ["triangle_count"] = l.Triangles }).ToArray());
+            record["table"] = table;
+            if (kind == PlantKind.Tree) record["cap_slots"] = spec.CapSlots;
+            record["tiles"] = tiles;
+            record["count"] = spec.Rows.Count;
+            records.Add(record);
+        }
+        manifest["plant_copies"] = new JsonObject { ["tile_m"] = PlantCopies.TileM, ["groups"] = sets.SelectMany(s => s.Rows).Select(r => (int)r.Group).DefaultIfEmpty(0).Max(), ["sets"] = records };
+        foreach (var directory in files.Keys.Select(p => Path.GetDirectoryName(p)!.Replace('\\', '/')).Distinct())
+            DirAccess.MakeDirRecursiveAbsolute(absolute + "/" + directory);
+        var listed = new JsonArray();
+        foreach (var (path, bytes) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
+        {
+            Save(target + "/" + path, bytes);
+            listed.Add(new JsonObject { ["path"] = path, ["sha256"] = RoomData.Sha256Hex(bytes), ["bytes"] = bytes.Length });
+        }
+        manifest["files"] = listed;
+        Save(target + "/room.json", System.Text.Encoding.UTF8.GetBytes(manifest.ToJsonString()));
+        return target;
+    }
+
     /// <summary>The example's grass set with these rows: a 12-triangle tuft and its 2-triangle card for distance.</summary>
     public static SetSpec Grass(string name, IReadOnlyList<Row> rows) =>
         new(name, "grass_tuft", "plant", "grass", "none", "grass", true, "plants/grass.glb", 12, new[] { ("plants/grass_far.glb", 2) }, 0, rows);

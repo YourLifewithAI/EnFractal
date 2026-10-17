@@ -270,11 +270,19 @@ public partial class MenuTest
         var first = await WaitForRoom();
         if (first is not { } creative) return;
         var placed = JsonNode.Parse(creative.Host.Handle(Creation("Menu totem"), CommandHost.PlayerPrincipal))!.AsObject();
-        // (The indoor fixture has no soil to bloom; the flower trail switched off is a durable nature change with an undo step of its own.)
-        var bloomed = creative.Host.PlayerNatureTrail(false);
+        // (The indoor fixture has no plants to grow, and the flower trail went with Bloom: a small Fire on its wooden floor beside the
+        // Gubble, away from the build, is a durable nature change with an undo step of its own.)
+        var fireAt = creative.Host.Companion!.GlobalPosition + new Godot.Vector3(0.15f, 0, 0);
+        var preview = creative.Host.PlayerNaturePreview("fire", fireAt, 0.2f, 3);
+        var bloomed = preview["ok"]?.GetValue<bool>() == true
+            ? creative.Host.PlayerNatureCast("fire", fireAt, 0.2f, 3, preview["data"]?["preview_id"]?.GetValue<string>())
+            : preview;
         Check(placed["ok"]?.GetValue<bool>() == true && bloomed["ok"]?.GetValue<bool>() == true && creative.Host.NatureCanUndo,
             $"(a build and a nature change made in Creative: the island can undo) {placed["error"]?["message"]} | {bloomed["error"]?["message"]} | {creative.Host.Mode}");
         if (placed["created"] == null) return;
+        // The small fire burns out before the game closes (a fire still burning would go on burning in the copy).
+        for (var waited = 0; waited < 60 * 20 && creative.Host.Nature.Fire != null; waited++) await Frames(1);
+        Check(creative.Host.Nature.Fire == null, "(the small fire has burnt out)");
         var prefix = creative.World.Room.ManifestSha256[..16];
         var creativeSave = layout.IslandSave("theo", "creative", "test_room", prefix);
         var challengeSave = layout.IslandSave("theo", "challenge", "test_room", prefix);

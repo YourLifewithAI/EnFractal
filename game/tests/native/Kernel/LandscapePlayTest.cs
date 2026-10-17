@@ -92,6 +92,13 @@ public partial class LandscapePlayTest : Node3D
                 Finish();
                 return;
             }
+            // "-- --grow-demo" runs the Grow packet's windowed demo alone (LandscapePlayTest.Grow).
+            if (OS.GetCmdlineUserArgs().Contains("--grow-demo"))
+            {
+                await TestGrowDemo();
+                Finish();
+                return;
+            }
             await TestLooseThingsRest();
 
             // "-- --climb-only" runs the climbing checks alone (for tuning them).

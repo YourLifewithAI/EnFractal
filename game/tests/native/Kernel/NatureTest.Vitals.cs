@@ -168,7 +168,7 @@ public partial class NatureTest
               _host.Nature.Untouched(trailAllowed: false, _host.StartWallet),
             "a pack without a wallet block keeps today's materials, and an island nothing happened to follows its rules: " + Canonical(today));
         _host.UseRules(IslandRules.Load("storybook_wild", 5));
-        var trail = Send(Command(NextId("trail"), "nature.trail", new JsonObject { ["enabled"] = false }), Player);
+        var trail = Send(Command(NextId("trail"), "nature.cast", Cast("grow", NearGubble, 0.15, 1)), Player);
         _host.UseRules(IslandRules.Load("storybook_wild", 4));
         Check(Ok(trail) && _host.Nature.Wallet.Values.All(units => units == 0),
             "an island with play of its own keeps its wallet when the rules change: " + Canonical(Send(Query("player.status", new JsonObject()), Player)["data"]?["wallet"]));

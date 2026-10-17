@@ -172,7 +172,7 @@ public partial class CommandHost
     {
         "nature.cast" or "effect.start" => capability switch
         {
-            "fire" => "fire", "bloom" => "Grow", "bubble_carry" => "bubble carry", "bubble_boat" => "bubble boat", "bubble_lift" => "bubble lift",
+            "fire" => "fire", "grow" => "Grow", "bubble_carry" => "bubble carry", "bubble_boat" => "bubble boat", "bubble_lift" => "bubble lift",
             { } ability when Rules?.Ability(ability) is { } known => known.Primitive == "particles.float" ? "bubble" : KernelJson.DisplayText(known.DisplayName, 24).ToLowerInvariant(),
             _ => "magic",
         },

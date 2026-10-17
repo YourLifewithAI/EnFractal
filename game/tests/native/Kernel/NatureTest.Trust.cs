@@ -370,7 +370,7 @@ public partial class NatureTest
         {
             await EnergyWorld($"trust-band-{trust}");
             TrustTeam($"trust-band-{trust}", trust);
-            prices.Add($"{_host.TrustBand}:{_host.PriceFor("fire", Companion)}/{_host.PriceFor("bloom", Companion)}/{_host.PriceFor("glow", Companion)}/{_host.PriceFor("fire", Player)}");
+            prices.Add($"{_host.TrustBand}:{_host.PriceFor("fire", Companion)}/{_host.PriceFor("grow", Companion)}/{_host.PriceFor("glow", Companion)}/{_host.PriceFor("fire", Player)}");
         }
         Check(prices.SequenceEqual(new[] { "0:3/2/1/6", "1:2/2/1/6", "2:2/1/1/6", "3:1/1/1/6" }),
             "each band widens the discount on the Gubble's own ideas, Fire included; the player's price is the pack's: " + string.Join(" ", prices));
