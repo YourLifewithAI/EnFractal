@@ -2904,7 +2904,9 @@ class MockHost(JournalMixin, TrustMixin):
                 "max_active": min(a.max_active, self.policy.max_active_effects,
                                   self.glow_progress.earned_light_limit if a.capability == "glow" else a.max_active,
                                   BUBBLE_MAX if a.primitive == "particles.float" else a.max_active),
-                "command_op": "nature.cast" if a.primitive in {"growth.seed", "growth.grow", "element.ignite"} else "effect.start"} for a in page]}
+                "command_op": "nature.cast" if a.primitive in {"growth.seed", "growth.grow", "element.ignite"} else "effect.start",
+                # Decision 72: Fire listed, locked, until the team learns it (the kernel's Capabilities).
+                **({"locked": True} if a.primitive == "element.ignite" and not self.fire_learned else {})} for a in page]}
             if start + len(page) < len(abilities):
                 result["data"]["next_cursor"] = str(start + len(page))
         elif op == "observe":

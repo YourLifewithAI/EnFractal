@@ -40,9 +40,10 @@ FIREWORKS_SUMMARY = {"capability": "fireworks", "category": "burst", "params": {
 GROW_SUMMARY = {"capability": "grow", "category": "growth", "params": {"intensity": {"min": 0.1, "max": 0.5}},
                 "area_radius_max_m": 1.0, "duration_max_s": 600, "reach_m": 2.0, "max_active": 1,
                 "command_op": "nature.cast"}
+# Fire is listed locked until the team's first rest by the starting campfire (decision 72): a fresh team on either host.
 FIRE_SUMMARY = {"capability": "fire", "category": "fire", "params": {"intensity": {"min": 0.2, "max": 1.0}},
                 "area_radius_max_m": 1.5, "duration_max_s": 60, "reach_m": 2.0, "max_active": 1,
-                "command_op": "nature.cast"}
+                "command_op": "nature.cast", "locked": True}
 LACKING = "teleport"
 # The one exception in these scenarios (the integrator, 13 October): the mock does not simulate nature yet. A nature command
 # that passes the kernel's checks runs on the kernel host, and the mock answers it unavailable; so does nature.describe.
@@ -768,6 +769,9 @@ class AlignmentOnTheMock(AlignmentScenarios, unittest.IsolatedAsyncioTestCase):
         listed = await self.ask(query("capabilities.list", {}, self.next_id("q")))
         self.host.learn_fire()
         learned = await self.ask(command("nature.cast", fire, self.next_id("fire"), preview=True))
+        relisted = await self.ask(query("capabilities.list", {"category": "fire"}, self.next_id("q")))
+        self.assertEqual([item.get("locked") for item in listed["data"]["items"] if item["capability"] == "fire"], [True])
+        self.assertNotIn("locked", relisted["data"]["items"][0])
         self.assertEqual((refusal(locked), locked["error"]["message"]), (("permission_denied", "$.args.capability"),
                          "The Gubble has not learned Fire yet: rest by the starting campfire first."))
         self.assertIn("fire", [item["capability"] for item in listed["data"]["items"]])

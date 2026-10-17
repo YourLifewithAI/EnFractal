@@ -480,14 +480,20 @@ public partial class CommandHost
             throw new Refusal("invalid_args", "That cursor is not from this list.", "$.args.cursor");
         var limit = args.TryGetProperty("limit", out var l) ? l.GetInt32() : CapabilitiesDefaultLimit;
         var page = all.Skip(start).Take(limit).ToList();
-        var items = page.Select(a => (JsonNode?)new JsonObject
+        var items = page.Select(a =>
         {
-            ["capability"] = a.Capability, ["category"] = a.Category,
-            ["params"] = new JsonObject(a.Params.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)new JsonObject { ["min"] = p.Value.Min, ["max"] = p.Value.Max }))),
-            ["area_radius_max_m"] = a.AreaRadiusMaxM, ["duration_max_s"] = a.DurationMaxS,
-            ["command_op"] = a.Primitive is "growth.seed" or "growth.grow" or "element.ignite" ? "nature.cast" : "effect.start",
-            ["max_active"] = a.Primitive == "particles.float" ? Math.Min(EffectiveEffectLimit(a.Capability), BubbleLaws.MaxBubbles) : EffectiveEffectLimit(a.Capability),
-            ["reach_m"] = a.ReachM,
+            var item = new JsonObject
+            {
+                ["capability"] = a.Capability, ["category"] = a.Category,
+                ["params"] = new JsonObject(a.Params.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)new JsonObject { ["min"] = p.Value.Min, ["max"] = p.Value.Max }))),
+                ["area_radius_max_m"] = a.AreaRadiusMaxM, ["duration_max_s"] = a.DurationMaxS,
+                ["command_op"] = a.Primitive is "growth.seed" or "growth.grow" or "element.ignite" ? "nature.cast" : "effect.start",
+                ["max_active"] = a.Primitive == "particles.float" ? Math.Min(EffectiveEffectLimit(a.Capability), BubbleLaws.MaxBubbles) : EffectiveEffectLimit(a.Capability),
+                ["reach_m"] = a.ReachM,
+            };
+            // Decision 72: Fire is listed, locked, until the first rest by the starting campfire teaches it (CommandHostCamps.RequireFireLearned).
+            if (a.Primitive == "element.ignite" && !FireLearned) item["locked"] = true;
+            return (JsonNode?)item;
         }).ToArray();
         var data = new JsonObject { ["items"] = new JsonArray(items) };
         if (start + page.Count < all.Count) data["next_cursor"] = (start + page.Count).ToString(CultureInfo.InvariantCulture);

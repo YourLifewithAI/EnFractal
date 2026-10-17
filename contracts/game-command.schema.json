@@ -4911,7 +4911,7 @@
               "maximum": 16000
             },
             "grown_plants": {
-              "description": "Grow: the plants that grew (each by the pack's intensity times its natural size, up to its cap: twice its natural size or 0.4 m taller), rooted in the circle the team sees. Absent for Fire.",
+              "description": "Grow: the plants that grew (each by the pack's intensity times its natural size, up to its cap: twice its natural size or 0.4 m taller; twice that while it rains), rooted in the circle the team sees; 1 for a water lily leaf grown on water (a waterpad); 0 when the cast only greened burnt ground. Absent for Fire.",
               "type": "integer",
               "minimum": 0,
               "maximum": 4096
@@ -4979,7 +4979,7 @@
             "type": "boolean"
           },
           "grown_plants": {
-            "description": "Grow: the plants rooted in the circle that would grow (none at their cap), as the requester's team sees the place. Absent for Fire.",
+            "description": "Grow: the plants rooted in the circle that would grow (none at their cap), as the requester's team sees the place; 1 for a water lily leaf on water (a waterpad). Absent for Fire.",
             "type": "integer",
             "minimum": 0,
             "maximum": 4096
@@ -5292,6 +5292,10 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 10
+        },
+        "locked": {
+          "description": "Present (true) while the team has not learned the ability yet: it is listed, and a cast of it is refused permission_denied with the reason. Today only Fire, until the player first rests by the island's starting campfire (docs/game/MECHANICS.md decision 72). Absent: the ability can be cast.",
+          "const": true
         }
       }
     },
