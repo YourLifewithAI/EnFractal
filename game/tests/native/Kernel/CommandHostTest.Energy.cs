@@ -53,9 +53,10 @@ public partial class CommandHostTest
               traits.Pips == new PipsRules(8, 5, 40, 5, 2, 15, 0.5) && traits.Wallet == new WalletRules(0, 0, 0, 0),
             "v5's traits: 5 hearts of 5 health a quarter to 30, healing a quarter every 2.5 s after 10 s, fire a quarter a second and no fall cap, the bar 0.4 m in ten bands of 0.4 m, running and deep water 0.02 m/s, diving 0.04 m/s, the refill 0.1 m/s, no running from empty until the first bar is full, a metre of bar buying 1.5 m of climb and hanging still free (decisions 64 and 65), 8 pips to 40, an empty wallet (decision 26)");
         var prices = v5.Cost!.Prices;
-        Check(prices.Count == 8 && prices["glow"] is { Ordered: 2, OwnIdea: 1 } && prices["grow"] is { Ordered: 4, OwnIdea: 2 } && prices["fire"] is { Ordered: 6, OwnIdea: 3 } &&
-              prices["bubble_carry"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_boat"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_lift"] is { Ordered: 6, OwnIdea: 3 } && v5.Cost.TorchFire == 0,
-            "v5's prices: Glow, Bubbles and Fireworks 2 and 1, Grow 4 and 2, Fire 6 and 3, the carry and the boat 4 and 2, the lift 6 and 3, a torch's fire free");
+        Check(prices.Count == 11 && prices["glow"] is { Ordered: 2, OwnIdea: 1 } && prices["grow"] is { Ordered: 4, OwnIdea: 2 } && prices["fire"] is { Ordered: 6, OwnIdea: 3 } &&
+              prices["bubble_carry"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_boat"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_lift"] is { Ordered: 6, OwnIdea: 3 } &&
+              prices["fireline"] is { Ordered: 8, OwnIdea: 4 } && prices["snuff"] is { Ordered: 2, OwnIdea: 1 } && prices["will_o_wisp"] is { Ordered: 4, OwnIdea: 2 } && v5.Cost.TorchFire == 0,
+            "v5's prices: Glow, Bubbles and Fireworks 2 and 1, Grow 4 and 2, Fire 6 and 3, the carry and the boat 4 and 2, the lift 6 and 3, Fire's kinds (decisions 78 to 80) Fireline 8 and 4, Snuff 2 and 1, Will-o'-wisp 4 and 2, a torch's fire free");
         var modes = v5.Modes!;
         Check(modes.Rows.Count == 6 && modes.Row("creative", null) is { ShadowPool: true, DamageMultiplier: 0, Undo: true } &&
               modes.Row("challenge", "gentle") is { DamageMultiplier: 0.5, RefillMultiplier: 1.5 } && modes.Row("challenge", "brave") is { DamageMultiplier: 1.5, RefillMultiplier: 0.75 } &&
