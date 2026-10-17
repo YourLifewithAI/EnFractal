@@ -141,6 +141,8 @@ public sealed partial class IslandRules
     public const double ContractMaxStaminaM = 4.8;
     /// <summary>The Bubbles expertise a cost block may price, each carried out by the pack's particles.float ability.</summary>
     public static readonly IReadOnlyList<string> BubblesExpertise = Array.AsReadOnly(new[] { "bubble_carry", "bubble_boat", "bubble_lift" });
+    /// <summary>Fire's kinds a cost block may price (decisions 78 to 80), each carried out by the pack's element.ignite ability.</summary>
+    public static readonly IReadOnlyList<string> FireKinds = Array.AsReadOnly(new[] { "fireline", "snuff", "will_o_wisp" });
     private static readonly string[] KnackMoves =
     {
         "walk_run_speed", "hop_height", "stamina_per_bar", "climb_per_stamina", "swim", "breath", "health_per_quarter", "safe_drop", "build_time", "plant_growth", "gather_speed",
@@ -278,6 +280,8 @@ public sealed partial class IslandRules
             // validate.py: a price names an ability of this pack, or a Bubbles expertise of its particles.float ability.
             if (BubblesExpertise.Contains(entry.Name))
                 Expect(abilities.Any(a => a.Primitive == "particles.float"), $"{where} prices a Bubbles expertise, but the pack grants no particles.float ability.");
+            else if (FireKinds.Contains(entry.Name))
+                Expect(abilities.Any(a => a.Primitive == "element.ignite"), $"{where} prices a Fire kind, but the pack grants no element.ignite ability.");
             else Expect(abilities.Any(a => a.Capability == name), $"{where} prices no ability of this pack.");
             var own = price.Ordered * price.OwnIdeaFactor;
             Expect(Math.Abs(own - Math.Round(own)) <= 1e-9, $"{where}: ordered times own_idea_factor is not a whole number of pips.");

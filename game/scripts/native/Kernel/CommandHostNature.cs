@@ -438,10 +438,6 @@ public partial class CommandHost
         data.Remove("cells");
         data.Remove("cells_truncated");
         data.Remove("affected_ids");
-        // A Fireline's durable receipt keeps the plain shape until the saves' reader knows kind and end_m (CommandHostRoomState's
-        // NatureDataProblem: the packet's change request); its preview says both.
-        data.Remove("kind");
-        data.Remove("end_m");
         data["started_cells"] = eligible.Where(TeamSeesCellFor(principal)).Count(c => candidate.Cells.TryGetValue(c.Key, out var cell) && cell.BurningS > 0);
         var committed = CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, burnable.Where(t => knows(t.Id)).Select(t => t.Id), data, undo: false);
         ChargeEnergy(price);

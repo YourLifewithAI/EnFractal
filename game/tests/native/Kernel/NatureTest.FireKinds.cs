@@ -249,5 +249,7 @@ public partial class NatureTest
         Steps(1);
         Check(_host.Wisps.Count == 0, $"each lasts {FireKindLaws.WispLifeS / 60:0} minutes");
         Check(!CanonicalJson.Text(NatureBlock.Pack(_host.Nature)).Contains("effect:", StringComparison.Ordinal), "nothing of a wisp is in the nature save");
+        Check(_host.PriceFor(FireKindWords.Fireline, Player) == 8 && _host.PriceFor(FireKindWords.Snuff, Player) == 2 && _host.PriceFor(FireKindWords.Wisp, Player) == 4,
+            "each kind is priced as itself from the pack's cost block when the player orders it: a Fireline 8, a Snuff 2, a Will-o'-wisp 4");
     }
 }

@@ -114,7 +114,10 @@
       "fire": { "ordered": 6, "own_idea_factor": 0.5 },
       "bubble_carry": { "ordered": 4, "own_idea_factor": 0.5 },
       "bubble_boat": { "ordered": 4, "own_idea_factor": 0.5 },
-      "bubble_lift": { "ordered": 6, "own_idea_factor": 0.5 }
+      "bubble_lift": { "ordered": 6, "own_idea_factor": 0.5 },
+      "fireline": { "ordered": 8, "own_idea_factor": 0.5 },
+      "snuff": { "ordered": 2, "own_idea_factor": 0.5 },
+      "will_o_wisp": { "ordered": 4, "own_idea_factor": 0.5 }
     },
     "torch_fire": 0
   },

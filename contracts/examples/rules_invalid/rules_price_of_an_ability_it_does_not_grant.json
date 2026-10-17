@@ -223,6 +223,18 @@
         "ordered": 6,
         "own_idea_factor": 0.5
       },
+      "fireline": {
+        "ordered": 8,
+        "own_idea_factor": 0.5
+      },
+      "snuff": {
+        "ordered": 2,
+        "own_idea_factor": 0.5
+      },
+      "will_o_wisp": {
+        "ordered": 4,
+        "own_idea_factor": 0.5
+      },
       "teleport": {
         "ordered": 2,
         "own_idea_factor": 0.5

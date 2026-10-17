@@ -1838,7 +1838,8 @@ class MechanicsRoundTests(unittest.TestCase):
                                           "refill_near_within_m": 2, "refill_far_every_s": 15, "camp_fraction": 0.5})
         prices = {name: (p["ordered"], round(p["ordered"] * p["own_idea_factor"])) for name, p in self.v5["cost"]["prices"].items()}
         self.assertEqual(prices, {"glow": (2, 1), "bubbles": (2, 1), "fireworks": (2, 1), "grow": (4, 2), "fire": (6, 3),
-                                  "bubble_carry": (4, 2), "bubble_boat": (4, 2), "bubble_lift": (6, 3)})
+                                  "bubble_carry": (4, 2), "bubble_boat": (4, 2), "bubble_lift": (6, 3),
+                              "fireline": (8, 4), "snuff": (2, 1), "will_o_wisp": (4, 2)})
         self.assertEqual(self.v5["cost"]["torch_fire"], 0, "decision O")
         rows = {(r["mode"], r.get("difficulty") or r.get("variant")): (r["damage_multiplier"], r["refill_multiplier"], r["available"])
                 for r in self.v5["modes"]["rows"]}

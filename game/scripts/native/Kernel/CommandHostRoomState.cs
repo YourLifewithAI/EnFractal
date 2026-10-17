@@ -376,7 +376,7 @@ public partial class CommandHost
         if (node is not JsonObject data) return true;
         var fields = op switch
         {
-            "nature.cast" => new[] { "center_m", "radius_m", "duration_s", "cell_count", "requires_approval", "started_cells", "max_burning_cells", "grown_plants" },
+            "nature.cast" => new[] { "center_m", "radius_m", "duration_s", "cell_count", "requires_approval", "started_cells", "max_burning_cells", "grown_plants", "kind", "end_m" },
             "nature.trail" => new[] { "enabled", "requires_approval" },
             "nature.repair" => new[] { "cost" },
             _ => new[] { "undone", "undone_steps", "requires_approval" },
@@ -386,7 +386,9 @@ public partial class CommandHost
         {
             var fine = name switch
             {
-                "center_m" => Vec3(value),
+                "center_m" or "end_m" => Vec3(value),
+                // Fire's kinds (decisions 77 to 80): a durable receipt names a Fireline; the others' receipts are transient or plain.
+                "kind" => value?.GetValueKind() == JsonValueKind.String && value.GetValue<string>() is "fire" or "firepit" or "fireline" or "snuff" or "will_o_wisp",
                 "radius_m" => Number(value, NatureBlock.MaxFireRadiusM) && value!.GetValue<double>() > 0,
                 "duration_s" => Number(value, 600) && value!.GetValue<double>() > 0,
                 "cell_count" or "started_cells" or "max_burning_cells" => Whole(value, NatureState.MaxCells),

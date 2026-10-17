@@ -923,7 +923,9 @@ MECHANICS = {
     },
     "cost": {
         "prices": {name: {"ordered": ordered, "own_idea_factor": 0.5} for name, ordered in (
-            ("glow", 2), ("bubbles", 2), ("fireworks", 2), ("grow", 4), ("fire", 6), ("bubble_carry", 4), ("bubble_boat", 4), ("bubble_lift", 6))},
+            ("glow", 2), ("bubbles", 2), ("fireworks", 2), ("grow", 4), ("fire", 6), ("bubble_carry", 4), ("bubble_boat", 4), ("bubble_lift", 6),
+            # Fire's kinds (decisions 78 to 80): a Fireline 8, a Snuff 2, a Will-o'-wisp 4 when the player orders it, half as the Gubble's idea.
+            ("fireline", 8), ("snuff", 2), ("will_o_wisp", 4))},
         "torch_fire": 0,
     },
     "modes": {"rows": [
