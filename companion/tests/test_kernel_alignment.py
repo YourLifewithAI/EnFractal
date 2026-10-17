@@ -173,7 +173,7 @@ class GlowMatchesTheKernel(unittest.TestCase):
                          ("storybook_wild", version, hashlib.sha256(path.read_bytes()).hexdigest()))
         self.assertEqual([(a.capability, a.primitive) for a in host.rules.abilities],
                          [("glow", "light.emit"), ("bubbles", "particles.float"), ("fireworks", "particles.burst"),
-                          ("bloom", "growth.seed"), ("fire", "element.ignite")])
+                          ("grow", "growth.grow"), ("fire", "element.ignite")])
 
     def test_the_mock_loads_the_primitives_the_kernel_carries_out(self):
         """The mock checks a pack against the island-rules schema; the kernel against its own table of primitives
@@ -203,7 +203,7 @@ class GlowMatchesTheKernel(unittest.TestCase):
                                          float(entry.group(6)), int(entry.group(7)))
         self.assertEqual(len(in_kernel), table.count("] = new("), "a kernel primitive this test could not read")
         self.assertEqual(in_kernel, in_schema)
-        self.assertEqual(sorted(in_kernel), ["element.ignite", "growth.seed", "light.emit", "particles.burst", "particles.float"])
+        self.assertEqual(sorted(in_kernel), ["element.ignite", "growth.grow", "growth.seed", "light.emit", "particles.burst", "particles.float"])
         start_look = _method(_text(EFFECTS), "private bool StartLook(")
         self.assertEqual(sorted(re.findall(r'"([a-z]+\.[a-z]+)" => look\.Start\w+\(', start_look)),
                          ["light.emit", "particles.burst"])
@@ -214,7 +214,7 @@ class GlowMatchesTheKernel(unittest.TestCase):
         self.assertLess(start.index("BubbleEffectStart("), start.index("StartLook("))
         # Persistent terrain primitives use their own authority path, never a cosmetic effect receipt.
         plan = _method(_text(EFFECTS), "private EffectPlan PlanEffect(")
-        self.assertIn('capability is "bloom" or "fire"', plan)
+        self.assertIn('capability is "grow" or "fire"', plan)
         self.assertIn("Use nature.cast for this ability; preview Fire first.", plan)
         nature = _text(KERNEL / "Kernel" / "CommandHostNature.cs")
         self.assertIn('if (op == "nature.cast")', nature)
@@ -279,8 +279,8 @@ class NatureMatchesTheKernel(unittest.TestCase):
         defs = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]
         cast = defs["args"]["nature.cast"]["properties"]
         check = _method(_text(NATURE), "private static void CheckNatureArgs(")
-        self.assertIn('is not ("bloom" or "fire" or "bubble_carry" or "bubble_boat" or "bubble_lift")', check)
-        self.assertEqual(cast["capability"]["enum"], ["bloom", "fire", "bubble_carry", "bubble_boat", "bubble_lift"])
+        self.assertIn('is not ("grow" or "fire" or "bubble_carry" or "bubble_boat" or "bubble_lift")', check)
+        self.assertEqual(cast["capability"]["enum"], ["grow", "fire", "bubble_carry", "bubble_boat", "bubble_lift"])
         self.assertIn('("radius_m", NatureBlock.MaxFireRadiusM), ("duration_s", 600f)', check)
         radius = float(_match(KERNEL / "Kernel" / "NatureStore.cs", r"\bconst float MaxFireRadiusM = ([0-9.]+)f;"))
         self.assertEqual((cast["radius_m"]["maximum"], cast["duration_s"]["maximum"]), (radius, 600))
@@ -399,12 +399,12 @@ class MechanicsMatchTheKernel(unittest.TestCase):
                 self.assertEqual(v5.price(name, "player:local"), price["ordered"])
                 self.assertEqual(v5.price(name, "companion:local"), round(price["ordered"] * price["own_idea_factor"]))
         self.assertEqual({n: (v5.price(n, "player:local"), v5.price(n, "companion:local")) for n in pack["cost"]["prices"]},
-                         {"glow": (2, 1), "bubbles": (2, 1), "fireworks": (2, 1), "bloom": (4, 2), "fire": (6, 3),
+                         {"glow": (2, 1), "bubbles": (2, 1), "fireworks": (2, 1), "grow": (4, 2), "fire": (6, 3),
                           "bubble_carry": (4, 2), "bubble_boat": (4, 2), "bubble_lift": (6, 3)})
         self.assertEqual(v5.price("teleport", "companion:local"), 0, "a price the pack does not set costs nothing")
         today = load_rules(contracts(), rules_path(rules_version=4))
         self.assertEqual({a.capability: today.price(a.capability, "companion:local") for a in today.abilities},
-                         {"glow": 0, "bubbles": 0, "fireworks": 0, "bloom": 0, "fire": 0}, "v4 has no cost block: nothing is charged")
+                         {"glow": 0, "bubbles": 0, "fireworks": 0, "grow": 0, "fire": 0}, "v4 has no cost block: nothing is charged (its Bloom read as Grow)")
 
     def test_a_price_moved_in_the_pack_moves_the_mocks(self):
         import json
@@ -413,13 +413,13 @@ class MechanicsMatchTheKernel(unittest.TestCase):
         from enfractal_companion.mock_host import load_rules, rules_path
         from support import contracts
         pack = json.loads(rules_path(rules_version=5).read_bytes())
-        pack["cost"]["prices"]["bloom"]["ordered"] = 8
+        pack["cost"]["prices"]["grow"]["ordered"] = 8
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "storybook_wild" / "v5.json"
             path.parent.mkdir()
             path.write_bytes((json.dumps(pack, indent=2) + "\n").encode("utf-8"))
             moved = load_rules(contracts(), path)
-        self.assertEqual((moved.price("bloom", "player:local"), moved.price("bloom", "companion:local")), (8, 4))
+        self.assertEqual((moved.price("grow", "player:local"), moved.price("grow", "companion:local")), (8, 4))
 
 
 EYES = KERNEL / "Kernel" / "CommandHostEyes.cs"
@@ -491,7 +491,7 @@ class TrustMatchesTheKernel(unittest.TestCase):
         self.assertLess(observe.index("var charged = TakeTrustCharge();"), observe.index("if (principal != CompanionPrincipal"))
         self.assertIn("Paid = Trust.Paid(charged)", _method(host, "private void RememberGubbleCommand("))
         self.assertRegex(_method(_text(BUBBLE_LEAD), "private bool StartLift("), r"ChargeEnergy\(price\);\s*TrustLiftCharged\(lead\);")
-        # The mock notes the same charge wherever the kernel's guard charges a command the mock hosts (Bloom and Fire it does not).
+        # The mock notes the same charge wherever the kernel's guard charges a command the mock hosts (Grow and Fire it does not).
         self.assertEqual(_text(BUBBLE_HOST).count("ChargeEnergy(price);"), 2, "the kernel charges a bubble at effect.start and nature.cast")
         self.assertIn("ChargeEnergy(price);", _method(_text(EFFECTS), "private JsonObject EffectStart("))
         for method in (MockHost._op_effect_start, MockHost._bubble_effect_start, MockHost._bubble_cast):

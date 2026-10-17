@@ -376,7 +376,7 @@ public partial class CommandHost
         if (node is not JsonObject data) return true;
         var fields = op switch
         {
-            "nature.cast" => new[] { "center_m", "radius_m", "duration_s", "cell_count", "requires_approval", "started_cells", "max_burning_cells" },
+            "nature.cast" => new[] { "center_m", "radius_m", "duration_s", "cell_count", "requires_approval", "started_cells", "max_burning_cells", "grown_plants" },
             "nature.trail" => new[] { "enabled", "requires_approval" },
             "nature.repair" => new[] { "cost" },
             _ => new[] { "undone", "undone_steps", "requires_approval" },
@@ -391,6 +391,7 @@ public partial class CommandHost
                 "duration_s" => Number(value, 600) && value!.GetValue<double>() > 0,
                 "cell_count" or "started_cells" or "max_burning_cells" => Whole(value, NatureState.MaxCells),
                 "undone_steps" => Whole(value, NatureState.MaxUndoSteps),
+                "grown_plants" => Whole(value, NatureState.MaxGrownPlants),
                 "requires_approval" or "enabled" => Bool(value),
                 "undone" => Text(value, 200),
                 _ => value is JsonObject cost && cost.Count <= NatureState.MaxWalletKinds &&

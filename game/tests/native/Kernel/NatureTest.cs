@@ -11,7 +11,7 @@ using EnFractal.Native.Room;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// The island's nature (Bloom, the flower trail, weather and Fire on the ground field), in the real test room with the
+/// The island's nature (Grow, weather and Fire on the ground field; Bloom and its trail went with decision 52), in the test room (with plants, NatureTest.Grow) with the
 /// real bodies and the real authority: the simulation's laws and bounds (NatureTest.Simulation), nature as room state and
 /// its saved block (NatureTest.Persistence), the review's blockers and majors through the command path
 /// (NatureTest.Review), and what the scene and the verbs make of fire (NatureTest.Scene). The ground under each cell is
@@ -45,7 +45,7 @@ public partial class NatureTest : Node3D
             _dump = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--dump=", StringComparison.Ordinal))?["--dump=".Length..];
             if (_dump != null) System.IO.Directory.CreateDirectory(_dump);
             RemoveAll();
-            _room = RoomData.Load(RoomWorld.DefaultRoom);
+            _room = PlantedRoom();
             TestSimulation();
             TestBlock();
             await TestReview();
@@ -56,12 +56,13 @@ public partial class NatureTest : Node3D
             await TestExpertise();
             await TestTrust();
             await TestCamps();
+            await TestGrow();
             await FreeWorld();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine error while the suite ran ({_errors.Count}; first: {_errors.First})");
             GD.Print($"NATIVE_KERNEL_NATURE: {_checks - _failures}/{_checks} checks passed; the ground field's laws and bounds, time away, nature as room state (saved block, " +
                 "throttle, rebuild, migration), receipts and undo by room revision (Creative only), the authority's checks, what a companion learns, the fire rule and its one ask, " +
-                $"the trail's consent, carried and burnt things, the Gubble's fire: consequences, guardrails and feedback, Trust (initiative, marks, burnt builds, bands, lessons), Fire's camp (start spots, resting, firepits){(_dump != null ? $"; {_dumped} messages dumped" : "")}");
+                $"Grow (plants grown, saved, climbed and burnt), carried and burnt things, the Gubble's fire: consequences, guardrails and feedback, Trust (initiative, marks, burnt builds, bands, lessons), Fire's camp (start spots, resting, firepits){(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveAll();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }

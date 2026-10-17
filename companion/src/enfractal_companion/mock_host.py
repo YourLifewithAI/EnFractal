@@ -37,10 +37,11 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - protection is the player's: `protect.unlock` (every op in `$defs/player_only_ops`) is refused
   from companion principals, and no companion command changes a protected entity or any protection
   state except adding a lock;
-- nature (Bloom, the flower trail, Fire, repair; contracts/README.md "Nature") is not simulated here yet:
-  `nature.cast`, `nature.trail` and `nature.repair` are checked as the kernel checks them before its
+- nature (Grow, Fire, repair; contracts/README.md "Nature") is not simulated here yet:
+  `nature.cast` and `nature.repair` are checked as the kernel checks them before its
   nature runs (the contract's args, refused request_invalid as CheckNatureArgs does; the revisions; a
-  companion's repair target in sight), then answered `unavailable`, and so is `nature.describe`. With no
+  companion's repair target in sight), then answered `unavailable`, and so is `nature.describe`. `nature.trail`
+  went with Bloom (decision 52): checked the same way, then refused unsupported_capability in the kernel's words. With no
   nature change to take back, `room.undo` answers as the kernel's does for any other change: an earlier
   revision is unsupported_capability, a revision that is not earlier is invalid_args; outside Creative it is
   refused before anything else (there is no undo in Challenge or Live);
@@ -60,10 +61,10 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
   leads; the goal.set receipt says how the lead ended. A spot higher than the bubble's is a lift (data.lift, lift_price); the
   mock keeps no pool, so a lift is never refused for pips here. The mock has no physics: a bubble neither drifts nor deflates;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
-- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v4.json:
-  Glow, Bubbles, Fireworks, Bloom and Fire; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
+- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v5.json:
+  Glow, Bubbles, Fireworks, Grow and Fire; checked fail-closed; a pinned pack's Bloom, growth.seed, is read as Grow): `capabilities.list` answers from it, and `effect.start` follows the
   kernel's rules, order of refusals, codes and result data (CommandHostEffects.cs), the same for every primitive
-  (light.emit, particles.float, particles.burst). Bloom and Fire are cast with nature.cast, never effect.start, and
+  (light.emit, particles.float, particles.burst). Grow and Fire are cast with nature.cast, never effect.start, and
   what needs the game itself (terrain-aware Glow, nature, the wish queue) is answered `unavailable`. The Gubble
   carries every ability out: a companion may target only its own avatar (self) or name no targets (a point within
   reach and in the team's sight); effect ids are
@@ -120,8 +121,12 @@ STOP_OPS = frozenset({"goal.stop", "effect.stop"})
 NATURE_OPS = frozenset({"nature.cast", "nature.trail", "nature.repair"})
 # What room.undo answers when the latest change is not a nature change (CommandHostNature.NatureUndo, word for word).
 UNDO_NOT_EARLIER = "Undo names an earlier room revision."
-UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only nature changes (Bloom, Fire, the trail, repairs) "
+UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only nature changes (Grow, Fire, repairs) "
                     "can be undone.")
+# The flower trail went with Bloom (decision 52): nature.trail is refused in the kernel's words (CommandHost.TrailRetired).
+TRAIL_RETIRED = "The flower trail went with Bloom: Grow grows the island's own plants and leaves no trail."
+# An older pack's Bloom (growth.seed) is read as Grow, as the kernel reads it (IslandRules.LegacyBloomAs).
+LEGACY_BLOOM_AS = "grow"
 # Outside Creative there is no undo at all (the founder, 13 October): the kernel's Unsupported, before any revision check.
 UNDO_NOT_IN_THIS_MODE = "There is no undo in Challenge or Live: what happens there stays."
 # The mechanics round (M0, and M1's gather): its player-only ops, and the kernel's words for what is not built yet
@@ -499,15 +504,16 @@ def parse_rules(contracts: Contracts, pack: Any, raw: bytes | None = None, path:
     if problems:
         raise RulesError(f"the pack does not pass its checks ({len(problems)} problems)")
     abilities = tuple(Ability(
-        capability=a["capability"], category=a["category"], primitive=a["primitive"], cast_by=frozenset(a["cast_by"]),
+        capability=LEGACY_BLOOM_AS if a["primitive"] == "growth.seed" else a["capability"], category=a["category"], primitive=a["primitive"], cast_by=frozenset(a["cast_by"]),
         tier=a["tier"], targets=frozenset(a["targets"]), reach_m=float(a["reach_m"]),
         params={name: (float(b["min"]), float(b["max"]), float(b["default"])) for name, b in sorted(a["params"].items())},
         area_radius_default_m=float(a["area_radius_default_m"]), area_radius_max_m=float(a["area_radius_max_m"]),
         duration_default_s=float(a["duration_default_s"]), duration_max_s=float(a["duration_max_s"]),
         max_active=int(a["max_active"])) for a in pack["abilities"])
     body = raw if raw is not None else contracts.canonical_bytes(pack)
-    prices = tuple((name, int(price["ordered"]), float(price["own_idea_factor"]))
-                   for name, price in sorted(pack.get("cost", {}).get("prices", {}).items()))
+    legacy = any(a["primitive"] == "growth.seed" for a in pack["abilities"])
+    prices = tuple(sorted((LEGACY_BLOOM_AS if legacy and name == "bloom" else name, int(price["ordered"]), float(price["own_idea_factor"]))
+                          for name, price in pack.get("cost", {}).get("prices", {}).items()))
     traits = pack.get("traits", {})
     hearts = (float(traits["hearts"]["health_per_quarter"]), int(traits["hearts"]["start_hearts"])) if "hearts" in traits else None
     stamina = float(traits["stamina"]["start_m"]) if "stamina" in traits else None
@@ -2101,7 +2107,7 @@ class MockHost(JournalMixin, TrustMixin):
         if self.rules is None:
             raise HostError("unsupported_capability", "This island's rules did not load, so it grants no abilities.",
                             field_path="$.args.capability")
-        if args["capability"] in {"bloom", "fire"}:
+        if args["capability"] in {"grow", "fire"}:
             raise HostError("unsupported_capability", "Use nature.cast for this ability; preview Fire first.", field_path="$.args.capability")
         ability = self.rules.ability(args["capability"])
         if ability is None:
@@ -2357,7 +2363,7 @@ class MockHost(JournalMixin, TrustMixin):
         # nature begins here, which this mock does not simulate. The Bubbles expertise are no ground change: hosted here.
         if _is_bubble(message):
             return self._bubble_cast(principal, message, apply)
-        self._runtime_required("Bloom and Fire on the island's ground")
+        self._runtime_required("Grow and Fire on the island's ground")
 
     # ------------------------------------------------------------------ the Bubble (M9; the kernel's Kernel/Bubble)
 
@@ -2711,7 +2717,7 @@ class MockHost(JournalMixin, TrustMixin):
             return True
 
     def _op_nature_trail(self, principal, message, apply, new_revision):
-        self._runtime_required("The flower trail")
+        raise HostError("unsupported_capability", TRAIL_RETIRED, field_path="$.op")
 
     def _op_nature_repair(self, principal, message, apply, new_revision):
         # The kernel's CheckPerceived first: a companion names only what the team has in sight now.
@@ -2880,7 +2886,7 @@ class MockHost(JournalMixin, TrustMixin):
                 "max_active": min(a.max_active, self.policy.max_active_effects,
                                   self.glow_progress.earned_light_limit if a.capability == "glow" else a.max_active,
                                   BUBBLE_MAX if a.primitive == "particles.float" else a.max_active),
-                "command_op": "nature.cast" if a.primitive in {"growth.seed", "element.ignite"} else "effect.start"} for a in page]}
+                "command_op": "nature.cast" if a.primitive in {"growth.seed", "growth.grow", "element.ignite"} else "effect.start"} for a in page]}
             if start + len(page) < len(abilities):
                 result["data"]["next_cursor"] = str(start + len(page))
         elif op == "observe":

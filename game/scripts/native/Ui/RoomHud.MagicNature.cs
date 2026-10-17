@@ -12,7 +12,6 @@ public partial class RoomHud
     private Label _modeName = null!;
     private Label _modeHelp = null!;
     private Label _weatherHelp = null!;
-    private CheckButton _flowerTrail = null!;
     private Label _natureMaterials = null!;
     private OptionButton _repairChoice = null!;
     private Label _repairCost = null!;
@@ -38,12 +37,9 @@ public partial class RoomHud
         _modeName = WrapMagicLabel(""); _modeName.Name = "ModeName"; page.AddChild(_modeName);
         _modeHelp = WrapMagicLabel(""); _modeHelp.Name = "ModeHelp"; page.AddChild(_modeHelp);
         _weatherHelp = WrapMagicLabel(""); _weatherHelp.Name = "WeatherReadout"; page.AddChild(_weatherHelp);
-        MagicHeading(page, "FLOWERS");
-        _flowerTrail = new CheckButton { Name = "FlowerTrailToggle", Text = "Leave a flower trail" };
-        _flowerTrail.Toggled += enabled => { if (Host is { } host) MagicResult(host.PlayerNatureTrail(enabled), enabled ? "The flower trail is on." : "The flower trail is off."); };
-        page.AddChild(_flowerTrail);
-        AddButton(page, "Bloom at the selected spot", CastBloom, 32);
-        page.AddChild(WrapMagicLabel("Rain, light and the ground shape how flowers grow."));
+        MagicHeading(page, "GROW");
+        AddButton(page, "Grow the plants at the selected spot", CastGrow, 32);
+        page.AddChild(WrapMagicLabel("Grass, flowers, ferns, shrubs and trees grow a little each time, up to twice their size, and stay grown. A grown tree can be climbed."));
         MagicHeading(page, "FIRE");
         page.AddChild(WrapMagicLabel("Fire can spread inside the previewed area. Creations become scorched and repairable; other things can burn away."));
         // "Let the Gubble use fire" is one of the player's settings (RoomHud.Settings.cs): the switch moved there from this page.
@@ -75,10 +71,10 @@ public partial class RoomHud
         page.AddChild(_undoNature);
     }
 
-    private void CastBloom()
+    private void CastGrow()
     {
-        if (!_magicAim.Hit || _magicAim.AtGubble) { _magicMessageText = "Choose a spot on the ground for Bloom."; RefreshMagicPanel(); return; }
-        if (Host is { } host) { CancelFirePreview(); MagicResult(host.PlayerNatureCast("bloom", _magicAim.Point), "Flowers are taking root."); }
+        if (!_magicAim.Hit || _magicAim.AtGubble) { _magicMessageText = "Choose a spot among the plants for Grow."; RefreshMagicPanel(); return; }
+        if (Host is { } host) { CancelFirePreview(); MagicResult(host.PlayerNatureCast("grow", _magicAim.Point), "The plants are growing."); }
     }
 
     private void PreviewFire()
@@ -158,8 +154,6 @@ public partial class RoomHud
             if (host.VitalsNotice.Length > 0) _modeHelp.Text += "\n" + host.VitalsNotice;
         }
         _weatherHelp.Text = $"{WeatherWords(host.NatureWeather.Pattern)} · Wind {host.NatureWeather.WindMps.Length():0.00} m/s\nThe weather changes naturally across the island.";
-        _flowerTrail.SetPressedNoSignal(host.Nature.TrailEnabled);
-        _flowerTrail.Disabled = !host.NatureConfigured;
         // The wallet's counts, in every mode (a gathered log or stone is in it): repairs spend it outside Creative.
         _natureMaterials.Text = (host.Mode == "creative" && !held ? "Repairs are free in Creative mode.\n" : "") + "In your wallet: " + MaterialWords(host.Nature.Wallet);
         var previous = _repairChoice.Selected >= 0 && _repairChoice.Selected < _repairIds.Count ? _repairIds[_repairChoice.Selected] : null;

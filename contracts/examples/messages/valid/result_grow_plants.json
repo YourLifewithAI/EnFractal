@@ -3,7 +3,7 @@
   "version": 1,
   "ok": true,
   "op": "nature.cast",
-  "action_id": "bloom-0002",
+  "action_id": "grow-0002",
   "principal": "companion:local",
   "room_id": "garage_example",
   "revision": 5,
@@ -17,10 +17,11 @@
       0.0,
       0.6
     ],
-    "radius_m": 0.25,
-    "duration_s": 180,
-    "cell_count": 4,
+    "radius_m": 0.5,
+    "duration_s": 1,
+    "cell_count": 0,
     "requires_approval": false,
-    "started_cells": 4
+    "started_cells": 0,
+    "grown_plants": 6
   }
 }

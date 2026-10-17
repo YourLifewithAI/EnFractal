@@ -8,26 +8,24 @@ using EnFractal.Native.Room;
 namespace EnFractal.Native.Look;
 
 /// <summary>
-/// A disposable view of saved nature cells. Fixed MultiMesh pools keep a flower trail from becoming
-/// thousands of scene nodes. Nothing here grows, burns, injures, collides or changes the host's data.
+/// A disposable view of saved nature cells: ash, flames and rain, in fixed MultiMesh pools rather than thousands of scene nodes.
+/// Bloom's flowers and its trail went with decision 52 (Grow grows the island's own plant copies, drawn by PlantCopiesView), so
+/// nothing here draws flowers any more. Nothing here grows, burns, injures, collides or changes the host's data.
 /// </summary>
 public partial class NatureLook : Node3D
 {
-    public const int MaxVisibleFlowers = 1200;
     public const int MaxVisibleAsh = 1000;
     public const int MaxVisibleFlames = 200;
     public const int MaxRainDrops = 160;
     private const float VisibleDistanceM = 8;
-    private static readonly Color[] PetalColors = { new("edbf79"), new("d991a6"), new("a4b7df"), new("eee3b7") };
     private CommandHost? _host;
-    private MultiMeshInstance3D _stems = null!, _petals = null!, _ash = null!, _flames = null!, _cores = null!, _rain = null!;
+    private MultiMeshInstance3D _ash = null!, _flames = null!, _cores = null!, _rain = null!;
     private MeshInstance3D _preview = null!;
     private readonly List<NatureCell> _burning = new();
     private double _age, _refreshAge;
     private bool _dirty = true;
     private Vector3 _lastCenter;
     private bool _rainExposed = true;
-    public int FlowerCount { get; private set; }
     public int FlameCount => _burning.Count;
     public bool FirePreviewVisible => _preview != null && _preview.Visible;
 
@@ -43,8 +41,6 @@ public partial class NatureLook : Node3D
 
     public override void _Ready()
     {
-        _stems = Pool("FlowerStems", new CylinderMesh { TopRadius = .0010f, BottomRadius = .0013f, Height = .024f, RadialSegments = 4, Rings = 1 }, MaxVisibleFlowers, Material(new Color("638464")));
-        _petals = Pool("FlowerPetals", new SphereMesh { Radius = .004f, Height = .003f, RadialSegments = 6, Rings = 3 }, MaxVisibleFlowers * 5, Material(Colors.White));
         _ash = Pool("Ash", new CylinderMesh { TopRadius = .031f, BottomRadius = .031f, Height = .0012f, RadialSegments = 8, Rings = 1 }, MaxVisibleAsh, Material(new Color("383b39")));
         _flames = Pool("Flames", new SphereMesh { Radius = .011f, Height = .06f, RadialSegments = 6, Rings = 4 }, MaxVisibleFlames, Material(new Color("ed733d"), emission: true));
         _cores = Pool("FlameHearts", new SphereMesh { Radius = .006f, Height = .031f, RadialSegments = 6, Rings = 3 }, MaxVisibleFlames, Material(new Color("ffe0a0"), emission: true));
@@ -93,7 +89,7 @@ public partial class NatureLook : Node3D
 
     public override void _Process(double delta)
     {
-        if (_host == null || !IsInstanceValid(_host) || !_host.NatureConfigured || _stems == null) return;
+        if (_host == null || !IsInstanceValid(_host) || !_host.NatureConfigured || _ash == null) return;
         _age += delta; _refreshAge += delta;
         var center = _host.Player is { } player && IsInstanceValid(player) ? player.GlobalPosition : GlobalPosition;
         if (_refreshAge >= .5 || _dirty || center.DistanceSquaredTo(_lastCenter) > .5f)
@@ -110,7 +106,7 @@ public partial class NatureLook : Node3D
         if (_host == null) return;
         var near = _host.Nature.Cells.Values.Where(cell => cell.Position.DistanceSquaredTo(center) <= VisibleDistanceM * VisibleDistanceM)
             .OrderBy(cell => cell.Position.DistanceSquaredTo(center));
-        int flower = 0, ash = 0;
+        var ash = 0;
         _burning.Clear();
         foreach (var cell in near)
         {
@@ -122,25 +118,7 @@ public partial class NatureLook : Node3D
                 _ash.Multimesh.SetInstanceTransform(ash, new Transform3D(Basis.FromScale(new Vector3(scale, 1, scale)), position + Vector3.Up * .0015f));
                 _ash.Multimesh.SetInstanceColor(ash++, new Color(1, 1, 1, 1));
             }
-            if (cell.Growth <= .025f || cell.BurningS > 0 || flower >= MaxVisibleFlowers) continue;
-            var seed = unchecked((uint)(cell.X * 73856093 ^ cell.Z * 19349663));
-            var size = Mathf.Clamp(cell.Growth, .05f, 1) * (.8f + (seed % 31) * .015f);
-            var yaw = (seed % 360) * Mathf.Pi / 180f;
-            _stems.Multimesh.SetInstanceTransform(flower, new Transform3D(Basis.FromScale(Vector3.One * size), position + Vector3.Up * (.012f * size)));
-            _stems.Multimesh.SetInstanceColor(flower, Colors.White);
-            var tint = PetalColors[seed % (uint)PetalColors.Length];
-            for (var petal = 0; petal < 5; petal++)
-            {
-                var angle = yaw + petal * Mathf.Tau / 5;
-                var offset = new Vector3(Mathf.Cos(angle) * .0035f, .025f, Mathf.Sin(angle) * .0035f) * size;
-                _petals.Multimesh.SetInstanceTransform(flower * 5 + petal, new Transform3D(Basis.FromScale(Vector3.One * size), position + offset));
-                _petals.Multimesh.SetInstanceColor(flower * 5 + petal, tint);
-            }
-            flower++;
         }
-        FlowerCount = flower;
-        _stems.Multimesh.VisibleInstanceCount = flower;
-        _petals.Multimesh.VisibleInstanceCount = flower * 5;
         _ash.Multimesh.VisibleInstanceCount = ash;
         _flames.Multimesh.VisibleInstanceCount = _cores.Multimesh.VisibleInstanceCount = _burning.Count;
     }

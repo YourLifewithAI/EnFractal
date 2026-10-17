@@ -98,7 +98,7 @@ class TrustEntry:
 def _what(op: str, capability: str | None, rules) -> str:
     """The kernel's TrustWhat: what a mark's line calls a command."""
     if op in ("nature.cast", "effect.start"):
-        named = {"fire": "fire", "bloom": "Grow", "bubble_carry": "bubble carry", "bubble_boat": "bubble boat", "bubble_lift": "bubble lift"}
+        named = {"fire": "fire", "grow": "Grow", "bubble_carry": "bubble carry", "bubble_boat": "bubble boat", "bubble_lift": "bubble lift"}
         if capability in named:
             return named[capability]
         ability = rules.ability(capability) if rules is not None and capability else None

@@ -15,7 +15,7 @@ public static class GubbleMagic
     /// <summary>The ability slots by category, fixed by the engine: slot 1 light, 2 growth, 3 float, 4 burst, 5 build. Keys 1 to 5 are these.</summary>
     public static readonly string[] SlotCategories = { "light", "growth", "float", "burst", "build" };
     /// <summary>A slot's name while the island has no ability in its category (the island's own display_name replaces it).</summary>
-    public static readonly string[] SlotNames = { "Glow", "Bloom", "Bubbles", "Fireworks", "Build" };
+    public static readonly string[] SlotNames = { "Glow", "Grow", "Bubbles", "Fireworks", "Build" };
     public static readonly string[] SlotIcons = { "☀", "✿", BubbleIcon, "✸", "⌂" };
     /// <summary>The Bubbles' icon: the slot's, the wheel's wedge, and the thought bubble while the Gubble leads a bubble.</summary>
     public const string BubbleIcon = "○";
@@ -54,14 +54,14 @@ public static class GubbleMagic
 
     /// <summary>
     /// The wheel's eight wedges, clockwise from the top, never reflowed (muscle memory needs them fixed): Glow up, Fireworks upper
-    /// right, Stay right, Bloom lower right, Build down, Fetch lower left, Come left, Bubbles upper left.
+    /// right, Stay right, Grow lower right, Build down, Fetch lower left, Come left, Bubbles upper left.
     /// </summary>
     public static readonly Wedge[] Wedges =
     {
         new("glow", WedgeKind.Ability, 0, SlotIcons[0], SlotNames[0]),
         new("fireworks", WedgeKind.Ability, 3, SlotIcons[3], SlotNames[3]),
         new("stay", WedgeKind.Stay, -1, StayIcon, "Stay"),
-        new("bloom", WedgeKind.Ability, 1, SlotIcons[1], SlotNames[1]),
+        new("grow", WedgeKind.Ability, 1, SlotIcons[1], SlotNames[1]),
         new("build", WedgeKind.Ability, 4, SlotIcons[4], SlotNames[4]),
         new("fetch", WedgeKind.Fetch, -1, FetchIcon, "Fetch"),
         new("come", WedgeKind.Come, -1, ComeIcon, "Come"),

@@ -845,7 +845,7 @@ class McpClientOnTheRealHost(RealHostCase):
                 "actor in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "params": {"actor": 1}})),
             }
             self.assertEqual(outcome, {
-                "listed": ["bloom", "bubbles", "fire", "fireworks", "glow"],
+                "listed": ["bubbles", "fire", "fireworks", "glow", "grow"],
                 "self": ("ok", "self", {"intensity": 0.6}),
                 "point": ("ok", "point"),
                 "bubbles on itself": ("invalid_args", "$.args.targets"),

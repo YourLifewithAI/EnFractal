@@ -7,7 +7,7 @@ using Godot;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// The Magic panel: the mode picker, the flower trail toggle, the player's "Let the Gubble use fire", Fire's preview and
+/// The Magic panel: the mode picker, Grow's button, the player's "Let the Gubble use fire", Fire's preview and
 /// deliberate hold (no cast without a host preview, a release cancels, the hold casts exactly what was previewed), the
 /// nature Undo button (Creative only), and the wish queue's curated words and Stop, all through the host's commands.
 /// </summary>
@@ -51,12 +51,9 @@ public partial class PlayHudTest
             "switching it off is obeyed by the host and saved in the player's profile");
         fireSetting.EmitSignal(BaseButton.SignalName.Toggled, true);
         Check(host.GubbleFireAllowed && CommandHost.LoadGubbleFire(EnFractal.Native.RoomHud.ProfilePath), "and so is switching it back on");
-        var trail = (CheckButton)_hud.FindChild("FlowerTrailToggle", true, false)!;
-        Check(host.NatureConfigured && trail.ButtonPressed && host.Nature.TrailEnabled, "the flower trail starts enabled and the panel reads the shared nature state");
-        trail.EmitSignal(BaseButton.SignalName.Toggled, false);
-        Check(!host.Nature.TrailEnabled, "turning off the trail sends a nature command");
-        trail.EmitSignal(BaseButton.SignalName.Toggled, true);
-        Check(host.Nature.TrailEnabled, "turning it back on saves the shared trail choice");
+        // Decision 52: Bloom became Grow and its flower trail went: the panel has Grow's button and no trail switch.
+        var growButton = _hud.FindChildren("*", "Button", true, false).OfType<Button>().SingleOrDefault(button => button.Text == "Grow the plants at the selected spot");
+        Check(host.NatureConfigured && growButton != null && _hud.FindChild("FlowerTrailToggle", true, false) == null, "the Magic panel has Grow's button and no flower trail switch");
         var effects = host.ActiveEffectIds.Count;
         var natureReceipts = host.Authority.Call("receipt_count").AsInt32();
         _hud.BeginFireConfirmation();

@@ -270,16 +270,18 @@ public sealed partial class IslandRules
         {
             Expect(Token.IsMatch(entry.Name), at + ".prices are named by lowercase tokens.");
             var where = $"{at}.prices.{entry.Name}";
+            // An older pack's Bloom is read as Grow (IslandRules.LegacyBloomAs), and so is its price.
+            var name = entry.Name == "bloom" && abilities.Any(a => a.Primitive == "growth.seed") ? IslandRules.LegacyBloomAs : entry.Name;
             Expect(entry.Value.ValueKind == JsonValueKind.Object, where + " must be an object.");
             Fields(entry.Value, where, new[] { "ordered", "own_idea_factor" }, new[] { "ordered", "own_idea_factor" });
             var price = new AbilityPrice(IntIn(entry.Value, "ordered", where, 0, 40), Num(entry.Value, "own_idea_factor", where, 0, 1));
             // validate.py: a price names an ability of this pack, or a Bubbles expertise of its particles.float ability.
             if (BubblesExpertise.Contains(entry.Name))
                 Expect(abilities.Any(a => a.Primitive == "particles.float"), $"{where} prices a Bubbles expertise, but the pack grants no particles.float ability.");
-            else Expect(abilities.Any(a => a.Capability == entry.Name), $"{where} prices no ability of this pack.");
+            else Expect(abilities.Any(a => a.Capability == name), $"{where} prices no ability of this pack.");
             var own = price.Ordered * price.OwnIdeaFactor;
             Expect(Math.Abs(own - Math.Round(own)) <= 1e-9, $"{where}: ordered times own_idea_factor is not a whole number of pips.");
-            prices[entry.Name] = price;
+            prices[name] = price;
         }
         var torch = cost.TryGetProperty("torch_fire", out _) ? IntIn(cost, "torch_fire", at, 0, 40) : 0;
         return new CostRules(prices, torch);

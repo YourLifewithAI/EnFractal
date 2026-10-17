@@ -186,6 +186,30 @@ public sealed class PlantCopies
         return true;
     }
 
+    /// <summary>
+    /// Every copy whose pivot (its root) lies within radius of (x, z) horizontally, set by set: only the tiles round the circle are
+    /// read (a copy's row sits in the tile of its pivot), so a cast or a fire reads a few tiles, never the island.
+    /// </summary>
+    public IEnumerable<(PlantSet Set, int Row)> RowsNear(float x, float z, float radius)
+    {
+        var (tx0, tz0) = TileOf(x - radius, z - radius);
+        var (tx1, tz1) = TileOf(x + radius, z + radius);
+        foreach (var set in Sets)
+            for (var tx = tx0; tx <= tx1; tx++)
+            for (var tz = tz0; tz <= tz1; tz++)
+            {
+                var tile = set.FindTile(tx, tz);
+                if (tile < 0) continue;
+                var (_, _, first, count) = set.Tile(tile);
+                for (var row = first; row < first + count; row++)
+                {
+                    var at = set.Position(row);
+                    float dx = at.X - x, dz = at.Z - z;
+                    if (dx * dx + dz * dz <= radius * radius) yield return (set, row);
+                }
+            }
+    }
+
     /// <summary>The 8 m tile of a point, from its float32 coordinates (exact: 8 is a power of two).</summary>
     public static (int Tx, int Tz) TileOf(float x, float z) => ((int)Math.Floor(x / (double)TileM), (int)Math.Floor(z / (double)TileM));
 }

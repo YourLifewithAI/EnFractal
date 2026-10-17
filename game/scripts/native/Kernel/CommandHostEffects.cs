@@ -149,7 +149,7 @@ public partial class CommandHost
         if (Rules == null)
             throw new Refusal("unsupported_capability", "This island's rules did not load, so it grants no abilities.", "$.args.capability");
         var capability = Str(args, "capability")!;
-        if (capability is "bloom" or "fire")
+        if (capability is "grow" or "fire")
             throw new Refusal("unsupported_capability", "Use nature.cast for this ability; preview Fire first.", "$.args.capability");
         var ability = Rules.Ability(capability)
             ?? throw new Refusal("unsupported_capability", "This island has no ability by that name. Call capabilities.list.", "$.args.capability");
@@ -485,7 +485,7 @@ public partial class CommandHost
             ["capability"] = a.Capability, ["category"] = a.Category,
             ["params"] = new JsonObject(a.Params.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)new JsonObject { ["min"] = p.Value.Min, ["max"] = p.Value.Max }))),
             ["area_radius_max_m"] = a.AreaRadiusMaxM, ["duration_max_s"] = a.DurationMaxS,
-            ["command_op"] = a.Primitive is "growth.seed" or "element.ignite" ? "nature.cast" : "effect.start",
+            ["command_op"] = a.Primitive is "growth.seed" or "growth.grow" or "element.ignite" ? "nature.cast" : "effect.start",
             ["max_active"] = a.Primitive == "particles.float" ? Math.Min(EffectiveEffectLimit(a.Capability), BubbleLaws.MaxBubbles) : EffectiveEffectLimit(a.Capability),
             ["reach_m"] = a.ReachM,
         }).ToArray();
