@@ -288,6 +288,12 @@ Multiplayer is a later phase and out of scope for the engine work now.
 70. **Resting at a campfire is an action near the fire:** sitting down by it. "Resting at a campfire should mean taking some kind of action near the fire." The first rest at the island's starting campfire teaches Fire (decision 61).
 71. **A lit campfire is a full camp:** spending Fractals, choosing a knack and waking with half the pips work there as at the starting camp, and hearts refill faster (decision 62). The opening scene that will introduce Fire is planned in [RUN-2-OPENING.md](../runs/RUN-2-OPENING.md).
 
+**Decided by the founder on Fire's camp as built (16 October, night; the eighteenth session's questions)**:
+
+72. **The Gubble has no Fire until the first rest.** Fire is refused until the team has learned it by the player's first rest at the island's starting campfire (decision 61), whoever asks: the player's keys and wheel order the Gubble's magic too, so both are locked, in every mode; the wheel shows Fire locked until then.
+73. **Only rain or Snuff puts a campfire out.** The player's Stop (X) does not. A campfire put out is not a camp until it is relit, and the Gubble's Fire relights it. Snuff's behaviour is its own later packet; rain puts campfires out from this round.
+74. **Firepits are spread evenly over any island,** covering it rather than pushed to its edges or clustered, wherever the island's land lies.
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
