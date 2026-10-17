@@ -270,8 +270,10 @@ public partial class TeamSavesTest : Node3D
         Check(migrated.Others.TryGetValue(ExpertiseLists.Grow, out var grow) && grow.SuccessfulCasts == 3 && rewritten.Contains("\"grow\":{\"successful_casts\":3", StringComparison.Ordinal) &&
               !rewritten.Contains("bloom", StringComparison.Ordinal) && Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(both.ToJsonString()))),
             "a store holding Bloom's record is read as Grow's and written as \"grow\"; one holding both is refused: " + rewritten.Trim());
-        Check(Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(older.ToJsonString().Replace("\"discoveries\":[],\"delivered_hints\":[]}}", "\"discoveries\":[\"tall_plant\"],\"delivered_hints\":[]}}", StringComparison.Ordinal)))),
-            "Grow's list is not in yet (the founder has not seen it): no Grow expertise is accepted");
+        string WithGrow(string id) => older.ToJsonString().Replace("\"discoveries\":[],\"delivered_hints\":[]}}", $"\"discoveries\":[\"{id}\"],\"delivered_hints\":[]}}}}", StringComparison.Ordinal);
+        Check(Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(WithGrow("waterside")))) &&
+              LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(WithGrow("tall_plant"))).Has(ExpertiseLists.Grow, ExpertiseLists.TallPlant),
+            "Grow's list is the founder's (decision 75): Tall plant is accepted under a Bloom record read as Grow, the replaced Waterside is refused");
     }
 
     // ---- the migration ----

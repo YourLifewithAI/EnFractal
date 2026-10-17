@@ -273,6 +273,8 @@ public partial class MenuTest
         // (The indoor fixture has no plants to grow, and the flower trail went with Bloom: a small Fire on its wooden floor beside the
         // Gubble, away from the build, is a durable nature change with an undo step of its own.)
         var fireAt = creative.Host.Companion!.GlobalPosition + new Godot.Vector3(0.15f, 0, 0);
+        // Decision 72: the team knows Fire, as after the first rest (the one helper every suite that lights fires uses).
+        creative.Host.LearnFireForTests();
         var preview = creative.Host.PlayerNaturePreview("fire", fireAt, 0.2f, 3);
         var bloomed = preview["ok"]?.GetValue<bool>() == true
             ? creative.Host.PlayerNatureCast("fire", fireAt, 0.2f, 3, preview["data"]?["preview_id"]?.GetValue<string>())

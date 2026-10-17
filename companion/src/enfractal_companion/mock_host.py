@@ -40,7 +40,8 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - nature (Grow, Fire, repair; contracts/README.md "Nature") is not simulated here yet:
   `nature.cast` and `nature.repair` are checked as the kernel checks them before its
   nature runs (the contract's args, refused request_invalid as CheckNatureArgs does; the revisions; a
-  companion's repair target in sight), then answered `unavailable`, and so is `nature.describe`. `nature.trail`
+  companion's repair target in sight; a Fire cast before the team learned Fire, refused permission_denied in the kernel's words,
+  decision 72), then answered `unavailable`, and so is `nature.describe`. `nature.trail`
   went with Bloom (decision 52): checked the same way, then refused unsupported_capability in the kernel's words. With no
   nature change to take back, `room.undo` answers as the kernel's does for any other change: an earlier
   revision is unsupported_capability, a revision that is not earlier is invalid_args; outside Creative it is
@@ -125,6 +126,9 @@ UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only 
                     "can be undone.")
 # The flower trail went with Bloom (decision 52): nature.trail is refused in the kernel's words (CommandHost.TrailRetired).
 TRAIL_RETIRED = "The flower trail went with Bloom: Grow grows the island's own plants and leaves no trail."
+# Decision 72: no Fire until the first rest at the starting campfire, whoever asks (the kernel's CommandHost.FireNotLearned,
+# refused permission_denied before any other check of a Fire cast, as the fifth light's lock on Constellation's controls).
+FIRE_NOT_LEARNED = "The Gubble has not learned Fire yet: rest by the starting campfire first."
 # An older pack's Bloom (growth.seed) is read as Grow, as the kernel reads it (IslandRules.LegacyBloomAs).
 LEGACY_BLOOM_AS = "grow"
 # Outside Creative there is no undo at all (the founder, 13 October): the kernel's Unsupported, before any revision check.
@@ -626,6 +630,9 @@ class MockHost(JournalMixin, TrustMixin):
         # Trust (M8, mock_trust.py): the team's, so a room reload keeps it; only the host's own observation and the player's
         # marks and reset move it, never a request field.
         self.trust_count = 0
+        # Decision 72: whether the team has learned Fire (the kernel's first rest at the starting campfire). The box mock has no
+        # campfire to sit by, so only the host's own learn_fire (a test's stand-in for that rest, never a request) sets it.
+        self.fire_learned = False
         self._reset_room()
         # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
         self.load_rules(rules_file or rules_path())
@@ -2363,7 +2370,18 @@ class MockHost(JournalMixin, TrustMixin):
         # nature begins here, which this mock does not simulate. The Bubbles expertise are no ground change: hosted here.
         if _is_bubble(message):
             return self._bubble_cast(principal, message, apply)
+        # Decision 72, as the kernel's RequireFireLearned: no Fire, preview or cast, until the team has learned it.
+        if message["args"].get("capability") == "fire" and not self.fire_learned:
+            if self.rules is None or not any(a.capability == "fire" for a in self.rules.abilities):
+                raise HostError("unsupported_capability", "This island does not grant that nature ability.", field_path="$.args.capability")
+            raise HostError("permission_denied", FIRE_NOT_LEARNED, field_path="$.args.capability")
+        # Grow on water grows a waterpad in the kernel (decision 75): nature again, which this mock does not simulate.
         self._runtime_required("Grow and Fire on the island's ground")
+
+    def learn_fire(self) -> None:
+        """The team learns Fire, as the kernel's first rest at the starting campfire teaches it: the host's own, never a request."""
+        with self._lock:
+            self.fire_learned = True
 
     # ------------------------------------------------------------------ the Bubble (M9; the kernel's Kernel/Bubble)
 

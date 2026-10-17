@@ -58,6 +58,8 @@ public static class JournalPages
         (GlowProgress.Constellation, "Constellation", "Nearby lights connect into a small pattern."),
         (GlowProgress.Skylight, "Skylight", "A small star shining above the island."),
     };
+    /// <summary>Fire's line on the Abilities page while it is locked (decision 72).</summary>
+    public const string FireLocked = "Locked: the Gubble learns Fire when you first rest by the starting campfire.";
     private const string ConstellationUnlocked = "Lights joined into your own pattern. You can now move its points and change their links.";
 
     /// <summary>The Gubble's hints, curated, each shown only once the host delivered it and only until its discovery is made.</summary>
@@ -72,7 +74,8 @@ public static class JournalPages
 
     /// <summary>
     /// The plain names of the other abilities' expertise, for a learned one to be listed by (M11): no words, no hints and no smudges
-    /// for Bubbles or Fire while their lists are not final.
+    /// for Bubbles or Fire while their lists are not final. Grow's list is the founder's (decision 75): its unlearned entries are
+    /// smudges and its delivered hints show, as Glow's (GrowHints).
     /// </summary>
     private static readonly (string Ability, string Name, (string Id, string Title)[] Entries)[] OtherExpertise =
     {
@@ -85,6 +88,21 @@ public static class JournalPages
             (ExpertiseLists.FirstFire, "Fire"), (ExpertiseLists.Campfire, "Campfire"), (ExpertiseLists.Fireline, "Fireline"),
             (ExpertiseLists.Snuff, "Snuff"), (ExpertiseLists.WillOWisp, "Will-o'-wisp"),
         }),
+        (ExpertiseLists.Grow, "Grow", new[]
+        {
+            (ExpertiseLists.TallPlant, "Tall plant"), (ExpertiseLists.Thicket, "Thicket"), (ExpertiseLists.GreenAsh, "Green ash"),
+            (ExpertiseLists.RainGarden, "Rain garden"), (ExpertiseLists.Waterpad, "Waterpad"),
+        }),
+    };
+
+    /// <summary>Grow's hints (ExpertiseLists.GrowHintOrder), each pointing at its expertise without naming the trigger, shown once delivered until it is learned.</summary>
+    private static readonly (string Hint, string Discovery, string Words)[] GrowHints =
+    {
+        ("tall_plant_one", ExpertiseLists.TallPlant, "I wonder how big one plant could get."),
+        ("thicket_together", ExpertiseLists.Thicket, "What if a few plants grew up tall together?"),
+        ("green_ash_burnt", ExpertiseLists.GreenAsh, "The burnt ground looks so sad. Could Grow help it?"),
+        ("rain_garden_rain", ExpertiseLists.RainGarden, "Plants love the rain. I wonder what Grow does in it."),
+        ("waterpad_water", ExpertiseLists.Waterpad, "Could something grow on the water?"),
     };
 
     /// <summary>
@@ -213,10 +231,21 @@ public static class JournalPages
     {
         foreach (var (ability, name, entries) in OtherExpertise)
         {
-            if (host.GlowProgress.Of(ability) is not { Discoveries.Count: > 0 } record) continue;
+            var record = host.GlowProgress.Of(ability);
+            // Grow's list is final (decision 75): shown on an island that grants Grow even before anything is learned, with smudges and hints.
+            var final = ability == ExpertiseLists.Grow && host.Rules?.Ability("grow") != null;
+            if (!final && record is not { Discoveries.Count: > 0 }) continue;
             yield return Title(name);
             foreach (var (id, title) in entries)
-                if (record.Has(id)) yield return Text(title);
+                if (record?.Has(id) == true) yield return Text(title);
+            if (!final) continue;
+            foreach (var _ in entries.Where(e => record?.Has(e.Id) != true)) yield return new JournalLine(JournalInk.Smudge, Smudge);
+            foreach (var (hint, discovery, words) in GrowHints)
+            {
+                if (record == null || !record.DeliveredHints.Contains(hint, StringComparer.Ordinal) || record.Has(discovery)) continue;
+                yield return Faint("A thought from the Gubble");
+                yield return Text(words);
+            }
         }
     }
 
@@ -245,6 +274,8 @@ public static class JournalPages
                 var name = KernelJson.DisplayText(ability.DisplayName, 24);
                 lines.Add(Title(slot >= 0 && slot < Act.GubbleSlots.Length ? $"{K(Act.GubbleSlots[slot])} · {name}" : $"{name} · in the Magic panel"));
                 lines.Add(Text(AbilityWords(ability)));
+                // Decision 72: Fire is listed, locked, until the first rest by the starting campfire teaches it.
+                if (ability.Primitive == "element.ignite" && !host.FireLearned) lines.Add(Faint(FireLocked));
                 var limit = host.EffectiveEffectLimit(ability.Capability);
                 lines.Add(Faint($"Reaches {Distance(ability.ReachM)} from the Gubble · {(limit == 1 ? "one at a time" : $"up to {limit} at once")}"));
                 // What it costs you in pips (the ordered price: the player's order, never a field).

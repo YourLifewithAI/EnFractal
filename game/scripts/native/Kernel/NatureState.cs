@@ -196,6 +196,19 @@ public sealed class NaturePlant
 }
 
 /// <summary>The one fire that may burn at a time: who lit it, at whose direction, and what it was allowed to touch.</summary>
+/// <summary>
+/// A waterpad (decision 75): one large water lily leaf a Grow cast on water grew, floating at the surface, the player able to stand on
+/// it. Its spot is its leaf's centre at the top of the leaf; it burns like any plant (burn 0 to 1) and is gone at 1. Saved with the
+/// island like the grown plants; Creative's undo takes it back.
+/// </summary>
+public sealed class NatureWaterpad
+{
+    public string Id { get; set; } = "";
+    public Vector3 PositionM { get; set; }
+    public float Burn { get; set; }
+    public NatureWaterpad Copy() => (NatureWaterpad)MemberwiseClone();
+}
+
 public sealed class NatureFire
 {
     /// <summary>The principal whose cast lit it (a fire saved before 13 October counts as the player's: no one is blamed without proof).</summary>
@@ -239,6 +252,8 @@ public sealed class NatureUndoStep
     public Dictionary<string, NatureObject?> Objects { get; set; } = new(StringComparer.Ordinal);
     /// <summary>Each plant as it was before the change touched it (null: it had nothing recorded, natural and unburnt).</summary>
     public Dictionary<string, NaturePlant?> Plants { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>The waterpads before this step changed them (a waterpad grown or burnt); null while the step did not touch them.</summary>
+    public List<NatureWaterpad>? Waterpads { get; set; }
     public Dictionary<string, int> Wallet { get; set; } = new(StringComparer.Ordinal);
     public bool TrailEnabled { get; set; }
     public string TrailPrincipal { get; set; } = "player";
@@ -250,6 +265,7 @@ public sealed class NatureUndoStep
         Cells = Cells.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
         Objects = Objects.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
         Plants = Plants.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
+        Waterpads = Waterpads?.Select(w => w.Copy()).ToList(),
         Wallet = new(Wallet, StringComparer.Ordinal), TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
     };
 }
@@ -271,6 +287,8 @@ public sealed class NatureState
     /// <summary>Grown plants the island keeps (the brief's 4,096), and burnt ones (provisional): each is one record in the save.</summary>
     public const int MaxGrownPlants = 4096;
     public const int MaxBurntPlants = 8192;
+    /// <summary>The most waterpads an island keeps (decision 75's per-island cap, provisional).</summary>
+    public const int MaxWaterpads = 8;
     /// <summary>Durable nature changes room.undo can still take back, and the cells they remember together; the oldest go first.</summary>
     public const int MaxUndoSteps = 8;
     public const int MaxUndoCells = 8192;
@@ -289,6 +307,8 @@ public sealed class NatureState
     public Dictionary<string, NatureObject> Objects { get; set; } = new(StringComparer.Ordinal);
     /// <summary>The plant copies Grow grew or fire burned (only those: a plant with no record is as the manifest has it).</summary>
     public Dictionary<string, NaturePlant> Plants { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>The waterpads Grow grew on the island's water (decision 75), at most MaxWaterpads, in the order grown.</summary>
+    public List<NatureWaterpad> Waterpads { get; set; } = new();
     /// <summary>Prototype material accounting: one unit per original authored part; no prior economy exists.</summary>
     public Dictionary<string, int> Wallet { get; set; } = FreshWallet();
     public NatureFire? Fire { get; set; }
@@ -318,7 +338,7 @@ public sealed class NatureState
     /// Gubble walks, with no command.
     /// </summary>
     public bool Untouched(bool trailAllowed, IReadOnlyDictionary<string, int> startWallet) =>
-        Objects.Count == 0 && Plants.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" && FractalsPicked.Count == 0 &&
+        Objects.Count == 0 && Plants.Count == 0 && Waterpads.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" && FractalsPicked.Count == 0 &&
         TrailRulesSha256.Length == 0 && Wallet.Count == startWallet.Count && startWallet.All(p => Wallet.GetValueOrDefault(p.Key, -1) == p.Value) &&
         (trailAllowed || Cells.Count == 0);
 
@@ -328,6 +348,7 @@ public sealed class NatureState
         Cells = Cells.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
         Objects = Objects.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
         Plants = Plants.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
+        Waterpads = Waterpads.Select(w => w.Copy()).ToList(),
         Wallet = new(Wallet, StringComparer.Ordinal), Fire = Fire?.Copy(), Undo = Undo.Select(s => s.Copy()).ToList(),
         UndoneAt = UndoneAt, UndoneTo = UndoneTo, FractalsPicked = new(FractalsPicked, StringComparer.Ordinal),
     };
@@ -430,6 +451,19 @@ public sealed class NatureState
         if (step != null && !step.Objects.ContainsKey(id)) step.Objects[id] = Objects.TryGetValue(id, out var value) ? value.Copy() : null;
     }
 
+    /// <summary>The waterpads as they are, remembered once by a step that grows or burns one.</summary>
+    public void RememberWaterpads(NatureUndoStep? step)
+    {
+        if (step != null && step.Waterpads == null) step.Waterpads = Waterpads.Select(w => w.Copy()).ToList();
+    }
+
+    /// <summary>A new waterpad's id: waterpad:n, the smallest n no waterpad on the island has.</summary>
+    public string NextWaterpadId()
+    {
+        for (var n = 1; ; n++)
+            if (Waterpads.All(w => w.Id != "waterpad:" + n)) return "waterpad:" + n;
+    }
+
     public void RememberPlant(NatureUndoStep? step, string id)
     {
         if (step != null && !step.Plants.ContainsKey(id)) step.Plants[id] = Plants.TryGetValue(id, out var value) ? value.Copy() : null;
@@ -487,6 +521,7 @@ public sealed class NatureState
                 if (plant == null) Plants.Remove(id);
                 else Plants[id] = plant.Copy();
             }
+            if (step.Waterpads != null) Waterpads = step.Waterpads.Select(w => w.Copy()).ToList();
             Wallet = new(step.Wallet, StringComparer.Ordinal);
             TrailEnabled = step.TrailEnabled;
             TrailPrincipal = step.TrailPrincipal;

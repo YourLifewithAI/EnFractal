@@ -9,7 +9,7 @@ using EnFractal.Native.Ui;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// Fire's camp on screen (RoomHud.Camp.cs): the rest key (Z) sits the player down by the starting campfire in the rest crouch and
+/// Fire's camp on screen (RoomHud.Camp.cs): Fire shown locked until the first rest (decision 72), the rest key (Z) sits the player down by the starting campfire in the rest crouch and
 /// moving stands them up; the expertise announcement, a chime and the two-line card for every expertise learned, once each, never headless.
 /// </summary>
 public partial class PlayHudTest
@@ -20,6 +20,12 @@ public partial class PlayHudTest
         var player = _world.Player;
         host.ConfigureGlowProgress(new HudGlowStore(GlowProgress.Fresh));
         var spawn = host.Room.SpawnFor("player").PositionM;
+        // Decision 72: before the first rest the Magic panel shows Fire locked, its preview button off.
+        _hud.ToggleMagicPanel();
+        await Frames(2);
+        var lockedBefore = _hud.FireShownLocked;
+        _hud.ToggleMagicPanel();
+        Check(lockedBefore, "before the first rest the Magic panel shows Fire locked (its preview off, the reason shown)");
         Check(PlayerControls.Label(Act.Rest) == "Z" && PlayerControls.Specs.Any(spec => spec.Action == Act.Rest), "the rest key is Z, an input action in the map and the list of controls");
         Check(player.TryTeleportTo(spawn), "(the player stands at the starting campfire)");
         await Frames(4);
@@ -31,6 +37,11 @@ public partial class PlayHudTest
         Check(_hud.Sitting && host.PlayerResting && Mathf.IsEqualApprox(part.Transform.Basis.Y.Length(), standing.Basis.Y.Length() * RoomHud.RestCrouch) &&
               host.GlowProgress.Has(ExpertiseLists.Fire, ExpertiseLists.FirstFire),
             "Z by the starting campfire sits the player down (the rest crouch), and the rest teaches Fire");
+        _hud.ToggleMagicPanel();
+        await Frames(2);
+        var lockedAfter = _hud.FireShownLocked;
+        _hud.ToggleMagicPanel();
+        Check(!lockedAfter, "after it the Magic panel's Fire is no longer locked");
         Check(_hud.CardsShown == cards && !_hud.CardVisible && _hud.ChimesPlayed == 0, "headless, the announcement shows no card and plays no chime");
         Check(player.TryTeleportTo(spawn + new Vector3(0.12f, 0, 0)), "(the player moves)");
         await Frames(2);

@@ -221,6 +221,8 @@ public partial class BubbleTest
         _host.ConfigureNature();
         _host.NatureSampleForTests = Soil;
         _host.SetGubbleFire(true);
+        // Decision 72: the team knows Fire, as after the first rest (the one helper every suite that lights fires uses).
+        _host.LearnFireForTests();
         var feet = _player.GlobalPosition;
         var health = Health;
         var carry = TheBubbleOnThePlayer(Companion, duration: 60);

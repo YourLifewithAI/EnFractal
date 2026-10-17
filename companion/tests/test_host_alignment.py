@@ -184,6 +184,8 @@ class AlignmentScenarios:
             "a repair of something unseen": await sent("nature.repair", {"target": "creation:zz-not-here"}),
             "a stale revision": await sent("nature.trail", {"enabled": False}, expected_revision=10 ** 6, preview=True),
             "the retired flower trail": await sent("nature.trail", {"enabled": False}, preview=True),
+            # Decision 72: a fresh team has not rested by the starting campfire yet, so the Gubble has no Fire on either host.
+            "Fire before the first rest": await sent("nature.cast", {**bloom, "capability": "fire"}, preview=True),
         }
         self.assertEqual(checked, {
             "an argument it does not know": ("field_unknown", "$.args.intensity"),
@@ -196,10 +198,10 @@ class AlignmentScenarios:
             "a repair of something unseen": ("target_not_found", "$.args.target"),
             "a stale revision": ("revision_conflict", "$.expected_revision"),
             "the retired flower trail": ("unsupported_capability", "$.op"),
+            "Fire before the first rest": ("permission_denied", "$.args.capability"),
         })
         excepted = {
-            "nature.cast": [await sent("nature.cast", bloom, preview=True),
-                            await sent("nature.cast", {**bloom, "capability": "fire"}, preview=True)],
+            "nature.cast": [await sent("nature.cast", bloom, preview=True)],
             "nature.describe": [refusal(await self.ask(query("nature.describe", {}, self.next_id("q"))))],
         }
         self.assertLessEqual(set(excepted), NATURE_NOT_IN_THE_MOCK)
@@ -757,6 +759,19 @@ class AlignmentOnTheMock(AlignmentScenarios, unittest.IsolatedAsyncioTestCase):
 
     async def wait(self, seconds: float) -> None:
         self.host.clock.advance(seconds)
+
+    async def test_fire_waits_for_the_first_rest_then_is_nature_again(self):
+        """Decision 72 on the mock: Fire is refused in the kernel's words until the team learns it (the host's own learn_fire,
+        the kernel's first rest), then it is nature again, which this mock answers unavailable; Fire stays listed meanwhile."""
+        fire = {"capability": "fire", "center_m": IN_THE_OPEN, "radius_m": 0.25, "duration_s": 30}
+        locked = await self.ask(command("nature.cast", fire, self.next_id("fire"), preview=True))
+        listed = await self.ask(query("capabilities.list", {}, self.next_id("q")))
+        self.host.learn_fire()
+        learned = await self.ask(command("nature.cast", fire, self.next_id("fire"), preview=True))
+        self.assertEqual((refusal(locked), locked["error"]["message"]), (("permission_denied", "$.args.capability"),
+                         "The Gubble has not learned Fire yet: rest by the starting campfire first."))
+        self.assertIn("fire", [item["capability"] for item in listed["data"]["items"]])
+        self.assertEqual(refusal(learned), ("unavailable", "$.op"))
 
 
 if __name__ == "__main__":

@@ -221,6 +221,8 @@ class NatureInTheMock(unittest.TestCase):
                 self.assertEqual(self.send(op, args, **options), expected)
 
     def test_valid_nature_commands_are_unavailable_and_change_nothing(self):
+        # Decision 72: Fire is valid only once the team has learned it (the kernel's first rest; the mock host's own learn_fire).
+        self.host.learn_fire()
         before = (self.host.revision, len(self.host.receipts), len(self.host.transient))
         fire = {**self.BLOOM, "capability": "fire"}
         for op, args, options in (("nature.cast", self.BLOOM, {}), ("nature.cast", fire, {"preview": True}),
