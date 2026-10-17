@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -130,7 +131,7 @@ public partial class GubbleWheel : Control
             var known = name != null;
             // A slot the island has but the team has not learned (Fire before the first rest): its name, the lock mark and the reason.
             var locked = known && wedge.Kind == GubbleMagic.WedgeKind.Ability ? lockedWords?.Invoke(wedge.Slot) : null;
-            var text = locked != null ? $"{wedge.Icon}\n{wedge.Slot + 1} {name}\n{locked}"
+            var text = locked != null ? $"{wedge.Icon}\n{wedge.Slot + 1} {name}\n{WrapWords(locked)}"
                 : known ? (wedge.Kind == GubbleMagic.WedgeKind.Ability ? $"{wedge.Icon}\n{wedge.Slot + 1} {name}" : name!)
                 : $"{wedge.Icon}\n{wedge.Slot + 1} {wedge.Name}\n{LackingWords}";
             if (label.Text != text) label.Text = text;
@@ -156,6 +157,17 @@ public partial class GubbleWheel : Control
             label.AddThemeColorOverride("font_color", shown.Needs ? new Color("f2b46b") : new Color("fff3d6"));
             label.Modulate = new Color(1, 1, 1, shown.Faint && shown.Needs ? 0.5f : 1f);
         }
+    }
+
+    /// <summary>A wedge's longer words in two lines, broken at the space nearest their middle (the first window capture: one line ran across the wheel).</summary>
+    public static string WrapWords(string text, int longest = 20)
+    {
+        if (text.Length <= longest) return text;
+        var middle = text.Length / 2;
+        var best = -1;
+        for (var i = 0; i < text.Length; i++)
+            if (text[i] == ' ' && (best < 0 || Math.Abs(i - middle) < Math.Abs(best - middle))) best = i;
+        return best < 0 ? text : text[..best] + "\n" + text[(best + 1)..];
     }
 
     /// <summary>The ask button went down at this screen point: the hold starts.</summary>

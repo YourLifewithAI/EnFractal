@@ -51,6 +51,17 @@ public partial class PlayHudTestCapture : Node
             if (_out.Length > 0) System.IO.Directory.CreateDirectory(_out);
             Engine.MaxFps = 60;
             DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
+            // A fresh scratch profile would play the opening intro first, and the intro takes every input: --no-intro skips it.
+            if (Arg("no-intro", "") == "true")
+            {
+                const string profile = "user://capture_profile/avatar_profile_v1.cfg";
+                DirAccess.MakeDirRecursiveAbsolute(ProjectSettings.GlobalizePath("user://capture_profile"));
+                var config = new ConfigFile();
+                config.SetValue("profile", "version", 1);
+                config.SetValue("profile", RoomHud.PlayIntroProfileKey, false);
+                config.Save(profile);
+                RoomHud.ProfilePath = profile;
+            }
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             if (Arg("room", "").Length > 0) _world.RoomDirectory = RoomWorld.ResolveRoom(Arg("room", "").Replace('\\', '/'));
             AddChild(_world);
@@ -79,6 +90,9 @@ public partial class PlayHudTestCapture : Node
                     case "marker": await Marker(); break;
                     case "spend": await Spend(); break;
                     case "pulse": await Pulse(); break;
+                    // The Fire behaviours packet (PlayHudTestCapture.FireBehaviours.cs).
+                    case "fractal": await FractalCapture(); break;
+                    case "fire": await FireCapture(); break;
                     case "probe": await Probe(); break;
                     case "alloc": await Alloc(); break;
                     case "dump": await Dump(); break;

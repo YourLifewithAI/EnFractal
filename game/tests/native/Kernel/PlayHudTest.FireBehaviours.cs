@@ -97,13 +97,14 @@ public partial class PlayHudTest
         _hud._UnhandledInput(RightButton(true));
         await Frames(20);
         var label = _hud.Wheel.WedgeLabels[2].Text;
-        var locked = _hud.Wheel.LockedWedges.SequenceEqual(new[] { 2 }) && label.Contains(GubbleMagic.FireLockedWords, StringComparison.Ordinal) && _hud.Wheel.WedgeLabels[2].Modulate.A < 1f;
+        var locked = _hud.Wheel.LockedWedges.SequenceEqual(new[] { 2 }) && label.EndsWith(GubbleWheel.WrapWords(GubbleMagic.FireLockedWords), StringComparison.Ordinal) &&
+                     label.Contains('\n' + "campfire first.", StringComparison.Ordinal) && _hud.Wheel.WedgeLabels[2].Modulate.A < 1f && !_hud.Wheel.PriceLabels[2].Visible;
         _hud._UnhandledInput(Motion(GubbleMagic.WedgeDirection(2) * 90f));
         _hud._UnhandledInput(RightButton(false));
         var receipts = host.TransientReceiptCount(CommandHost.PlayerPrincipal);
         var revision = host.Revision;
         Check(locked && _hud.Cue.State == "shrug" && _hud.Cue.Reason == GubbleMagic.FireLockedWords && !_hud.WheelFireArmed,
-            "before the first rest the Fire wedge shows a lock and \"Rest by the starting campfire first.\", and choosing it shrugs those words: " + label.Replace("\n", " "));
+            "before the first rest the Fire wedge shows a lock and \"Rest by the starting campfire first.\" in two lines, and no price; choosing it shrugs those words: " + label.Replace("\n", " "));
         _hud._UnhandledInput(Press(Key.Key6));
         _hud._UnhandledInput(Release(Key.Key6));
         Check(_hud.NoticeText == GubbleMagic.FireLockedWords && !_hud.WheelFireArmed && host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.Revision == revision,

@@ -75,7 +75,8 @@ public partial class CommandHostTest
             ("a Fire id of the replaced list", Replace("\"first_fire\"", "\"firebreak\"")),
             ("a duplicated expertise", Replace("\"discoveries\":[\"first_fire\",\"campfire\"", "\"discoveries\":[\"first_fire\",\"first_fire\"")),
             ("a hint for Bubbles, which has none until its list is final", Replace("\"delivered_hints\":[]},\"fire\"", "\"delivered_hints\":[\"bubble_carry_ride\"]},\"fire\"")),
-            ("a hint for Fire, which has none yet", Replace("\"delivered_hints\":[]},\"grow\"", "\"delivered_hints\":[\"campfire_small\"]},\"grow\"")),
+            // Fire's list is final (decisions 77 to 80): its hints are its own five, and no other.
+            ("a hint Fire's list does not hold", Replace("\"first_fire_rest\"", "\"campfire_small\"")),
             ("no abilities at all", Replace(text[text.IndexOf("\"abilities\":", StringComparison.Ordinal)..(text.IndexOf("\"touch\":", StringComparison.Ordinal))], "\"abilities\":{},")),
             ("an extra field on an ability", Replace("\"fire\":{\"successful_casts\"", "\"fire\":{\"power\":9,\"successful_casts\"")),
             ("a count past the bound", Replace("\"fire\":{\"successful_casts\":1000000", "\"fire\":{\"successful_casts\":1000001")),
