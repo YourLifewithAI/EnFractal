@@ -46,8 +46,8 @@ public partial class PlayHudTest
               text.Contains("Your Glow expertise will appear here.", StringComparison.Ordinal) &&
               !text.Contains("Lantern", StringComparison.Ordinal) && NoGlowSpoilers(text),
             "the Discoveries page shows the current light allowance without naming undiscovered abilities or their unlock conditions");
-        Check(GlowSmudges() == 5 && _hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge && line.Text == JournalPages.Smudge) == 10,
-            "each Glow discovery still to come is the same unreadable smudge (and each of Grow's), so there is more to find but nothing says what");
+        Check(GlowSmudges() == 5 && _hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge && line.Text == JournalPages.Smudge) == 15,
+            "each Glow discovery still to come is the same unreadable smudge (and each of Fire's and Grow's), so there is more to find but nothing says what");
         var receipts = host.TransientReceiptCount(CommandHost.PlayerPrincipal);
         _hud._UnhandledInput(Press(Key.Key1));
         Check(host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.ActiveEffectIds.Count == 0,
@@ -124,8 +124,10 @@ public partial class PlayHudTest
         await Frames(1);
         var fresh = _hud.JournalText;
         var smudges = _hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge);
-        Check(!fresh.Contains("Bubbles", StringComparison.Ordinal) && !fresh.Contains("Fire", StringComparison.Ordinal) && !fresh.Contains("First fire", StringComparison.Ordinal),
-            "with nothing learned in Bubbles or Fire, the Discoveries page says nothing of them");
+        var fireSmudges = ExpertiseLists.FireOrder.Length - (host.GlowProgress.Of(ExpertiseLists.Fire)?.Discoveries.Count ?? 0);
+        Check(!fresh.Contains("Bubbles", StringComparison.Ordinal) && fresh.Contains("Fire\n" + JournalPages.Smudge, StringComparison.Ordinal) &&
+              !fresh.Contains("Campfire", StringComparison.Ordinal) && !fresh.Contains("Snuff", StringComparison.Ordinal),
+            "with nothing learned, the Discoveries page says nothing of Bubbles, and Fire's final list (decisions 77 to 80) shows only as smudges");
         host.ConfigureGlowProgress(new HudGlowStore(GlowProgress.Restore(11, new[] { "lantern" }, new[] { "lantern_self" }, "plain", 0.35, false, new[]
         {
             ExpertiseRecord.Restore(ExpertiseLists.BubblesList, 0, new[] { ExpertiseLists.BubbleCarry, ExpertiseLists.BubbleLift }, Array.Empty<string>()),
@@ -138,9 +140,9 @@ public partial class PlayHudTest
               !text.Contains("Bubble boat", StringComparison.Ordinal) && !text.Contains("Campfire", StringComparison.Ordinal) && !text.Contains("Fireline", StringComparison.Ordinal) &&
               !text.Contains("Snuff", StringComparison.Ordinal),
             "a learned expertise is listed by its plain name under its ability, and one not learned is not named");
-        Check(_hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge) == smudges && _hud.Journal.Lines.Count(line => line.Text == "A thought from the Gubble") == 0 &&
+        Check(_hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge) == smudges - fireSmudges + 3 && _hud.Journal.Lines.Count(line => line.Text == "A thought from the Gubble") == 0 &&
               NoGlowSpoilers(text),
-            "and Bubbles and Fire add no smudge and no hint (the page holds the Glow smudges it did, and no thought from the Gubble)");
+            "and Bubbles adds no smudge and no hint, while Fire's two learned entries take two of its smudges' places (no thought from the Gubble: none delivered)");
         _hud._UnhandledInput(Press(Key.Escape));
         await Frames(60);
         host.ConfigureGlowProgress(new LocalGlowProgressStore(ProjectSettings.GlobalizePath(HudGlowProfile)));
@@ -158,5 +160,5 @@ public partial class PlayHudTest
     }
 
     /// <summary>The journal page's smudges in Glow's part (before Grow's list, decision 75, whose own smudges follow).</summary>
-    private int GlowSmudges() => _hud.Journal.Lines.TakeWhile(line => !(line.Ink == JournalInk.Title && line.Text == "Grow")).Count(line => line.Ink == JournalInk.Smudge);
+    private int GlowSmudges() => _hud.Journal.Lines.TakeWhile(line => !(line.Ink == JournalInk.Title && line.Text is "Bubbles" or "Fire" or "Grow")).Count(line => line.Ink == JournalInk.Smudge);
 }

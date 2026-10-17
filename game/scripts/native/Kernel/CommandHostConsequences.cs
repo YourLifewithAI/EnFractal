@@ -104,6 +104,8 @@ public partial class CommandHost
     /// </summary>
     internal bool PutOutCompanionFire()
     {
+        // The same X removes the oldest Will-o'-wisp (decision 80; CommandHostFireKinds), whoever cast it: it is no fire, and counts none.
+        RemoveOldestWisp();
         if (!NatureConfigured || Nature.Fire is not { Principal: CompanionPrincipal }) return false;
         _companionFireSeenS = Nature.WeatherS;
         Nature.PutOutFire();

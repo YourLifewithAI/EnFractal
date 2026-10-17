@@ -74,8 +74,8 @@ public static class JournalPages
 
     /// <summary>
     /// The plain names of the other abilities' expertise, for a learned one to be listed by (M11): no words, no hints and no smudges
-    /// for Bubbles or Fire while their lists are not final. Grow's list is the founder's (decision 75): its unlearned entries are
-    /// smudges and its delivered hints show, as Glow's (GrowHints).
+    /// for Bubbles while its list is not final. Grow's list (decision 75) and Fire's (decisions 77 to 80) are the founder's: their unlearned
+    /// entries are smudges and their delivered hints show, as Glow's (GrowHints, FireHints).
     /// </summary>
     private static readonly (string Ability, string Name, (string Id, string Title)[] Entries)[] OtherExpertise =
     {
@@ -103,6 +103,16 @@ public static class JournalPages
         ("green_ash_burnt", ExpertiseLists.GreenAsh, "The burnt ground looks so sad. Could Grow help it?"),
         ("rain_garden_rain", ExpertiseLists.RainGarden, "Plants love the rain. I wonder what Grow does in it."),
         ("waterpad_water", ExpertiseLists.Waterpad, "Could something grow on the water?"),
+    };
+
+    /// <summary>Fire's hints (ExpertiseLists.FireHintOrder), each pointing at its expertise without naming the trigger, shown once delivered until it is learned.</summary>
+    private static readonly (string Hint, string Discovery, string Words)[] FireHints =
+    {
+        ("first_fire_rest", ExpertiseLists.FirstFire, "That campfire looks so cosy. Shall we stop there a while?"),
+        ("campfire_firepits", ExpertiseLists.Campfire, "Those cold old rings of stones... I wonder if they miss being warm."),
+        ("fireline_row", ExpertiseLists.Fireline, "What if a few little fires stood in a row?"),
+        ("snuff_wet", ExpertiseLists.Snuff, "Fires really don't like getting wet, do they?"),
+        ("wisp_water", ExpertiseLists.WillOWisp, "Could a flame ever float on water?"),
     };
 
     /// <summary>
@@ -232,15 +242,16 @@ public static class JournalPages
         foreach (var (ability, name, entries) in OtherExpertise)
         {
             var record = host.GlowProgress.Of(ability);
-            // Grow's list is final (decision 75): shown on an island that grants Grow even before anything is learned, with smudges and hints.
-            var final = ability == ExpertiseLists.Grow && host.Rules?.Ability("grow") != null;
+            // Grow's list (decision 75) and Fire's (77 to 80) are final: shown on an island that grants the ability even before anything is
+            // learned, with smudges and hints.
+            var final = (ability == ExpertiseLists.Grow && host.Rules?.Ability("grow") != null) || (ability == ExpertiseLists.Fire && host.Rules?.Ability("fire") != null);
             if (!final && record is not { Discoveries.Count: > 0 }) continue;
             yield return Title(name);
             foreach (var (id, title) in entries)
                 if (record?.Has(id) == true) yield return Text(title);
             if (!final) continue;
             foreach (var _ in entries.Where(e => record?.Has(e.Id) != true)) yield return new JournalLine(JournalInk.Smudge, Smudge);
-            foreach (var (hint, discovery, words) in GrowHints)
+            foreach (var (hint, discovery, words) in ability == ExpertiseLists.Fire ? FireHints : GrowHints)
             {
                 if (record == null || !record.DeliveredHints.Contains(hint, StringComparer.Ordinal) || record.Has(discovery)) continue;
                 yield return Faint("A thought from the Gubble");

@@ -9,7 +9,8 @@ namespace EnFractal.Tests.Kernel;
 
 /// <summary>
 /// A fire teaches nothing by burning (M11): Fire's expertise come from the camp (CommandHostCamps: the first rest teaches Fire, the first
-/// firepit lit Campfire) and the later Fire packets, so a fire lit, burning, put out or burnt out teaches, counts and saves nothing.
+/// firepit lit Campfire) and Fire's behaviours (CommandHostFireKinds), so a fire lit, burning, put out or burnt out teaches nothing; each
+/// committed cast is counted toward Fire's hints (the shared rules, since Fire's list is final), and only that is saved.
 /// </summary>
 public partial class NatureTest
 {
@@ -28,8 +29,9 @@ public partial class NatureTest
         var stopped = _host.PlayerGoal("stop");
         Check(Ok(preview) && Ok(lit) && Ok(companion) && Ok(stopped) && _host.Nature.Cells.Values.Any(c => c.Ash > 0) && _host.Nature.Fire == null,
             "a fire was previewed, lit and burnt out by the player, and lit by the Gubble and put out");
-        Check(_host.GlowProgress.Others.Keys.SequenceEqual(new[] { "fire" }) && _host.ExpertiseCount() == 1 && store.Saves == 0 && _host.GlowProgressNotice.Length == 0,
-            "and none of it taught, counted or saved anything beyond Fire itself (the test's rest): a fire teaches nothing by burning");
+        Check(_host.GlowProgress.Others.Keys.SequenceEqual(new[] { "fire" }) && _host.ExpertiseCount() == 1 && _host.GlowProgress.Of("fire")!.SuccessfulCasts == 2 &&
+              _host.GlowProgress.Of("fire")!.DeliveredHints.Count == 0 && store.Saves == 2 && _host.GlowProgressNotice.Length == 0,
+            "and none of it taught anything beyond Fire itself (the test's rest): a fire teaches nothing by burning; the two committed casts are counted toward Fire's hints");
     }
 
     private sealed class CountingProgressStore : IGlowProgressStore

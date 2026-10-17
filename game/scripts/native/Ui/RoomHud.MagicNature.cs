@@ -100,11 +100,15 @@ public partial class RoomHud
         var cells = result["data"]?["cell_count"]?.GetValue<int>() ?? 0;
         var affected = result["data"]?["affected_ids"]?.AsArray().Count ?? 0;
         var approval = result["data"]?["requires_approval"]?.GetValue<bool>() == true;
+        // The place decides (decision 77): a firepit, Snuff or a Will-o'-wisp says what it will do, as the wheel's preview does.
+        var kind = result["data"]?["kind"]?.GetValue<string>() ?? Kernel.FireKindWords.Fire;
+        var plain = kind == Kernel.FireKindWords.Fire;
         // The one ask about builds is the host's card after the hold (Creative only); the preview only says it will come.
-        _firePreviewWords.Text = $"Fire stays within the outlined {_fireRadius:0.##} m radius. {affected} {(affected == 1 ? "thing may" : "things may")} be affected. " +
+        _firePreviewWords.Text = !plain ? WheelFireWords(kind, cells, affected, _fireRadius, approval).Split(" Hold ")[0] + " Release the button to cancel before the hold finishes." :
+            $"Fire stays within the outlined {_fireRadius:0.##} m radius. {affected} {(affected == 1 ? "thing may" : "things may")} be affected. " +
             (cells == 0 ? "There is no suitable ground here." : "Release the button to cancel before the hold finishes.") +
             (approval ? " Your builds are in reach: you will be asked once whether they may burn." : "");
-        _fireConfirm.Disabled = _firePreviewId == null || cells == 0;
+        _fireConfirm.Disabled = _firePreviewId == null || (plain && cells == 0);
         NatureVisual?.ShowFirePreview(_firePoint, _fireRadius);
         _magicMessageText = "Review the outlined area, then hold the button if you want this fire.";
         RefreshMagicPanel();

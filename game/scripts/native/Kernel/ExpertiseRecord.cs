@@ -51,8 +51,8 @@ public static class ExpertiseLists
     public const string BubbleBoat = "bubble_boat";
     public const string BubbleLift = "bubble_lift";
 
-    // Fire (the founder's redesign of 15 October: firepits that become campfires, a fire line, snuff, a will-o'-wisp on water). Its
-    // behaviours are a later Fire packet's; nothing records these ids yet.
+    // Fire (the founder's redesign of 15 October; decisions 61 to 63 and 77 to 80): the first rest teaches Fire, the first firepit lit
+    // Campfire, three casts along a line Fireline, rain on the Gubble's fire or a bubble on a fire Snuff, Fire on water Will-o'-wisp.
     public const string FirstFire = "first_fire";
     public const string Campfire = "campfire";
     public const string Fireline = "fireline";
@@ -65,8 +65,11 @@ public static class ExpertiseLists
     /// </summary>
     public static readonly string[] BubblesOrder = { BubbleCarry, BubbleBoat, BubbleLift };
 
-    /// <summary>The ids the store accepts for Fire, in order: one constant, for the later Fire packet to change as its design settles.</summary>
+    /// <summary>The ids the store accepts for Fire, in the list's (and the hints') order (docs/magic/README.md).</summary>
     public static readonly string[] FireOrder = { FirstFire, Campfire, Fireline, Snuff, WillOWisp };
+
+    /// <summary>Fire's hints (its list is final with decisions 77 to 80), one for each expertise in the same order, delivered at the team's 10th to 50th Fire cast as Glow's are.</summary>
+    public static readonly string[] FireHintOrder = { "first_fire_rest", "campfire_firepits", "fireline_row", "snuff_wet", "wisp_water" };
 
     // Grow (the founder's list of 16 October, night, MECHANICS.md decision 75), in hint order: each a committed Grow cast the host
     // verifies (CommandHostGrow.RecordGrowCast), each behaviour working from the start and the first time it works teaching it.
@@ -83,9 +86,9 @@ public static class ExpertiseLists
     public static readonly string[] GrowHintOrder = { "tall_plant_one", "thicket_together", "green_ash_burnt", "rain_garden_rain", "waterpad_water" };
 
     public static readonly ExpertiseList GlowList = new(Glow, GlowProgress.DiscoveryOrder, GlowProgress.HintOrder);
-    // No hints for Bubbles or Fire until their lists are final: nothing is delivered, and the store refuses any hint under them.
+    // No hints for Bubbles until its list is final: nothing is delivered, and the store refuses any hint under it. Fire's list is final.
     public static readonly ExpertiseList BubblesList = new(Bubbles, BubblesOrder);
-    public static readonly ExpertiseList FireList = new(Fire, FireOrder);
+    public static readonly ExpertiseList FireList = new(Fire, FireOrder, FireHintOrder);
     public static readonly ExpertiseList GrowList = new(Grow, GrowOrder, GrowHintOrder);
 
     /// <summary>Every ability the store holds, Glow first: the order the store writes them.</summary>

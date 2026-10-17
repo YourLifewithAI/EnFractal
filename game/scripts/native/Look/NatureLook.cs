@@ -59,6 +59,8 @@ public partial class NatureLook : Node3D
             },
         };
         AddChild(_preview);
+        // Fire's behaviours: the Will-o'-wisps (NatureLook.Wisps.cs).
+        BuildWisps();
     }
 
     private MultiMeshInstance3D Pool(string title, Mesh mesh, int capacity, Material material)
@@ -98,7 +100,7 @@ public partial class NatureLook : Node3D
             RefreshCells(center);
             RefreshExposure(center);
         }
-        AnimateFire(); AnimateRain(center);
+        AnimateFire(); AnimateRain(center); AnimateWisps();
     }
 
     private void RefreshCells(Vector3 center)
@@ -182,6 +184,7 @@ public partial class NatureLook : Node3D
         }
         mesh.SurfaceEnd();
         _preview.Mesh = mesh; _preview.Visible = true;
+        PreviewIsLine = false;
     }
 
     public void HideFirePreview() { if (_preview != null) _preview.Visible = false; }

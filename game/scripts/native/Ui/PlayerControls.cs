@@ -42,14 +42,16 @@ public static class Act
     public static readonly StringName GubbleRecall = "gubble_recall";
     /// <summary>Stop the Gubble's goal and its effects (goal.stop).</summary>
     public static readonly StringName GubbleStop = "gubble_stop";
-    /// <summary>The five ability slots, fixed by category (GubbleSlots): 1 light, 2 growth, 3 float, 4 burst, 5 build.</summary>
+    /// <summary>The six ability slots, fixed by category (GubbleSlots): 1 light, 2 growth, 3 float, 4 burst, 5 build, 6 fire (decision 77).</summary>
     public static readonly StringName GubbleSlot1 = "gubble_slot_1";
     public static readonly StringName GubbleSlot2 = "gubble_slot_2";
     public static readonly StringName GubbleSlot3 = "gubble_slot_3";
     public static readonly StringName GubbleSlot4 = "gubble_slot_4";
     public static readonly StringName GubbleSlot5 = "gubble_slot_5";
+    /// <summary>6: Fire (decision 77): a tap previews the fire where you point, a drag (once Fireline is learned) a line; a hold of the ask lights it.</summary>
+    public static readonly StringName GubbleSlot6 = "gubble_slot_6";
     /// <summary>The slot actions in slot order (index 0 is slot 1).</summary>
-    public static readonly StringName[] GubbleSlots = { GubbleSlot1, GubbleSlot2, GubbleSlot3, GubbleSlot4, GubbleSlot5 };
+    public static readonly StringName[] GubbleSlots = { GubbleSlot1, GubbleSlot2, GubbleSlot3, GubbleSlot4, GubbleSlot5, GubbleSlot6 };
     // The hands.
     /// <summary>Pick up what the player faces, or put down what it holds.</summary>
     public static readonly StringName Hands = "hands";
@@ -71,6 +73,8 @@ public static class Act
     public static readonly StringName HudHelp = "hud_help";
     /// <summary>C: the settings panel (it was the Customize panel; the input action keeps its name, hud_customize, until project.godot renames it).</summary>
     public static readonly StringName HudCustomize = "hud_customize";
+    /// <summary>M: the Magic panel (the Gubble's magic: Grow, Fire's preview and hold, Glow's lights, wishes), opened and closed again.</summary>
+    public static readonly StringName HudMagic = "hud_magic";
     /// <summary>The journal, the leather book at the lower right: opens it at its index, and closes it again.</summary>
     public static readonly StringName Journal = "journal";
     /// <summary>The eye icon above the journal: look through the Gubble's eyes, and back to the player's own.</summary>
@@ -136,6 +140,14 @@ public static class PlayerControls
             InputMap.ActionAddEvent(Act.Rest, new InputEventKey { PhysicalKeycode = Key.Z });
             changed = true;
         }
+        // Fire on the wheel (decision 77): 6, and the Magic panel's key, M, until project.godot carries the packet's two actions.
+        foreach (var (action, key) in new[] { (Act.GubbleSlot6, Key.Key6), (Act.HudMagic, Key.M) })
+        {
+            if (InputMap.HasAction(action)) continue;
+            InputMap.AddAction(action, 0.2f);
+            InputMap.ActionAddEvent(action, new InputEventKey { PhysicalKeycode = key });
+            changed = true;
+        }
         if (changed) MapChanged();
     }
 
@@ -153,7 +165,7 @@ public static class PlayerControls
         new(Act.ViewZoomIn, ControlContext.Shoulder), new(Act.ViewZoomOut, ControlContext.Shoulder),
         new(Act.GubbleAsk, ControlContext.Always), new(Act.GubbleRecall, ControlContext.Always), new(Act.GubbleStop, ControlContext.Always),
         new(Act.GubbleSlot1, ControlContext.Always), new(Act.GubbleSlot2, ControlContext.Always), new(Act.GubbleSlot3, ControlContext.Always),
-        new(Act.GubbleSlot4, ControlContext.Always), new(Act.GubbleSlot5, ControlContext.Always),
+        new(Act.GubbleSlot4, ControlContext.Always), new(Act.GubbleSlot5, ControlContext.Always), new(Act.GubbleSlot6, ControlContext.Always),
         new(Act.Hands, ControlContext.Always), new(Act.Push, ControlContext.Always), new(Act.ItemGather, ControlContext.Always),
         new(Act.Rest, ControlContext.Always),
         new(Act.PhysicsNext, ControlContext.Always), new(Act.TimeStep, ControlContext.Always),
@@ -161,6 +173,7 @@ public static class PlayerControls
         new(Act.BounceStep, ControlContext.Always), new(Act.BouncePrint, ControlContext.Always),
         new(Act.HudHelp, ControlContext.Always),
         new(Act.HudCustomize, ControlContext.Always | ControlContext.Customize),
+        new(Act.HudMagic, ControlContext.Always | ControlContext.Customize),
         new(Act.Journal, ControlContext.Always | ControlContext.Customize | ControlContext.Reading),
         new(Act.GubbleEyes, ControlContext.Always | ControlContext.Customize | ControlContext.Looking),
         new(Act.MouseRelease, ControlContext.Always | ControlContext.Customize | ControlContext.Reading | ControlContext.Looking),

@@ -54,9 +54,9 @@ public partial class CommandHostTest
             "the abilities are written in the catalog's order (Glow first), compact, with one final LF");
         Check(ExpertiseLists.BubblesList.Order.SequenceEqual(new[] { "bubble_carry", "bubble_boat", "bubble_lift" }) &&
               ExpertiseLists.FireList.Order.SequenceEqual(new[] { "first_fire", "campfire", "fireline", "snuff", "will_o_wisp" }) &&
-              ExpertiseLists.BubblesList.HintOrder.Count == 0 && ExpertiseLists.FireList.HintOrder.Count == 0 &&
+              ExpertiseLists.BubblesList.HintOrder.Count == 0 && ExpertiseLists.FireList.HintOrder.Count == 5 &&
               ExpertiseLists.GrowList.Order.SequenceEqual(new[] { "tall_plant", "thicket", "green_ash", "rain_garden", "waterpad" }) && ExpertiseLists.GrowList.HintOrder.Count == 5,
-            "Bubbles accepts the carry, the boat and the lift; Fire accepts first_fire, campfire, fireline, snuff and will_o_wisp; neither has a hint; Grow accepts its five (decision 75), each with a hint");
+            "Bubbles accepts the carry, the boat and the lift, with no hint; Fire accepts first_fire, campfire, fireline, snuff and will_o_wisp, each with a hint (its list is final, decisions 77 to 80); Grow accepts its five (decision 75), each with a hint");
         var some = GlowProgress.Fresh.WithExpertise("bubbles", ExpertiseLists.BubbleCarry);
         var someBytes = LocalGlowProgressStore.Serialize(some, "local");
         Check(LocalGlowProgressStore.Parse(someBytes).Same(some) && !Encoding.UTF8.GetString(someBytes).Contains("\"fire\"", StringComparison.Ordinal),
