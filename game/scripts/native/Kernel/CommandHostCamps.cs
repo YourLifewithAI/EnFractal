@@ -251,7 +251,7 @@ public partial class CommandHost
         return id == CampLaws.StartingId ? !_outCampfires.Contains(id) : _litCampfires.Contains(id);
     }
 
-    /// <summary>A campfire that burned once and is out now (rain, later Snuff): the Gubble's Fire relights it.</summary>
+    /// <summary>A campfire that burned once and is out now (rain or Snuff): the Gubble's Fire relights it.</summary>
     public bool IsCampfireOut(string id)
     {
         if (_savedPits != null) EnsureCamps();
@@ -488,6 +488,9 @@ public partial class CommandHost
             data["cells_truncated"] = false;
             data["max_burning_cells"] = NatureState.MaxBurning;
             data["avatars_in_area"] = new JsonArray();
+            // What the place made of the cast (decision 77), and the nothing it burns (the contract pairs a preview_id with affected_ids).
+            data["affected_ids"] = new JsonArray();
+            data["kind"] = FireKindWords.Firepit;
             foreach (var stale in _naturePreviews.Where(p => p.Value.Expires <= Clock()).Select(p => p.Key).ToList()) _naturePreviews.Remove(stale);
             while (_naturePreviews.Count >= 32) _naturePreviews.Remove(_naturePreviews.Keys.First());
             var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
@@ -510,8 +513,11 @@ public partial class CommandHost
         if (!firepit.Starting) _litCampfires.Add(firepit.Id);
         NoteCampChanged();
         ChargeEnergy(price);
-        // Campfire is the first firepit lit (decision 63): relighting the starting campfire is not one.
-        if (!firepit.Starting) RecordExpertise(ExpertiseLists.Fire, ExpertiseLists.Campfire);
+        // Campfire is the first firepit lit (decision 63): relighting the starting campfire is not one. A committed Fire cast either way:
+        // it counts toward Fire's hints, and toward three casts along a line (Fireline, CommandHostFireKinds).
+        var learned = NoteFireForFireline(center, Revision).ToList();
+        if (!firepit.Starting) learned.Add(ExpertiseLists.Campfire);
+        RecordFireCast(learned);
         return committed;
     }
 
@@ -519,8 +525,8 @@ public partial class CommandHost
 
     /// <summary>
     /// Puts a lit campfire out (the starting campfire too): it is no camp until the Gubble's Fire relights it, saved with the island. The
-    /// rain calls it (StepCampfireRain); Snuff, a later packet, will. The simulation's change, not a room revision, like a fire burning
-    /// out. Returns whether a campfire went out.
+    /// rain calls it (StepCampfireRain), and Snuff (decision 79, CommandHostFireKinds.CastSnuff). The simulation's change, not a room
+    /// revision, like a fire burning out. Returns whether a campfire went out.
     /// </summary>
     public bool PutOutCampfire(string id)
     {

@@ -54,9 +54,9 @@ public partial class CommandHostTest
             "the abilities are written in the catalog's order (Glow first), compact, with one final LF");
         Check(ExpertiseLists.BubblesList.Order.SequenceEqual(new[] { "bubble_carry", "bubble_boat", "bubble_lift" }) &&
               ExpertiseLists.FireList.Order.SequenceEqual(new[] { "first_fire", "campfire", "fireline", "snuff", "will_o_wisp" }) &&
-              ExpertiseLists.BubblesList.HintOrder.Count == 0 && ExpertiseLists.FireList.HintOrder.Count == 0 &&
+              ExpertiseLists.BubblesList.HintOrder.Count == 0 && ExpertiseLists.FireList.HintOrder.Count == 5 &&
               ExpertiseLists.GrowList.Order.SequenceEqual(new[] { "tall_plant", "thicket", "green_ash", "rain_garden", "waterpad" }) && ExpertiseLists.GrowList.HintOrder.Count == 5,
-            "Bubbles accepts the carry, the boat and the lift; Fire accepts first_fire, campfire, fireline, snuff and will_o_wisp; neither has a hint; Grow accepts its five (decision 75), each with a hint");
+            "Bubbles accepts the carry, the boat and the lift, with no hint; Fire accepts first_fire, campfire, fireline, snuff and will_o_wisp, each with a hint (its list is final, decisions 77 to 80); Grow accepts its five (decision 75), each with a hint");
         var some = GlowProgress.Fresh.WithExpertise("bubbles", ExpertiseLists.BubbleCarry);
         var someBytes = LocalGlowProgressStore.Serialize(some, "local");
         Check(LocalGlowProgressStore.Parse(someBytes).Same(some) && !Encoding.UTF8.GetString(someBytes).Contains("\"fire\"", StringComparison.Ordinal),
@@ -75,7 +75,8 @@ public partial class CommandHostTest
             ("a Fire id of the replaced list", Replace("\"first_fire\"", "\"firebreak\"")),
             ("a duplicated expertise", Replace("\"discoveries\":[\"first_fire\",\"campfire\"", "\"discoveries\":[\"first_fire\",\"first_fire\"")),
             ("a hint for Bubbles, which has none until its list is final", Replace("\"delivered_hints\":[]},\"fire\"", "\"delivered_hints\":[\"bubble_carry_ride\"]},\"fire\"")),
-            ("a hint for Fire, which has none yet", Replace("\"delivered_hints\":[]},\"grow\"", "\"delivered_hints\":[\"campfire_small\"]},\"grow\"")),
+            // Fire's list is final (decisions 77 to 80): its hints are its own five, and no other.
+            ("a hint Fire's list does not hold", Replace("\"first_fire_rest\"", "\"campfire_small\"")),
             ("no abilities at all", Replace(text[text.IndexOf("\"abilities\":", StringComparison.Ordinal)..(text.IndexOf("\"touch\":", StringComparison.Ordinal))], "\"abilities\":{},")),
             ("an extra field on an ability", Replace("\"fire\":{\"successful_casts\"", "\"fire\":{\"power\":9,\"successful_casts\"")),
             ("a count past the bound", Replace("\"fire\":{\"successful_casts\":1000000", "\"fire\":{\"successful_casts\":1000001")),

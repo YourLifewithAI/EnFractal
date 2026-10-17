@@ -114,6 +114,10 @@ EXPECTED_FAILURES = {
     "result_nature_describe_with_an_unknown_material": "'gold' is not one of ['stone', 'wood', 'copper', 'leaf']",
     "result_fire_cast_keeping_its_preview_cells": "('cells' was unexpected)",
     "result_fire_preview_without_what_it_reaches": "'affected_ids' is a dependency of 'preview_id'",
+    # Fire's behaviours (decisions 77 to 80): only Fire names an end; Snuff burns nothing, so its preview names nothing it would reach.
+    "command_grow_with_an_end": "'fire' was expected",
+    "result_snuff_preview_naming_what_it_would_burn": "False schema does not allow",
+    "result_wisp_naming_a_thing": "does not match",
     "result_flower_trail_without_its_data": "'data' is a required property",
     "result_undo_without_what_it_undid": "'data' is a required property",
     # The player's settings and wishes, and Glow's constellation.
@@ -537,8 +541,10 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
             with self.subTest(op=op):
                 self.assertIn(op, results)
                 for document in results[op]:
-                    # A committed bubble (M9) is the one transient nature.cast: it lives for the session, as an effect.
-                    bubble = op == "nature.cast" and document.get("data", {}).get("capability") in ("bubble_carry", "bubble_boat", "bubble_lift")
+                    # A committed bubble (M9) is a transient nature.cast: it lives for the session, as an effect; so are Fire's Snuff and
+                    # Will-o'-wisp (decisions 79 and 80), which change no room revision.
+                    bubble = op == "nature.cast" and (document.get("data", {}).get("capability") in ("bubble_carry", "bubble_boat", "bubble_lift") or
+                                                      document.get("data", {}).get("kind") in ("snuff", "will_o_wisp"))
                     self.assertEqual(document.get("transient"), None if op in ROUND_QUERIES else op in ROUND_TRANSIENT or bubble)
 
     def test_every_new_op_has_an_example_it_refuses(self):
@@ -571,8 +577,11 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
         for op, names in fields.items():
             with self.subTest(op=op):
                 # nature.cast's data is Bloom's and Fire's durable receipt or a Bubble's transient one (M9); room state keeps only the first.
+                # Fire's kinds (decisions 77 to 80) add kind and end_m, which the durable Fireline receipt keeps once the kernel's reader
+                # knows them (until then it keeps the plain shape), and wisp, which only a transient Will-o'-wisp receipt carries.
                 data = self.defs["data"][op]
-                self.assertEqual(set((data["else"] if "else" in data else data)["properties"]), names)
+                extra = {"kind", "end_m", "wisp"} if op == "nature.cast" else set()
+                self.assertEqual(set((data["else"] if "else" in data else data)["properties"]), names | extra)
 
     def test_a_saved_nature_change_is_durable_with_its_data(self):
         state = validate.load_strict(RUN2_STATE)
@@ -600,7 +609,7 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
             self.assertEqual(validate.schema_errors({**cast, "args": {**cast["args"], "preview_id": secrets.token_hex(16)}}), [])
         # No request carries an approval: the preview's own handle is all a cast may name of it (and, since the mechanics round,
         # the avatar a Bubbles carry or lift envelops; MechanicsRoundTests.test_the_targets_rule).
-        self.assertEqual(set(self.defs["args"]["nature.cast"]["properties"]), {"capability", "center_m", "radius_m", "duration_s", "preview_id", "target"})
+        self.assertEqual(set(self.defs["args"]["nature.cast"]["properties"]), {"capability", "center_m", "radius_m", "duration_s", "preview_id", "target", "end_m"})
 
     @unittest.skipUnless((ROOT / "game" / "scripts" / "creation_compiler.gd").is_file(), "the creation compiler is not in this checkout")
     def test_the_wallet_counts_the_creation_compilers_materials(self):
@@ -639,7 +648,7 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
         host = (KERNEL / "CommandHost.cs").read_text(encoding="utf-8")
         self.assertIn('data["fires_put_out"] = 1', host)
         self.assertIn('new JsonObject { ["effects_stopped"] = stopped }', host)
-        self.assertIn('data["avatars_in_area"] = AvatarsInArea(cast, principal);', (KERNEL / "CommandHostNature.cs").read_text(encoding="utf-8"))
+        self.assertIn('data["avatars_in_area"] = AvatarsInArea(area, principal);', (KERNEL / "CommandHostNature.cs").read_text(encoding="utf-8"))
 
     def test_a_catch_up_is_told_in_a_fixed_form_and_near_reaches_across_the_island(self):
         """Play distances (S8): the Gubble caught up with the player (the founder's decision 4), and its AI is told in the game's

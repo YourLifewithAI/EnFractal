@@ -792,6 +792,55 @@ def magic_modes_and_wishes(at: str) -> dict:
     }
 
 
+# Fire's behaviours (decisions 77 to 80): a Fireline dragged along the bench, a Snuff of the fire there, and a Will-o'-wisp over the pond.
+FIRELINE = {"capability": "fire", "center_m": [-0.6, 0.0, -1.9], "radius_m": 1.5, "duration_s": 30, "end_m": [0.6, 0.0, -1.9]}
+FIRELINE_PREVIEW = hashlib.sha256(b"a fireline preview along the bench").hexdigest()[:32]
+SNUFF = {"capability": "fire", "center_m": [-0.1, 0.0, -1.9], "radius_m": 1.5, "duration_s": 30}
+SNUFF_PREVIEW = hashlib.sha256(b"a snuff preview of the bench fire").hexdigest()[:32]
+WISP_CAST = {"capability": "fire", "center_m": [1.2, 0.02, 0.4], "radius_m": 1.5, "duration_s": 30}
+WISP_PREVIEW = hashlib.sha256(b"a will-o'-wisp preview over the pond").hexdigest()[:32]
+WISP = "effect:" + hashlib.sha256(b"the will-o'-wisp over the pond").hexdigest()[:26]
+
+
+def fire_behaviours(at: str) -> dict:
+    """Fire's behaviours (the packet of 17 October): the place decides what a Fire cast is, its preview's kind says so."""
+    line = placed(FIRELINE)
+    return {
+        "command_fireline_preview": command("nature.cast", "line-0001", FIRELINE, preview=True),
+        "result_fireline_preview": {**result("nature.cast", "line-0001", "player:local", 9, at), "preview": True, "data": {
+            **line, "radius_m": 0.9, "cell_count": 48, "cells": [[-0.575, 0.0, -1.875], [-0.525, 0.0, -1.875]], "cells_truncated": True,
+            "requires_approval": False, "affected_ids": [], "max_burning_cells": 200, "avatars_in_area": [], "preview_id": FIRELINE_PREVIEW,
+            "kind": "fireline"}},
+        "command_fireline_cast": command("nature.cast", "line-0001", {**FIRELINE, "preview_id": FIRELINE_PREVIEW}),
+        "result_fireline_cast": result("nature.cast", "line-0001", "player:local", 10, at, transient=False, data={
+            **{k: v for k, v in line.items() if k != "end_m"}, "radius_m": 0.9, "cell_count": 48, "requires_approval": False,
+            "started_cells": 48, "max_burning_cells": 200}),
+        "result_snuff_preview": {**result("nature.cast", "snuff-0001", "companion:local", 10, at), "preview": True, "data": {
+            **placed(SNUFF), "cell_count": 31, "cells": [[-0.125, 0.0, -1.925]], "cells_truncated": True, "requires_approval": True,
+            "preview_id": SNUFF_PREVIEW, "kind": "snuff"}},
+        "result_snuff_cast": result("nature.cast", "snuff-0001", "player:local", 10, at, transient=True, data={
+            **placed(SNUFF), "cell_count": 31, "requires_approval": False, "started_cells": 0, "kind": "snuff"}),
+        "result_wisp_preview": {**result("nature.cast", "wisp-0001", "companion:local", 10, at), "preview": True, "data": {
+            **placed(WISP_CAST), "radius_m": 0.25, "duration_s": 300, "cell_count": 0, "cells": [], "cells_truncated": False,
+            "requires_approval": False, "preview_id": WISP_PREVIEW, "kind": "will_o_wisp"}},
+        "result_wisp_cast": result("nature.cast", "wisp-0001", "companion:local", 10, at, transient=True, affected=[WISP], created=[WISP], data={
+            **placed(WISP_CAST), "radius_m": 0.25, "duration_s": 300, "cell_count": 0, "requires_approval": False, "started_cells": 0,
+            "kind": "will_o_wisp", "wisp": WISP}),
+    }
+
+
+def fire_behaviours_refused(at: str) -> dict:
+    """What Fire's behaviours refuse, each for one reason (EXPECTED_FAILURES in contracts/tests/test_contracts.py)."""
+    valid = fire_behaviours(at)
+    snuff = valid["result_snuff_preview"]
+    wisp = valid["result_wisp_cast"]
+    return {
+        "command_grow_with_an_end": command("nature.cast", "grow-0009", {**GROW, "end_m": [0.5, 0.0, 0.5]}),
+        "result_snuff_preview_naming_what_it_would_burn": {**snuff, "data": {**snuff["data"], "affected_ids": ["obj:shelving_left"]}},
+        "result_wisp_naming_a_thing": {**wisp, "data": {**wisp["data"], "wisp": "obj:pond"}},
+    }
+
+
 def magic_modes_and_wishes_refused(at: str) -> dict:
     """What the round's ops refuse, each for one reason (EXPECTED_FAILURES in contracts/tests/test_contracts.py)."""
     valid = magic_modes_and_wishes(at)
@@ -1364,6 +1413,7 @@ def build_messages(out: Path) -> None:
                                 "at_utc": at}
     valid.update(magic_modes_and_wishes(at))
     valid.update(mechanics_round(at))
+    valid.update(fire_behaviours(at))
     # The 10x world (S2): observe sees the whole island unless a radius narrows it, and a plant copy is an entity.
     valid["query_observe_everything_in_sight"] = query("observe", "q-0030", {"actor": "avatar:companion"})
     valid["query_observe_across_the_island"] = query("observe", "q-0031", {"actor": "avatar:companion", "radius_m": 150})
@@ -1445,6 +1495,7 @@ def build_messages(out: Path) -> None:
                                                       "preview": False, "data": {"items": [], "not_yet_seen": 2}, "at_utc": at}
     invalid.update(magic_modes_and_wishes_refused(at))
     invalid.update(mechanics_round_refused(at))
+    invalid.update(fire_behaviours_refused(at))
     # The 10x world (S2): a radius past 150 m, and a second spelling of one plant copy.
     invalid["query_observe_past_150_m"] = query("observe", "q-0033", {"actor": "avatar:companion", "radius_m": 151})
     invalid["command_go_to_a_tree_spelt_with_a_leading_zero"] = command("goal.set", "go-to-tree-0001", {

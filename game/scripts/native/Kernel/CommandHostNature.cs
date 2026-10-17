@@ -138,6 +138,7 @@ public partial class CommandHost
     {
         ForgetPlantFuel();
         _companionFireSeenS = double.NegativeInfinity;
+        ForgetFireKinds();
         _naturePreviews.Clear();
         _natureLightQueue.Clear();
         _natureDirty = false;
@@ -221,7 +222,7 @@ public partial class CommandHost
     {
         var allowed = op switch
         {
-            "nature.cast" => new[] { "capability", "center_m", "radius_m", "duration_s", "preview_id", "target" },
+            "nature.cast" => new[] { "capability", "center_m", "radius_m", "duration_s", "preview_id", "target", "end_m" },
             "nature.trail" => new[] { "enabled" },
             "nature.repair" => new[] { "target" },
             _ => Array.Empty<string>(),
@@ -249,6 +250,12 @@ public partial class CommandHost
             if (envelops.ValueKind != JsonValueKind.Undefined && (envelops.ValueKind != JsonValueKind.String || !AvatarId.IsMatch(envelops.GetString()!)))
                 throw new Refusal("request_invalid", "A Bubble's target is an avatar.", "$.args.target");
             CheckVector(args.GetProperty("center_m"), "$.args.center_m");
+            // Fireline's drag (decision 78): an end point, Fire's alone (CommandHostFireKinds).
+            if (args.TryGetProperty("end_m", out var end))
+            {
+                if (Str(args, "capability") != "fire") throw new Refusal("request_invalid", "Only Fire names an end_m: the end of a Fireline.", "$.args.end_m");
+                CheckVector(end, "$.args.end_m");
+            }
             // The contract's outer bounds; the island's narrower ones are the rules pack's (invalid_args when exceeded).
             foreach (var (name, max) in new[] { ("radius_m", NatureBlock.MaxFireRadiusM), ("duration_s", 600f) })
             {
@@ -287,12 +294,21 @@ public partial class CommandHost
             var ability = Rules?.Ability(capability) ?? throw new Refusal("unsupported_capability", "This island does not grant that nature ability.", "$.args.capability");
             // Decision 72: no Fire until the first rest, whoever asks, before every other check of it (CommandHostCamps.RequireFireLearned).
             if (capability == "fire") RequireFireLearned();
+            // Decision 77: the place decides what a Fire cast is (CommandHostFireKinds.FireKindOf): a drag Fireline, water a
+            // Will-o'-wisp, something burning Snuff (each once learned), else Fire (an unlit firepit lit on its path, CastFire).
+            var kind = capability == "fire" ? FireKindOf(args) : FireKind.Fire;
             // The Gubble's fire guardrails (the player's setting, one fire of its own, the wait after the last), before anything else.
-            if (capability == "fire" && principal != PlayerPrincipal) CheckCompanionFire();
-            var cast = CheckCast(ability, args, principal);
-            return capability == "fire"
-                ? CastFire(root, ability, cast, principal, action, fingerprint, preview, approvedBy)
-                : CastGrow(root, ability, cast, principal, action, fingerprint, preview, approvedBy);
+            // Snuff and the wisp light nothing: neither is the Gubble's one fire, and both are allowed while its wait runs.
+            if (capability == "fire" && principal != PlayerPrincipal && kind is FireKind.Fire or FireKind.Fireline) CheckCompanionFire();
+            var cast = CheckCast(ability, args, principal, oneFire: kind is FireKind.Fire or FireKind.Fireline);
+            if (capability != "fire") return CastGrow(root, ability, cast, principal, action, fingerprint, preview, approvedBy);
+            return kind switch
+            {
+                FireKind.Snuff => CastSnuff(root, ability, cast, principal, action, fingerprint, preview, approvedBy),
+                FireKind.Wisp => CastWisp(root, ability, cast, principal, action, fingerprint, preview, approvedBy),
+                FireKind.Fireline => CastFire(root, ability, cast, principal, action, fingerprint, preview, approvedBy, CheckFireline(ability, args, cast, principal)),
+                _ => CastFire(root, ability, cast, principal, action, fingerprint, preview, approvedBy),
+            };
         }
         return Repair(root, Str(args, "target")!, principal, action, fingerprint, preview, approvedBy);
     }
@@ -303,7 +319,7 @@ public partial class CommandHost
     /// <summary>A cast's place and size, checked against the island's rules for this caster: the pack's limits, never the code's.</summary>
     private readonly record struct Cast(Vector3 Center, float Radius, float Duration, float Intensity);
 
-    private Cast CheckCast(IslandAbility ability, JsonElement args, string principal)
+    private Cast CheckCast(IslandAbility ability, JsonElement args, string principal, bool oneFire = true)
     {
         var center = KernelJson.ReadVector(args.GetProperty("center_m"));
         var radius = (float)args.GetProperty("radius_m").GetDouble();
@@ -319,7 +335,7 @@ public partial class CommandHost
             throw new Refusal("out_of_bounds", "Bring the Gubble closer before casting.", "$.args.center_m", retryable: true);
         if (!TeamSeesSpot(center, principal)) throw new Refusal("target_not_found", "The team must see the place the Gubble will affect.", "$.args.center_m");
         // One fire on the island at a time. The player's own Fire is never kept waiting by the Gubble's: it puts that one out.
-        if (Nature.Fire is { } burning && !(ability.Capability == "fire" && principal == PlayerPrincipal && burning.Principal == CompanionPrincipal))
+        if (oneFire && Nature.Fire is { } burning && !(ability.Capability == "fire" && principal == PlayerPrincipal && burning.Principal == CompanionPrincipal))
             throw new Refusal("target_busy", FireBusyWords(principal), retryable: true);
         var intensity = ability.Params.TryGetValue("intensity", out var setting) ? (float)setting.Default : 0.6f;
         return new Cast(center, radius, duration, intensity);
@@ -332,15 +348,21 @@ public partial class CommandHost
     /// fire with them spared (Deny commits it with _sparing). A keyed_yes pack's ask for the Gubble's fire is the same one
     /// hold, and its no lights nothing.
     /// </summary>
-    private JsonObject CastFire(JsonElement root, IslandAbility ability, Cast cast, string principal, string action, string fingerprint, bool preview, string? approvedBy)
+    private JsonObject CastFire(JsonElement root, IslandAbility ability, Cast cast, string principal, string action, string fingerprint, bool preview, string? approvedBy,
+        Vector3? lineEnd = null)
     {
         // Fire's camp: a cast that reaches an unlit firepit lights that firepit and nothing else (CommandHostCamps.LightFirepit).
-        if (UnlitFirepitUnder(cast.Center, cast.Radius) is { } firepit)
+        if (lineEnd == null && UnlitFirepitUnder(cast.Center, cast.Radius) is { } firepit)
             return LightFirepit(root, ability, cast.Center, cast.Radius, cast.Duration, firepit, principal, action, fingerprint, preview, approvedBy);
+        // Fireline (decision 78): the cells along the drag catch at once; the fire's circle is round the line's middle, wide enough for
+        // the whole line (within Fire's radius), and the spread keeps inside it as any fire's does.
+        var (areaCenter, areaRadius) = lineEnd is { } lineTo ? FirelineArea(cast.Center, lineTo, ability) : (cast.Center, cast.Radius);
+        var area = cast with { Center = areaCenter, Radius = areaRadius };
         // The plants in its circle are fuel (CommandHostGrow): their ground cells read it while this cast is checked and lit.
-        EnsurePlantFuel(cast.Center, cast.Radius);
-        NatureCell? Sample(int x, int z) => SampleNatureCell(x, z, cast.Center.Y);
-        var targets = FireTargets(cast.Center, cast.Radius);
+        EnsurePlantFuel(area.Center, area.Radius);
+        // Snuffed ground stays damp and cannot catch (decision 79), whatever samples it.
+        NatureCell? Sample(int x, int z) => SampleNatureCell(x, z, lineEnd is { } to ? LineHeightAt(cast.Center, to, x, z) : cast.Center.Y) is { } cell && !InSnuffZone(cell) ? cell : null;
+        var targets = FireTargets(area.Center, area.Radius);
         if (targets.Count > MaxFireTargets) throw new Refusal("invalid_args", "That fire could touch too many things. Choose a smaller area.", "$.args.radius_m");
         var burnable = targets.Where(t => t.Outcome != FireOutcome.Fireproof).ToList();
         var companion = principal != PlayerPrincipal;
@@ -352,24 +374,34 @@ public partial class CommandHost
         // inherits them, and every other creation stops the burn (RefreshNatureShelter), as a spared one does.
         var creations = burnable.Where(t => t.Outcome == FireOutcome.Scorches && !(spare && t.AskFirst)).ToDictionary(t => t.Id, t => EntityRevision(t.Id), StringComparer.Ordinal);
         RefreshNatureShelter(creations);
-        var eligible = NatureState.Disk(cast.Center, cast.Radius).Select(g => Sample(g.X, g.Z))
-            .Where(c => c != null && c.Fuel > 0 && c.Moisture < NatureLaws.IgnitionMaxMoisture).Select(c => c!).ToList();
-        if (eligible.Count == 0) throw new Refusal("invalid_args", "There is no dry fuel at that spot.", "$.args.center_m");
-        var signature = CanonicalJson.Sha256Hex(CanonicalJson.Bytes(new JsonObject
+        // A Fireline's cells are the ones along it; a fire's, the dry fuel in its circle.
+        var lineCells = lineEnd is { } along ? LineCells(cast.Center, along) : null;
+        var eligible = (lineCells ?? NatureState.Disk(cast.Center, cast.Radius).ToList()).Select(g => Sample(g.X, g.Z))
+            .Where(c => c != null && c.Fuel > 0 && c.Moisture < NatureLaws.IgnitionMaxMoisture).Select(c => c!).Take(lineCells != null ? NatureState.MaxBurning : int.MaxValue).ToList();
+        if (eligible.Count == 0) throw new Refusal("invalid_args", lineCells != null ? "There is no dry fuel along that line." : "There is no dry fuel at that spot.", "$.args.center_m");
+        var signed = new JsonObject
         {
-            ["capability"] = "fire", ["center_m"] = KernelJson.Vector(cast.Center), ["radius_m"] = KernelJson.Num(cast.Radius), ["duration_s"] = KernelJson.Num(cast.Duration),
+            ["capability"] = "fire", ["center_m"] = KernelJson.Vector(cast.Center), ["radius_m"] = KernelJson.Num(area.Radius), ["duration_s"] = KernelJson.Num(cast.Duration),
             ["intensity"] = KernelJson.Num(cast.Intensity), ["mode"] = Mode,
             ["targets"] = new JsonArray(targets.Select(t => (JsonNode?)new JsonObject { ["id"] = t.Id, ["outcome"] = t.Outcome.ToString() }).ToArray()),
-        }));
+        };
+        if (lineEnd is { } signedEnd) signed["end_m"] = KernelJson.Vector(signedEnd);
+        var signature = CanonicalJson.Sha256Hex(CanonicalJson.Bytes(signed));
         var knows = TeamKnowsFor(principal);
-        var data = CastData(cast, eligible, principal);
+        var data = CastData(cast with { Radius = area.Radius }, eligible, principal);
+        if (lineEnd is { } dataEnd)
+        {
+            data["kind"] = FireKindWords.Fireline;
+            data["end_m"] = KernelJson.Vector(dataEnd);
+        }
+        else if (preview) data["kind"] = FireKindWords.Fire;
         data["affected_ids"] = new JsonArray(burnable.Where(t => knows(t.Id)).Select(t => (JsonNode?)t.Id).ToArray());
         data["max_burning_cells"] = NatureState.MaxBurning;
         data["requires_approval"] = mustAsk;
         if (preview)
         {
             // Who stands where it could burn, as far as the caster perceives them: feedback, never a hold.
-            data["avatars_in_area"] = AvatarsInArea(cast, principal);
+            data["avatars_in_area"] = AvatarsInArea(area, principal);
             foreach (var stale in _naturePreviews.Where(p => p.Value.Expires <= Clock()).Select(p => p.Key).ToList()) _naturePreviews.Remove(stale);
             while (_naturePreviews.Count >= 32) _naturePreviews.Remove(_naturePreviews.Keys.First());
             // 128 bits from a cryptographic generator, as every host-made handle (contracts/README.md "Identifiers").
@@ -391,20 +423,30 @@ public partial class CommandHost
         // The player's own Fire while the Gubble's burns: the Gubble's goes out as the player's is lit (one fire at a time).
         var puttingOut = !companion && candidate.Fire is { Principal: CompanionPrincipal };
         if (puttingOut) candidate.PutOutFire();
-        var step = candidate.BeginUndo("Fire", Revision + 1, principal, Mode);
-        var lit = candidate.Ignite(cast.Center, cast.Radius, cast.Duration, cast.Intensity, Revision + 1, creations, Sample, step, principal, approvedBy ?? principal);
+        // One fire, one undo step (decision 78: a Fireline too, taken back whole in Creative).
+        var step = candidate.BeginUndo(lineCells != null ? "Fireline" : "Fire", Revision + 1, principal, Mode);
+        var lit = lineCells != null
+            ? candidate.IgniteCells(eligible.Select(c => (c.X, c.Z)), area.Center, area.Radius, cast.Duration, cast.Intensity, Revision + 1, creations, Sample, step, principal, approvedBy ?? principal)
+            : candidate.Ignite(cast.Center, cast.Radius, cast.Duration, cast.Intensity, Revision + 1, creations, Sample, step, principal, approvedBy ?? principal);
         if (lit == 0) throw new Refusal("invalid_args", "Nothing can take hold at the center of that area.", "$.args.center_m");
         // The guard at commit (CommandHostEnergy): after the preview, the hold and every check, the fire taking hold among them (an
-        // empty pool is never the reason given for a fire that could not start anyway); charged once the revision is saved.
-        var price = GuardEnergy(ability.Capability, principal);
+        // empty pool is never the reason given for a fire that could not start anyway); charged once the revision is saved. A
+        // Fireline is priced as its kind (the pack's cost block, as the Bubble's kinds are).
+        var price = GuardEnergy(lineCells != null ? FireKindWords.Fireline : ability.Capability, principal);
         if (puttingOut) _companionFireSeenS = Nature.WeatherS;
         _naturePreviews.Remove(previewId);
         data.Remove("cells");
         data.Remove("cells_truncated");
         data.Remove("affected_ids");
+        // A Fireline's durable receipt keeps the plain shape until the saves' reader knows kind and end_m (CommandHostRoomState's
+        // NatureDataProblem: the packet's change request); its preview says both.
+        data.Remove("kind");
+        data.Remove("end_m");
         data["started_cells"] = eligible.Where(TeamSeesCellFor(principal)).Count(c => candidate.Cells.TryGetValue(c.Key, out var cell) && cell.BurningS > 0);
         var committed = CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, burnable.Where(t => knows(t.Id)).Select(t => t.Id), data, undo: false);
         ChargeEnergy(price);
+        // The shared rules (CommandHostFireKinds): a committed Fire cast counts toward the hints, and three along a line teach Fireline.
+        RecordFireCast(lineCells != null ? Array.Empty<string>() : NoteFireForFireline(cast.Center, Revision));
         return committed;
     }
 
@@ -695,7 +737,7 @@ public partial class CommandHost
 
     /// <summary>Sheltered ground, and the ground where the player recovered while the fire grace lasts.</summary>
     private bool NatureFireproof(NatureCell cell) =>
-        _natureShelter.Any(b => b.Grow(NatureLaws.ShelterMarginM).HasPoint(cell.Position + Vector3.Up * 0.02f)) ||
+        _natureShelter.Any(b => b.Grow(NatureLaws.ShelterMarginM).HasPoint(cell.Position + Vector3.Up * 0.02f)) || InSnuffZone(cell) ||
         (_fireGraceS > 0 && _recoveredAt is { } safe && new Vector2(cell.Position.X - safe.X, cell.Position.Z - safe.Z).Length() <= NatureLaws.RecoverySafeM);
 
     /// <summary>The player recovered from an injury here: the burning ground around is put out at once (it stays out during the grace).</summary>
@@ -763,9 +805,15 @@ public partial class CommandHost
         {
             var at = Player.GlobalPosition;
             var source = Nature.Fire ?? fire;
-            if (BurnPlayer(NatureLaws.StepS) is { } harm && source != null) NoteFireHarm(source, harm, at);
+            if (BurnPlayer(NatureLaws.StepS) is { } harm && source != null)
+            {
+                NoteFireHarm(source, harm, at);
+                MarkFireHarm(source);
+            }
         }
         SeeCompanionFire();
+        // Fire's behaviours (CommandHostFireKinds): Snuff learned by rain on the Gubble's fire or a bubble on a fire, the wisps' time, the damp ground.
+        StepFireKinds();
         // Decision 73: rain puts the campfires out (CommandHostCamps.StepCampfireRain).
         StepCampfireRain(NatureLaws.StepS);
         if (LookHook != null) LookHook.Wind = new Vector2(NatureWeather.WindMps.X, NatureWeather.WindMps.Z);
@@ -806,7 +854,11 @@ public partial class CommandHost
             }
             state.Burn = Math.Min(1, state.Burn + seconds * NatureLaws.ObjectBurnPerIntensityS * fire.Intensity * (1 - Nature.Weather.Rain01));
             // M8: a build the Gubble's fire burns is a consequence fact (CommandHostConsequences.NoteBuildBurnt, once per build a fire).
-            if (state.Creation && state.Burn > 0) NoteBuildBurnt(fire, target.Id, target.Bounds.GetCenter());
+            if (state.Creation && state.Burn > 0)
+            {
+                NoteBuildBurnt(fire, target.Id, target.Bounds.GetCenter());
+                MarkFireHarm(fire);
+            }
             if (state.BurnedDown && state.PositionM == null && Room.Objects.FirstOrDefault(o => o.Id == target.Id) is { } item)
             {
                 var (position, rotation) = PoseOf(item, ObjectPoses());

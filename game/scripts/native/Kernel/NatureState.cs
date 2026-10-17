@@ -542,7 +542,16 @@ public sealed class NatureState
     /// remembers who lit it and at whose direction (the journal and the Gubble's notices name the one who lit it).
     /// </summary>
     public int Ignite(Vector3 center, float radius, float durationS, float intensity, int revision, Dictionary<string, int> authorized, Func<int, int, NatureCell?> sample, NatureUndoStep? step,
-        string principal = CommandHost.PlayerPrincipal, string? directedBy = null)
+        string principal = CommandHost.PlayerPrincipal, string? directedBy = null) =>
+        IgniteCells(Disk(center, Math.Min(radius, NatureLaws.IgnitionRadiusM)), center, radius, durationS, intensity, revision, authorized, sample, step, principal, directedBy);
+
+    /// <summary>
+    /// Lights the one fire at exactly these cells (Fireline, decision 78: every ground cell along the line that can catch, at once), at
+    /// most MaxBurning of them; the fire may then spread within radius of center for durationS, as any fire. Ignite is this at the
+    /// cells near its centre.
+    /// </summary>
+    public int IgniteCells(IEnumerable<(int X, int Z)> cells, Vector3 center, float radius, float durationS, float intensity, int revision, Dictionary<string, int> authorized,
+        Func<int, int, NatureCell?> sample, NatureUndoStep? step, string principal = CommandHost.PlayerPrincipal, string? directedBy = null)
     {
         Fire = new NatureFire
         {
@@ -551,8 +560,9 @@ public sealed class NatureState
             AuthorizedCreations = new(authorized, StringComparer.Ordinal),
         };
         var lit = 0;
-        foreach (var (x, z) in Disk(center, Math.Min(radius, NatureLaws.IgnitionRadiusM)))
+        foreach (var (x, z) in cells)
         {
+            if (lit >= MaxBurning) break;
             var key = Key(x, z);
             var ground = sample(x, z);
             if (ground == null || ground.Fuel <= 0 || ground.Moisture >= NatureLaws.IgnitionMaxMoisture) continue;

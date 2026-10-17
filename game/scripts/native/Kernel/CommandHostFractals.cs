@@ -37,6 +37,16 @@ public partial class CommandHost
     /// <summary>Every Fractal the manifest places, picked up or not, in id order.</summary>
     public IReadOnlyList<IslandFractal> AllFractals => _fractals ??= LoadFractals();
 
+    /// <summary>Test seam: the island's Fractals in place of the manifest's (the play HUD's room places none), untyped.</summary>
+    internal IReadOnlyList<IslandFractal> FractalsForTests
+    {
+        set
+        {
+            _fractals = value.OrderBy(f => f.Id, StringComparer.Ordinal).ToList();
+            _fractalsTyped = false;
+        }
+    }
+
     /// <summary>The Fractals still on the island (not picked up in this save).</summary>
     public IEnumerable<IslandFractal> Fractals => AllFractals.Where(f => !Nature.FractalsPicked.Contains(f.Id));
 

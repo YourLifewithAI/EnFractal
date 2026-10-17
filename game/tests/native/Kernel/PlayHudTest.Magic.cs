@@ -61,6 +61,9 @@ public partial class PlayHudTest
         Check(!host.Nature.Cells.Values.Any(cell => cell.BurningS > 0) && host.Authority.Call("receipt_count").AsInt32() == natureReceipts && host.ActiveEffectIds.Count == effects,
             "holding Fire without a successful preview cannot start a fire or manufacture a cast receipt");
         var previousSample = host.NatureSampleForTests;
+        // The fire's cast is counted in the expertise store (Fire's shared rules): kept in memory here, so the suite's profile never
+        // keeps the test's Fire (it would let rain put the starting campfire out before the camp's own test).
+        host.ConfigureGlowProgress(new HudGlowStore(host.GlowProgress));
         // Decision 72: the team knows Fire, as after the first rest (the one helper every suite that lights fires uses).
         host.LearnFireForTests();
         var point = FloorNearGubble(.3f);
@@ -93,6 +96,8 @@ public partial class PlayHudTest
         {
             _hud.AimRayForTests = null;
             host.NatureSampleForTests = previousSample;
+            host.ConfigureGlowProgress(new LocalGlowProgressStore(ProjectSettings.GlobalizePath(HudGlowProfile)));
+            host.LearnFireForTests();
         }
         var tabs = (TabContainer)_hud.FindChild("MagicTabs", true, false)!;
         tabs.CurrentTab = 2;
