@@ -294,6 +294,11 @@ Multiplayer is a later phase and out of scope for the engine work now.
 73. **Only rain or Snuff puts a campfire out.** The player's Stop (X) does not. A campfire put out is not a camp until it is relit, and the Gubble's Fire relights it. Snuff's behaviour is its own later packet; rain puts campfires out from this round.
 74. **Firepits are spread evenly over any island,** covering it rather than pushed to its edges or clustered, wherever the island's land lies.
 
+**Decided by the founder on Grow's expertise (16 October, night; the list in [the magic design](../magic/README.md), "Expertise for Bubbles, Fire and Grow")**:
+
+75. **Grow's five expertise:** Tall plant (one plant grown to its full size), Thicket (three plants at full size within 1 m of one another), Green ash (Grow cast on burnt ground greens the ash at once), Rain garden (Grow cast while it rains grows the plants twice as much) and **Waterpad**, replacing Waterside: Grow cast on water grows a large water lily leaf that the player can step onto. Each behaviour works from the start; the first time it works teaches it, once per team, as Bubbles' do.
+76. **Grow's unlocks by count:** two Grow expertise open growing plants without seeds (flowers and grass on bare soil); three open plants that grow across a gap **like a bridge, horizontal only for now**; five open **ivy grown up a wall that the player can climb, for a limited distance** (replacing crops that grow faster).
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
