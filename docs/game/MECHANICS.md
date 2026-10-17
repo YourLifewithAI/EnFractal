@@ -318,7 +318,7 @@ Multiplayer is a later phase and out of scope for the engine work now.
 88. **Out of a bubble is a fall.** Falls hurt, and so does falling out of a bubble: a player can pop out, grab a wall and climb the rest on their stamina. Replaces decision 43's and 60's slow drift down.
 89. **A bubble's time is a ring of light** around it that shrinks as a countdown; when the ring is gone, the bubble pops.
 
-**The founder's answers to that brief's questions (17 October, evening)**; question 6 (what Esc does while something waits) is still open:
+**The founder's answers to that brief's questions (17 October, evening)**:
 
 90. **The interaction key is E** (question 1); Z stays a second key for the camp for one round.
 91. **Resting at a camp heals one quarter of a heart a second** (question 2): five hearts in 20 s.
@@ -327,6 +327,7 @@ Multiplayer is a later phase and out of scope for the engine work now.
 94. **Fire as the Gubble's own idea costs 1 pip** (question 5): half of the 2 ordered.
 95. **A bubble lasts 8 seconds** (question 7), not 20.
 96. **A bubble's pop costs the Gubble Trust only when the Gubble pops it by its own action** and the fall hurts the player (question 8). A pop at the time limit, or because the player called the spell off, never counts against the Gubble.
+97. **Esc cancels first, then opens the menu** (question 6): while the player is in the middle of something (a chosen bubble, the wheel, anything Esc lets go today), the first Esc cancels it and the next opens the menu; with nothing going on, one Esc opens the menu.
 
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 

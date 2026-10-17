@@ -17,7 +17,7 @@ The debrief has the words, the numbers and the causes; in short:
 
 ## Questions for the founder (Tuesday, before P1 and P2 start)
 
-Each has the integrator's proposal. **Answered on 17 October (evening), MECHANICS.md decisions 90 to 96:** 1 E; 2 yes, a quarter a second; 3 apples half a heart and berries a quarter (not the proposal's one and a half), eaten on the spot, on certain trees and bushes; 4 yes, no healing while closed; 5 yes, 1 pip; 7 no, **8 seconds**; 8 yes, but only for a pop the Gubble causes by its own action, never the time limit or the player's own cancel. **Question 6 is still open:** the founder asked what it means (it was explained in the chat; ask again before P2).
+Each has the integrator's proposal. **All answered on 17 October (evening), MECHANICS.md decisions 90 to 97:** 1 E; 2 yes, a quarter a second; 3 apples half a heart and berries a quarter (not the proposal's one and a half), eaten on the spot, on certain trees and bushes; 4 yes, no healing while closed; 5 yes, 1 pip; 7 no, **8 seconds**; 8 yes, but only for a pop the Gubble causes by its own action, never the time limit or the player's own cancel. 6 (decision 97): the first Esc cancels what the player is doing, the next opens the menu; with nothing going on, one Esc opens it.
 
 1. **The interaction key:** E (the usual PC key, beside WASD) or Enter? Proposal: **E**, with Z kept for a round as a second key for the camp.
 2. **Resting at camp heals** one quarter of a heart a second (five hearts in 20 s)? Proposal: yes.
@@ -36,7 +36,7 @@ Six pieces. **P0** is the integrator's and lands first. **P1** (Opus) and **L1**
 
 - `game/rules/storybook_wild/v5.json` (a draft until the founder approves it; if it has been approved, write v6): Fire `ordered` 2 (`own_idea_factor` stays 0.5, so 1 as the Gubble's idea, question 5); healing outside a camp off, and the camp's resting rate (question 2), as pack values the kernel reads (`VitalsRules.HealQuarterEveryS`, `HealAfterUnharmedS`, `CampLaws.CampHeartsFactor` today).
 - The recorder: `CommandHost.RaiseHandled` takes `preview` from the result, and a refused result carries none, so a refused lead preview is recorded as a refused command (the debrief's "The reader"). Take the flag from the command as received; a test with a refused preview.
-- MECHANICS.md decisions 81 to 96 are in (17 October); question 6's answer becomes decision 97.
+- MECHANICS.md decisions 81 to 97 are in (17 October).
 - The bubble's 8 seconds (decision 95), wherever its 20 s lives today (the carry's `duration_s`).
 
 ### D1: food (the integrator, a design for the founder; no code until they say)
@@ -62,7 +62,7 @@ Owns `game/scripts/native/Look/`.
 
 ### P2: the HUD (Opus, after P1)
 
-1. **Esc is the menu** (decision 81): resume, save, load, settings, exit to the main menu; it pauses; question 6 for something waiting. Save and load through what `Saves/` already offers; the main menu is M7's.
+1. **Esc is the menu** (decision 81): resume, save, load, settings, exit to the main menu; it pauses; while something is going on, the first Esc cancels it and the next opens the menu (decision 97). Freeing the mouse from the camera needs its own answer once Esc is the menu: say how in the report. Save and load through what `Saves/` already offers; the main menu is M7's.
 2. **One interaction key with a prompt** (decision 86, question 1): a short prompt beside what the key works on ("E: sit by the fire", "E: stand up"); first the camp, a carried thing, then food and doors as they come. The H help names it first.
 3. **The camp screen** (decision 87): sitting opens it; its pages gather what exists: the Magic panel, the expertise found (the journal's list), you (hearts, bar, pips, knacks), spending Fractals (decision 62's camp rules), and an Inventory page that says it is coming. No new rules.
 4. **Notices where the eye is:** the debrief's founder never saw the bottom line. A notice shows near the reticle or the Gubble and fades after about four seconds; the bottom line keeps the key hints only.
