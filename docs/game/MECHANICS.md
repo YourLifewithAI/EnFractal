@@ -306,6 +306,18 @@ Multiplayer is a later phase and out of scope for the engine work now.
 79. **Snuff:** learned by rain falling on a fire the Gubble started, or a Bubble cast on a fire (decision 63); then Fire aimed at something burning puts out everything in its 1.5 m circle, campfires included (decision 73), the ground damp and unable to catch for 30 s. The Gubble's own-idea Snuff of a lit campfire waits for the player's yes (it is the player's camp); a wild fire asks nothing. 2 ordered, 1 as the Gubble's idea.
 80. **Will-o'-wisp:** once Fire is learned, Fire cast on water makes a cold, ghostly flame hovering about 15 cm over the water and drifting slowly, a lantern at night and a floating flame by day; it burns nothing and is not the Gubble's one fire; it lasts 5 minutes, at most 3 at a time, and is not saved, like a bubble. The first one teaches the expertise. 4 ordered, 2 as the Gubble's idea. Fish rising toward it wait (decision 63).
 
+**Decided by the founder after the second recorded play (17 October; [the debrief](../runs/playtests/2026-10-17-landscape_garage_nominal.md), queued as [RUN-2-PLAYTEST-ROUND-2.md](../runs/RUN-2-PLAYTEST-ROUND-2.md); the details still open are that brief's questions)**:
+
+81. **Esc is the in-game menu:** save, load, settings and exit to the main menu, as players expect.
+82. **A fire burns until it burns itself out or is Snuffed.** X no longer puts out any fire (decision 73 for campfires, now for every fire).
+83. **Fire costs 2 pips a cast** (was 6) and **lights at once,** with no wait for a preview or a hold. Casting it near yourself is a learning moment.
+84. **Hearts do not heal by themselves** (one of the kids): they heal by resting at a camp and by eating food found in the world (apples, fish and the like). Replaces healing anywhere and decision 62's faster healing at camp.
+85. **A campfire hurts a player standing in it,** as any fire does.
+86. **One interaction key for the world,** shown by a prompt at what it works on: sitting at a camp, picking an apple, picking a thing up, opening a door. Which key is still to settle (Enter was suggested); it will be iterated.
+87. **Sitting at a camp changes the scene,** so the player knows they are resting, and **opens the camp:** the place to manage magic, see the expertise found, check stats and knacks, manage the inventory (not built yet) and spend Fractals.
+88. **Out of a bubble is a fall.** Falls hurt, and so does falling out of a bubble: a player can pop out, grab a wall and climb the rest on their stamina. Replaces decision 43's and 60's slow drift down.
+89. **A bubble's time is a ring of light** around it that shrinks as a countdown; when the ring is gone, the bubble pops.
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
