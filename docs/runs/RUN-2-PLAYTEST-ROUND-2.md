@@ -17,7 +17,7 @@ The debrief has the words, the numbers and the causes; in short:
 
 ## Questions for the founder (Tuesday, before P1 and P2 start)
 
-Each has the integrator's proposal; one word from the founder settles it.
+Each has the integrator's proposal. **Answered on 17 October (evening), MECHANICS.md decisions 90 to 96:** 1 E; 2 yes, a quarter a second; 3 apples half a heart and berries a quarter (not the proposal's one and a half), eaten on the spot, on certain trees and bushes; 4 yes, no healing while closed; 5 yes, 1 pip; 7 no, **8 seconds**; 8 yes, but only for a pop the Gubble causes by its own action, never the time limit or the player's own cancel. **Question 6 is still open:** the founder asked what it means (it was explained in the chat; ask again before P2).
 
 1. **The interaction key:** E (the usual PC key, beside WASD) or Enter? Proposal: **E**, with Z kept for a round as a second key for the camp.
 2. **Resting at camp heals** one quarter of a heart a second (five hearts in 20 s)? Proposal: yes.
@@ -36,11 +36,12 @@ Six pieces. **P0** is the integrator's and lands first. **P1** (Opus) and **L1**
 
 - `game/rules/storybook_wild/v5.json` (a draft until the founder approves it; if it has been approved, write v6): Fire `ordered` 2 (`own_idea_factor` stays 0.5, so 1 as the Gubble's idea, question 5); healing outside a camp off, and the camp's resting rate (question 2), as pack values the kernel reads (`VitalsRules.HealQuarterEveryS`, `HealAfterUnharmedS`, `CampLaws.CampHeartsFactor` today).
 - The recorder: `CommandHost.RaiseHandled` takes `preview` from the result, and a refused result carries none, so a refused lead preview is recorded as a refused command (the debrief's "The reader"). Take the flag from the command as received; a test with a refused preview.
-- MECHANICS.md decisions 81 to 89 are already in (17 October); fold in the founder's answers to the questions above as decisions 90 onward.
+- MECHANICS.md decisions 81 to 96 are in (17 October); question 6's answer becomes decision 97.
+- The bubble's 8 seconds (decision 95), wherever its 20 s lives today (the carry's `duration_s`).
 
 ### D1: food (the integrator, a design for the founder; no code until they say)
 
-What heals and how much, where it grows (which generator kinds), how it regrows, what the interaction key's prompt says, how it is shown, and how it fits an inventory later. One page, with the island's numbers. Then its code joins P1 or a packet of its own.
+The amounts and the places are decided (decision 92: an apple half a heart, berries a quarter, eaten on the spot, on certain trees and bushes). Left for the integrator to settle and show the founder in a line or two: which generator kinds carry them and how many, whether and when they grow back, the prompt's words, and the look. Then its code joins P1 or a packet of its own.
 
 ### P1: the kernel and the body (Opus)
 
@@ -48,7 +49,7 @@ What heals and how much, where it grows (which generator kinds), how it regrows,
 2. **Nothing but burning out or Snuff ends a fire** (decision 82): X no longer puts out any fire (the Gubble's, a wild one, a campfire); X still stops the Gubble's moves. The Settings tooltip ("X puts its fire out") and the journal's lines change with it (P2 has the words).
 3. **A campfire hurts a player standing in its flames** (decision 85), at fire's quarter a second; the resting spot beside it is safe.
 4. **Hearts heal only at camp and by food** (decision 84): no healing elsewhere; resting at a camp heals at question 2's rate; waking at camp with half the hearts stays; question 4 for the time away. Food's code waits for D1.
-5. **Out of a bubble is a fall** (decision 88, replacing 43 and 60's drift): diving out, a pop, the Gubble's stop and the timer all leave the player falling from where they are, with fall damage as any fall (decision 24); a climbable face within reach while falling can be grabbed as from a jump, and the bar decides the rest. Question 8 for a fall the Gubble's pop caused (`CommandHostConsequences`). Creative: nothing hurts, as today.
+5. **Out of a bubble is a fall** (decision 88, replacing 43 and 60's drift): diving out, a pop, the Gubble's stop and the timer all leave the player falling from where they are, with fall damage as any fall (decision 24); a climbable face within reach while falling can be grabbed as from a jump, and the bar decides the rest. A fall that hurts the player after the Gubble popped the bubble by its own action is a consequence fact that costs Trust (decision 96, `CommandHostConsequences`); a pop at the time limit or by the player's own cancel never is. Creative: nothing hurts, as today.
 
 Tests for each; mutation checks on at most five (the drift gone, X not putting out fire, the campfire's harm, no healing away from camp, the fall from a pop). Owns `game/scripts/native/Kernel/` (nature, camps, vitals, Bubble), `SmallPlayerController*.cs`, `BodyKnacks.cs` and their tests.
 
